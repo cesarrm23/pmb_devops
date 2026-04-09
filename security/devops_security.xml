@@ -1,2 +1,127 @@
 <?xml version="1.0" encoding="utf-8"?>
-<odoo></odoo>
+<odoo>
+    <!-- Privilegio DevOps (Odoo 19: res.groups.privilege) -->
+    <record id="privilege_devops" model="res.groups.privilege">
+        <field name="name">PatchMyByte DevOps</field>
+        <field name="sequence">90</field>
+        <field name="category_id" ref="base.module_category_administration"/>
+    </record>
+
+    <!-- Grupo: Viewer -->
+    <record id="group_devops_viewer" model="res.groups">
+        <field name="name">DevOps: Viewer</field>
+        <field name="privilege_id" ref="pmb_devops.privilege_devops"/>
+    </record>
+
+    <!-- Grupo: Developer (implies Viewer) -->
+    <record id="group_devops_developer" model="res.groups">
+        <field name="name">DevOps: Developer</field>
+        <field name="privilege_id" ref="pmb_devops.privilege_devops"/>
+        <field name="implied_ids" eval="[(4, ref('pmb_devops.group_devops_viewer'))]"/>
+    </record>
+
+    <!-- Grupo: Administrator (implies Developer) -->
+    <record id="group_devops_admin" model="res.groups">
+        <field name="name">DevOps: Administrator</field>
+        <field name="privilege_id" ref="pmb_devops.privilege_devops"/>
+        <field name="implied_ids" eval="[(4, ref('pmb_devops.group_devops_developer'))]"/>
+        <field name="user_ids" eval="[(4, ref('base.user_admin'))]"/>
+    </record>
+
+    <!-- ====== Record Rules ====== -->
+
+    <!-- Projects: Admin sees all -->
+    <record id="rule_project_admin" model="ir.rule">
+        <field name="name">DevOps Project: Admin full access</field>
+        <field name="model_id" ref="model_devops_project"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('group_devops_admin'))]"/>
+    </record>
+
+    <!-- Projects: Developer/Viewer sees only assigned -->
+    <record id="rule_project_member" model="ir.rule">
+        <field name="name">DevOps Project: Members only</field>
+        <field name="model_id" ref="model_devops_project"/>
+        <field name="domain_force">[('member_ids.user_id', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('group_devops_viewer'))]"/>
+    </record>
+
+    <!-- Branches: Admin sees all -->
+    <record id="rule_branch_admin" model="ir.rule">
+        <field name="name">DevOps Branch: Admin full access</field>
+        <field name="model_id" ref="model_devops_branch"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('group_devops_admin'))]"/>
+    </record>
+
+    <!-- Branches: Member sees own projects -->
+    <record id="rule_branch_member" model="ir.rule">
+        <field name="name">DevOps Branch: Members only</field>
+        <field name="model_id" ref="model_devops_branch"/>
+        <field name="domain_force">[('project_id.member_ids.user_id', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('group_devops_viewer'))]"/>
+    </record>
+
+    <!-- Builds: Admin sees all -->
+    <record id="rule_build_admin" model="ir.rule">
+        <field name="name">DevOps Build: Admin full access</field>
+        <field name="model_id" ref="model_devops_build"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('group_devops_admin'))]"/>
+    </record>
+
+    <!-- Logs: Admin sees all -->
+    <record id="rule_log_admin" model="ir.rule">
+        <field name="name">DevOps Log: Admin full access</field>
+        <field name="model_id" ref="model_devops_log"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('group_devops_admin'))]"/>
+    </record>
+
+    <!-- Backups: Admin sees all -->
+    <record id="rule_backup_admin" model="ir.rule">
+        <field name="name">DevOps Backup: Admin full access</field>
+        <field name="model_id" ref="model_devops_backup"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('group_devops_admin'))]"/>
+    </record>
+
+    <!-- AI Assistant: Admin sees all, users see own -->
+    <record id="rule_ai_admin" model="ir.rule">
+        <field name="name">DevOps AI: Admin full access</field>
+        <field name="model_id" ref="model_devops_ai_assistant"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('group_devops_admin'))]"/>
+    </record>
+
+    <record id="rule_ai_user" model="ir.rule">
+        <field name="name">DevOps AI: User sees own</field>
+        <field name="model_id" ref="model_devops_ai_assistant"/>
+        <field name="domain_force">[('user_id', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('group_devops_developer'))]"/>
+    </record>
+
+    <!-- Deploy AI: Admin sees all -->
+    <record id="rule_deploy_ai_admin" model="ir.rule">
+        <field name="name">DevOps Deploy AI: Admin full access</field>
+        <field name="model_id" ref="model_devops_deploy_ai"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('group_devops_admin'))]"/>
+    </record>
+
+    <!-- Plugins: Admin sees all -->
+    <record id="rule_plugin_admin" model="ir.rule">
+        <field name="name">DevOps Plugin: Admin full access</field>
+        <field name="model_id" ref="model_devops_plugin"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('group_devops_admin'))]"/>
+    </record>
+
+    <!-- Project Members: Admin manages -->
+    <record id="rule_member_admin" model="ir.rule">
+        <field name="name">DevOps Member: Admin full access</field>
+        <field name="model_id" ref="model_devops_project_member"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('group_devops_admin'))]"/>
+    </record>
+</odoo>
