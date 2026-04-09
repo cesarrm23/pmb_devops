@@ -4,8 +4,8 @@ Extends devops.instance with actual create/start/stop/restart/destroy
 logic using system commands through infra_utils.
 """
 import logging
+import os
 import subprocess
-import threading
 import time
 
 from odoo import _, api, fields, models
@@ -76,41 +76,184 @@ class DevopsInstanceInfra(models.Model):
         })
         self.env.cr.commit()  # persist so SPA can see the record immediately
 
-        # Spawn background thread
+        # Spawn background bash script for the heavy pipeline
         instance_id = self.id
         dbname = self.env.cr.dbname
-        thread = threading.Thread(
-            target=self._run_creation_pipeline_thread,
-            args=(instance_id, dbname),
-            daemon=True,
-        )
-        thread.start()
+        self._launch_creation_script(instance_id, dbname)
+        _logger.info("Background creation script launched for instance %s", instance_id)
         # Return immediately -- SPA will poll status
 
-    @api.model
-    def _run_creation_pipeline_thread(self, instance_id, dbname):
-        """Run creation pipeline in background thread with its own cursor."""
-        import odoo
-        with odoo.registry(dbname).cursor() as cr:
-            env = odoo.api.Environment(cr, odoo.SUPERUSER_ID, {})
-            instance = env['devops.instance'].browse(instance_id)
-            try:
-                instance._run_creation_pipeline()
-            except Exception as e:
-                _logger.error(
-                    "Background creation failed for %s: %s", instance_id, e,
-                )
-                try:
-                    instance.write({
-                        'state': 'error',
-                        'creation_step': f'Error: {str(e)[:200]}',
-                    })
-                    cr.commit()
-                except Exception:
-                    _logger.exception(
-                        "Failed to write error state for instance %s",
-                        instance_id,
-                    )
+    def _launch_creation_script(self, instance_id, dbname):
+        """Launch a background bash script that runs the creation pipeline.
+
+        Uses psql to update creation_step so the SPA can poll progress.
+        This avoids the complexity of spawning an Odoo process.
+        """
+        rec = self.browse(instance_id)
+        project = rec.project_id
+
+        # Determine clone source DB
+        source_db = ''
+        if rec.cloned_from_id and rec.cloned_from_id.database_name:
+            source_db = rec.cloned_from_id.database_name
+        elif project.production_instance_id and project.production_instance_id.database_name:
+            source_db = project.production_instance_id.database_name
+        elif project.database_name:
+            source_db = project.database_name
+
+        # Build addons path
+        addons_path = f"/opt/odooAL/odoo/odoo/addons,/opt/odooAL/odoo/addons,/opt/odooAL/custom_addons"
+        if project.repo_path:
+            addons_path += f",{project.repo_path}"
+
+        script = f"""#!/bin/bash
+set -e
+ID={instance_id}
+DB="{dbname}"
+STEP() {{ psql -q "$DB" -c "UPDATE devops_instance SET creation_step='$1' WHERE id=$ID;" 2>/dev/null; }}
+FAIL() {{ psql -q "$DB" -c "UPDATE devops_instance SET state='error', creation_step='Error: $1' WHERE id=$ID;" 2>/dev/null; exit 1; }}
+
+exec >> /var/log/odoo/pmb_creation.log 2>&1
+echo "=== Creating instance {rec.name} (id=$ID) at $(date) ==="
+
+# Step 1: Clone database
+STEP "Clonando base de datos ({source_db})..."
+if [ -n "{source_db}" ]; then
+    createdb -O odooal "{rec.database_name}" || FAIL "createdb failed"
+    pg_dump "{source_db}" | psql -q "{rec.database_name}" || FAIL "pg_dump failed"
+fi
+
+# Step 2: Create directory
+STEP "Creando directorio de instancia..."
+sudo mkdir -p "{rec.instance_path}/.local/share/Odoo"
+sudo chown -R odooal:odooal "{rec.instance_path}"
+if [ -n "{project.repo_path}" ]; then
+    sudo ln -sfn "{project.repo_path}" "{rec.instance_path}/addons"
+fi
+
+# Step 3: Odoo config
+STEP "Generando configuración Odoo..."
+sudo tee "{rec.odoo_config_path}" > /dev/null << 'CONF'
+[options]
+addons_path = {addons_path}
+admin_passwd = False
+data_dir = {rec.instance_path}/.local/share/Odoo
+db_name = {rec.database_name}
+db_user = odooal
+http_port = {rec.port}
+gevent_port = {rec.gevent_port}
+list_db = False
+log_handler = :INFO
+logfile = /var/log/odoo/{rec.service_name}.log
+max_cron_threads = 1
+proxy_mode = True
+server_wide_modules = base,web
+workers = 2
+without_demo = True
+CONF
+
+# Step 4: Systemd service
+STEP "Creando servicio systemd..."
+sudo tee "/etc/systemd/system/{rec.service_name}.service" > /dev/null << 'SVC'
+[Unit]
+Description=Odoo {rec.service_name}
+After=network.target postgresql.service
+[Service]
+Type=simple
+User=odooal
+Group=odooal
+ExecStart=/opt/odooAL/.venv/bin/python /opt/odooAL/odoo/odoo-bin -c {rec.odoo_config_path}
+WorkingDirectory={rec.instance_path}
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=65535
+Environment=PYTHONUNBUFFERED=1
+[Install]
+WantedBy=multi-user.target
+SVC
+sudo systemctl daemon-reload
+sudo systemctl enable "{rec.service_name}"
+
+# Step 5: Nginx (HTTP only first — certbot adds SSL later)
+STEP "Configurando Nginx..."
+DOMAIN="{rec.full_domain or f'{rec.subdomain}.{project.domain}'}"
+sudo tee "/etc/nginx/sites-enabled/$DOMAIN" > /dev/null << NGINX
+upstream odoo_{instance_id} {{
+  server 127.0.0.1:{rec.port};
+}}
+upstream odoochat_{instance_id} {{
+  server 127.0.0.1:{rec.gevent_port};
+}}
+server {{
+  listen 80;
+  server_name $DOMAIN;
+  proxy_read_timeout 720s;
+  proxy_connect_timeout 720s;
+  proxy_send_timeout 720s;
+  location /websocket {{
+    proxy_pass http://odoochat_{instance_id};
+    proxy_set_header Upgrade \\$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header X-Forwarded-Host \\$http_host;
+    proxy_set_header X-Forwarded-For \\$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \\$scheme;
+    proxy_set_header X-Real-IP \\$remote_addr;
+  }}
+  location / {{
+    proxy_set_header X-Forwarded-Host \\$host;
+    proxy_set_header X-Forwarded-For \\$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \\$scheme;
+    proxy_set_header X-Real-IP \\$remote_addr;
+    proxy_redirect off;
+    proxy_http_version 1.1;
+    proxy_pass http://odoo_{instance_id};
+  }}
+  gzip on;
+  gzip_types text/css text/plain application/xml application/json application/javascript;
+  client_max_body_size 100M;
+}}
+NGINX
+sudo nginx -t || FAIL "nginx config invalid"
+sudo systemctl reload nginx
+
+# Step 6: Start service
+STEP "Iniciando servicio Odoo..."
+sudo systemctl start "{rec.service_name}"
+sleep 5
+
+# Step 7: SSL
+STEP "Obteniendo certificado SSL..."
+sudo certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --email admin@patchmybyte.com --redirect 2>&1 || echo "SSL cert failed (HTTP still works)"
+
+# Step 8: Verify
+STEP "Verificando..."
+HTTP=$(curl -sk -o /dev/null -w '%{{http_code}}' "https://$DOMAIN/web/login" --max-time 15 2>/dev/null || echo "000")
+if [ "$HTTP" = "200" ] || [ "$HTTP" = "303" ] || [ "$HTTP" = "302" ]; then
+    psql -q "$DB" -c "UPDATE devops_instance SET state='running', creation_step='' WHERE id=$ID;"
+    echo "=== Instance {rec.name} created successfully (HTTP $HTTP) ==="
+else
+    # Try HTTP (no SSL)
+    HTTP2=$(curl -sk -o /dev/null -w '%{{http_code}}' "http://$DOMAIN/web/login" --max-time 15 2>/dev/null || echo "000")
+    if [ "$HTTP2" = "200" ] || [ "$HTTP2" = "303" ] || [ "$HTTP2" = "302" ]; then
+        psql -q "$DB" -c "UPDATE devops_instance SET state='running', creation_step='' WHERE id=$ID;"
+        echo "=== Instance {rec.name} created (HTTP $HTTP2, no SSL) ==="
+    else
+        FAIL "HTTP verify failed ($HTTP / $HTTP2)"
+    fi
+fi
+"""
+        # Write script and execute
+        script_path = f"/tmp/pmb_create_{instance_id}.sh"
+        with open(script_path, 'w') as f:
+            f.write(script)
+        os.chmod(script_path, 0o755)
+
+        subprocess.Popen(
+            ['/bin/bash', script_path],
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
     def _update_step(self, step_text):
         """Update creation_step using commit so it's visible to the SPA immediately."""
