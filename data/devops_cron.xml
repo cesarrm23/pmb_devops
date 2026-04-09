@@ -22,5 +22,53 @@ for p in model.search([('odoo_service_name', '!=', False)]):
             <field name="interval_type">minutes</field>
             <field name="active">True</field>
         </record>
+
+        <!-- Auto-stop: stop staging/dev instances after 1h inactivity -->
+        <record model="ir.cron" id="cron_auto_stop">
+            <field name="name">PMB DevOps: Auto-stop instancias inactivas</field>
+            <field name="model_id" ref="pmb_devops.model_devops_instance"/>
+            <field name="state">code</field>
+            <field name="code">
+from datetime import timedelta
+cutoff = fields.Datetime.now() - timedelta(hours=1)
+for inst in model.search([('instance_type', 'in', ['staging', 'development']), ('state', '=', 'running'), ('last_activity', '&lt;', cutoff)]):
+    inst.action_stop()
+            </field>
+            <field name="interval_number">15</field>
+            <field name="interval_type">minutes</field>
+            <field name="active">True</field>
+        </record>
+
+        <!-- Auto-destroy: destroy stopped development instances after configured hours -->
+        <record model="ir.cron" id="cron_auto_destroy">
+            <field name="name">PMB DevOps: Auto-destroy development inactivas</field>
+            <field name="model_id" ref="pmb_devops.model_devops_instance"/>
+            <field name="state">code</field>
+            <field name="code">
+from datetime import timedelta
+for inst in model.search([('instance_type', '=', 'development'), ('state', '=', 'stopped')]):
+    hours = inst.project_id.auto_destroy_hours or 24
+    cutoff = fields.Datetime.now() - timedelta(hours=hours)
+    if inst.last_activity and inst.last_activity &lt; cutoff:
+        inst.action_destroy()
+            </field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">hours</field>
+            <field name="active">True</field>
+        </record>
+
+        <!-- Health check: check all running instances every 5 min -->
+        <record model="ir.cron" id="cron_health_check">
+            <field name="name">PMB DevOps: Health check instancias</field>
+            <field name="model_id" ref="pmb_devops.model_devops_instance"/>
+            <field name="state">code</field>
+            <field name="code">
+for inst in model.search([('state', 'in', ['running', 'error']), ('service_name', '!=', False)]):
+    inst._check_service_status()
+            </field>
+            <field name="interval_number">5</field>
+            <field name="interval_type">minutes</field>
+            <field name="active">True</field>
+        </record>
     </data>
 </odoo>

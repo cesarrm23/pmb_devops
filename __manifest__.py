@@ -33,6 +33,7 @@ Administra múltiples instancias Odoo desde una plataforma central.
         'views/devops_deploy_ai_views.xml',
         'views/devops_plugin_views.xml',
         'views/res_config_settings_views.xml',
+        'views/devops_instance_views.xml',
         'views/devops_menus.xml',
     ],
     'application': True,

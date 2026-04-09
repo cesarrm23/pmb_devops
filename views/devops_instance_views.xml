@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Action -->
+    <record id="action_devops_instance" model="ir.actions.act_window">
+        <field name="name">Instancias</field>
+        <field name="res_model">devops.instance</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <!-- List view -->
+    <record id="view_devops_instance_list" model="ir.ui.view">
+        <field name="name">devops.instance.list</field>
+        <field name="model">devops.instance</field>
+        <field name="arch" type="xml">
+            <list decoration-success="state == 'running'"
+                  decoration-danger="state == 'error'"
+                  decoration-warning="state == 'creating'"
+                  decoration-muted="state == 'stopped'">
+                <field name="name"/>
+                <field name="project_id"/>
+                <field name="instance_type" widget="badge"
+                       decoration-danger="instance_type == 'production'"
+                       decoration-warning="instance_type == 'staging'"
+                       decoration-success="instance_type == 'development'"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'running'"
+                       decoration-danger="state == 'error'"
+                       decoration-warning="state == 'creating'"/>
+                <field name="full_domain"/>
+                <field name="port"/>
+                <field name="database_name"/>
+                <field name="service_name"/>
+                <field name="last_activity"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Form view -->
+    <record id="view_devops_instance_form" model="ir.ui.view">
+        <field name="name">devops.instance.form</field>
+        <field name="model">devops.instance</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_start" type="object"
+                            string="Iniciar" icon="fa-play"
+                            class="btn-success"
+                            invisible="state != 'stopped'"/>
+                    <button name="action_stop" type="object"
+                            string="Detener" icon="fa-stop"
+                            class="btn-warning"
+                            invisible="state != 'running' or instance_type == 'production'"/>
+                    <button name="action_restart" type="object"
+                            string="Reiniciar" icon="fa-refresh"
+                            class="btn-primary"
+                            invisible="state not in ('running', 'error')"/>
+                    <button name="action_destroy" type="object"
+                            string="Destruir" icon="fa-trash"
+                            class="btn-danger"
+                            invisible="instance_type == 'production'"
+                            confirm="¿Estás seguro? Esto eliminará el servicio, base de datos, y archivos."/>
+                    <field name="state" widget="statusbar"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group string="General">
+                            <field name="name"/>
+                            <field name="project_id"/>
+                            <field name="instance_type"/>
+                            <field name="branch_id"/>
+                            <field name="cloned_from_id"/>
+                        </group>
+                        <group string="Infraestructura">
+                            <field name="full_domain"/>
+                            <field name="url" widget="url"/>
+                            <field name="port"/>
+                            <field name="gevent_port"/>
+                            <field name="service_name"/>
+                            <field name="database_name"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group string="Rutas">
+                            <field name="subdomain"/>
+                            <field name="instance_path"/>
+                            <field name="odoo_config_path"/>
+                            <field name="nginx_config_path"/>
+                        </group>
+                        <group string="Estado">
+                            <field name="last_activity"/>
+                            <field name="user_ids" widget="many2many_tags"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Builds">
+                            <field name="build_ids">
+                                <list>
+                                    <field name="name"/>
+                                    <field name="state" widget="badge"/>
+                                    <field name="create_date"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Backups">
+                            <field name="backup_ids">
+                                <list>
+                                    <field name="name"/>
+                                    <field name="state" widget="badge"/>
+                                    <field name="file_size"/>
+                                    <field name="create_date"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <!-- Search view -->
+    <record id="view_devops_instance_search" model="ir.ui.view">
+        <field name="name">devops.instance.search</field>
+        <field name="model">devops.instance</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="project_id"/>
+                <filter name="running" string="Ejecutando" domain="[('state', '=', 'running')]"/>
+                <filter name="stopped" string="Detenido" domain="[('state', '=', 'stopped')]"/>
+                <filter name="error" string="Error" domain="[('state', '=', 'error')]"/>
+                <separator/>
+                <filter name="production" string="Producción" domain="[('instance_type', '=', 'production')]"/>
+                <filter name="staging" string="Staging" domain="[('instance_type', '=', 'staging')]"/>
+                <filter name="development" string="Development" domain="[('instance_type', '=', 'development')]"/>
+            </search>
+        </field>
+    </record>
+</odoo>
