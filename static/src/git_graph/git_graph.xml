@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="pmb_devops.DevopsGitGraph">
+        <div class="o_devops_git_graph d-flex h-100" style="background: #1a1b26; min-height: 600px;">
+            <!-- Sidebar -->
+            <div style="width: 280px; background: #24283b; border-right: 1px solid #414868; overflow-y: auto;">
+                <div class="p-3">
+                    <select class="form-select form-select-sm mb-3"
+                            style="background: #1a1b26; color: #c0caf5; border-color: #414868;"
+                            t-on-change="(ev) => this._onProjectChange(ev)">
+                        <t t-foreach="state.projects" t-as="p" t-key="p.id">
+                            <option t-att-value="p.id" t-att-selected="p.id === state.projectId">
+                                <t t-esc="p.name"/>
+                            </option>
+                        </t>
+                    </select>
+                    <t t-foreach="['production', 'staging', 'development']" t-as="btype" t-key="btype">
+                        <div class="mb-3">
+                            <div class="fw-bold small mb-1" t-att-style="'color:' + (btype === 'production' ? '#f7768e' : btype === 'staging' ? '#e0af68' : '#9ece6a')">
+                                <t t-esc="btype.toUpperCase()"/>
+                            </div>
+                            <t t-foreach="state.branches.filter(b => b.branch_type === btype)" t-as="branch" t-key="branch.id">
+                                <div class="px-2 py-1 rounded small cursor-pointer"
+                                     style="color: #c0caf5;"
+                                     t-att-class="state.selectedBranch === branch.id ? 'bg-primary' : ''"
+                                     t-on-click="() => this._selectBranch(branch)">
+                                    <i class="fa fa-code-fork me-1"/>
+                                    <t t-esc="branch.name"/>
+                                    <span t-if="branch.is_current" class="badge bg-warning ms-1">HEAD</span>
+                                </div>
+                            </t>
+                        </div>
+                    </t>
+                    <button class="btn btn-sm btn-outline-info w-100 mt-2"
+                            t-on-click="_loadData">
+                        <i class="fa fa-refresh me-1"/> Actualizar
+                    </button>
+                </div>
+            </div>
+            <!-- Canvas -->
+            <div class="flex-grow-1 p-3" style="overflow: auto;">
+                <div t-if="state.loading" class="text-center py-5" style="color: #7aa2f7;">
+                    <i class="fa fa-spinner fa-spin fa-2x"/>
+                </div>
+                <canvas t-ref="graphCanvas" t-if="!state.loading"/>
+            </div>
+        </div>
+    </t>
+</templates>

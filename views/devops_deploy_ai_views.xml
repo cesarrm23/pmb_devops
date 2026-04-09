@@ -1,2 +1,170 @@
 <?xml version="1.0" encoding="utf-8"?>
-<odoo></odoo>
+<odoo>
+
+    <!-- ============================================================ -->
+    <!-- Action                                                        -->
+    <!-- ============================================================ -->
+    <record id="action_devops_deploy_ai" model="ir.actions.act_window">
+        <field name="name">Deploys Asistidos por IA</field>
+        <field name="res_model">devops.deploy.ai</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No hay deploys registrados
+            </p>
+            <p>Crea un deploy asistido por IA desde una rama o proyecto.</p>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- List view                                                     -->
+    <!-- ============================================================ -->
+    <record id="view_devops_deploy_ai_list" model="ir.ui.view">
+        <field name="name">devops.deploy.ai.list</field>
+        <field name="model">devops.deploy.ai</field>
+        <field name="arch" type="xml">
+            <list string="Deploys IA"
+                  decoration-success="state == 'done'"
+                  decoration-danger="state in ('failed', 'test_failed')"
+                  decoration-info="state in ('testing', 'deploying', 'verifying')"
+                  decoration-warning="state == 'reverted'"
+                  decoration-muted="state == 'draft'">
+                <field name="name"/>
+                <field name="project_id"/>
+                <field name="deploy_type" widget="badge"
+                       decoration-danger="deploy_type == 'production'"
+                       decoration-info="deploy_type == 'staging'"/>
+                <field name="state" widget="badge"
+                       decoration-success="state in ('done', 'test_passed')"
+                       decoration-danger="state in ('failed', 'test_failed')"
+                       decoration-info="state in ('testing', 'deploying', 'verifying')"
+                       decoration-warning="state == 'reverted'"
+                       decoration-muted="state == 'draft'"/>
+                <field name="source_branch_id"/>
+                <field name="duration"/>
+                <field name="triggered_by"/>
+                <field name="create_date"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- Form view                                                     -->
+    <!-- ============================================================ -->
+    <record id="view_devops_deploy_ai_form" model="ir.ui.view">
+        <field name="name">devops.deploy.ai.form</field>
+        <field name="model">devops.deploy.ai</field>
+        <field name="arch" type="xml">
+            <form string="Deploy Asistido por IA">
+                <header>
+                    <button name="action_run_ai_tests" type="object"
+                            string="Run Tests" class="oe_highlight"
+                            icon="fa-flask"
+                            invisible="state not in ('draft', 'test_failed')"/>
+                    <button name="action_deploy" type="object"
+                            string="Deploy" class="btn-primary"
+                            icon="fa-rocket"
+                            invisible="state not in ('draft', 'test_passed')"
+                            confirm="Ejecutar deploy? Esto afectara el servidor."/>
+                    <button name="action_rollback" type="object"
+                            string="Rollback" class="btn-danger"
+                            icon="fa-undo"
+                            invisible="state not in ('done', 'failed', 'verifying')"
+                            confirm="Revertir al commit anterior?"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,testing,test_passed,deploying,verifying,done"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group string="Configuracion">
+                            <field name="project_id"/>
+                            <field name="deploy_type" widget="radio"/>
+                            <field name="source_branch_id"
+                                   domain="[('project_id', '=', project_id)]"/>
+                            <field name="target_branch_id"
+                                   domain="[('project_id', '=', project_id)]"/>
+                            <field name="triggered_by"/>
+                        </group>
+                        <group string="Opciones">
+                            <field name="create_backup"/>
+                            <field name="run_ai_tests"/>
+                            <field name="ai_test_prompt"
+                                   invisible="not run_ai_tests"/>
+                            <field name="backup_id" readonly="1"/>
+                            <field name="rollback_commit" readonly="1"/>
+                            <field name="was_reverted"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group string="Tiempos">
+                            <field name="started_at"/>
+                            <field name="finished_at"/>
+                            <field name="duration"/>
+                        </group>
+                    </group>
+                    <group invisible="not error_message">
+                        <field name="error_message" readonly="1"
+                               string="Mensaje de Error"/>
+                    </group>
+                    <notebook>
+                        <page string="Test Log" name="test_log">
+                            <field name="test_log" readonly="1"
+                                   widget="text" placeholder="Sin logs de tests..."/>
+                        </page>
+                        <page string="Deploy Log" name="deploy_log">
+                            <field name="deploy_log" readonly="1"
+                                   widget="text" placeholder="Sin logs de deploy..."/>
+                        </page>
+                        <page string="AI Analysis" name="ai_analysis">
+                            <field name="ai_analysis" readonly="1"
+                                   widget="text" placeholder="Sin analisis IA..."/>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- Search view                                                   -->
+    <!-- ============================================================ -->
+    <record id="view_devops_deploy_ai_search" model="ir.ui.view">
+        <field name="name">devops.deploy.ai.search</field>
+        <field name="model">devops.deploy.ai</field>
+        <field name="arch" type="xml">
+            <search string="Deploys IA">
+                <field name="name"/>
+                <field name="project_id"/>
+                <separator/>
+                <filter string="Borrador" name="filter_draft"
+                        domain="[('state', '=', 'draft')]"/>
+                <filter string="Probando" name="filter_testing"
+                        domain="[('state', '=', 'testing')]"/>
+                <filter string="Tests Pasados" name="filter_test_passed"
+                        domain="[('state', '=', 'test_passed')]"/>
+                <filter string="Tests Fallidos" name="filter_test_failed"
+                        domain="[('state', '=', 'test_failed')]"/>
+                <filter string="Desplegando" name="filter_deploying"
+                        domain="[('state', '=', 'deploying')]"/>
+                <filter string="Completado" name="filter_done"
+                        domain="[('state', '=', 'done')]"/>
+                <filter string="Fallido" name="filter_failed"
+                        domain="[('state', '=', 'failed')]"/>
+                <filter string="Revertido" name="filter_reverted"
+                        domain="[('state', '=', 'reverted')]"/>
+                <separator/>
+                <filter string="Staging" name="filter_staging"
+                        domain="[('deploy_type', '=', 'staging')]"/>
+                <filter string="Produccion" name="filter_production"
+                        domain="[('deploy_type', '=', 'production')]"/>
+            </search>
+        </field>
+    </record>
+
+</odoo>

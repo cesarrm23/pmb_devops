@@ -1,2 +1,256 @@
 <?xml version="1.0" encoding="utf-8"?>
-<odoo></odoo>
+<odoo>
+
+    <!-- ============================================================ -->
+    <!-- AI Assistant — List view                                      -->
+    <!-- ============================================================ -->
+    <record id="view_devops_ai_assistant_list" model="ir.ui.view">
+        <field name="name">devops.ai.assistant.list</field>
+        <field name="model">devops.ai.assistant</field>
+        <field name="arch" type="xml">
+            <list string="Historial IA" create="0">
+                <field name="name"/>
+                <field name="project_id"/>
+                <field name="context_type" widget="badge"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'done'"
+                       decoration-danger="state == 'error'"
+                       decoration-warning="state == 'sending'"
+                       decoration-muted="state == 'draft'"/>
+                <field name="model_used"/>
+                <field name="tokens_used"/>
+                <field name="duration"/>
+                <field name="user_id"/>
+                <field name="create_date"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- AI Assistant — Form view                                      -->
+    <!-- ============================================================ -->
+    <record id="view_devops_ai_assistant_form" model="ir.ui.view">
+        <field name="name">devops.ai.assistant.form</field>
+        <field name="model">devops.ai.assistant</field>
+        <field name="arch" type="xml">
+            <form string="Consulta IA">
+                <header>
+                    <button name="action_send_to_claude" type="object"
+                            string="Reenviar" class="oe_highlight"
+                            icon="fa-paper-plane"
+                            invisible="state not in ('draft', 'error')"/>
+                    <button name="action_run_claude_code" type="object"
+                            string="Claude Code CLI"
+                            icon="fa-terminal"
+                            invisible="state not in ('draft', 'error')"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,sending,done,error"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name" readonly="1"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group string="Metadata">
+                            <field name="project_id"/>
+                            <field name="context_type"/>
+                            <field name="user_id"/>
+                            <field name="create_date"/>
+                        </group>
+                        <group string="Resultado">
+                            <field name="model_used" readonly="1"/>
+                            <field name="tokens_used" readonly="1"/>
+                            <field name="duration" readonly="1"
+                                   widget="float_time"/>
+                            <field name="error_message" readonly="1"
+                                   invisible="not error_message"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Prompt" name="prompt">
+                            <field name="prompt" readonly="1"/>
+                        </page>
+                        <page string="Respuesta" name="response">
+                            <field name="response_html" readonly="1"
+                                   nolabel="1"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- AI Assistant — Search view                                    -->
+    <!-- ============================================================ -->
+    <record id="view_devops_ai_assistant_search" model="ir.ui.view">
+        <field name="name">devops.ai.assistant.search</field>
+        <field name="model">devops.ai.assistant</field>
+        <field name="arch" type="xml">
+            <search string="Historial IA">
+                <field name="name"/>
+                <field name="project_id"/>
+                <field name="user_id"/>
+                <separator/>
+                <filter string="Completado" name="filter_done"
+                        domain="[('state', '=', 'done')]"/>
+                <filter string="Error" name="filter_error"
+                        domain="[('state', '=', 'error')]"/>
+                <separator/>
+                <filter string="General" name="filter_general"
+                        domain="[('context_type', '=', 'general')]"/>
+                <filter string="Log" name="filter_log"
+                        domain="[('context_type', '=', 'log')]"/>
+                <filter string="Build" name="filter_build"
+                        domain="[('context_type', '=', 'build')]"/>
+                <group expand="0" string="Agrupar por">
+                    <filter string="Proyecto" name="group_project"
+                            context="{'group_by': 'project_id'}"/>
+                    <filter string="Estado" name="group_state"
+                            context="{'group_by': 'state'}"/>
+                    <filter string="Contexto" name="group_context"
+                            context="{'group_by': 'context_type'}"/>
+                    <filter string="Usuario" name="group_user"
+                            context="{'group_by': 'user_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- Actions for menus                                             -->
+    <!-- ============================================================ -->
+
+    <!-- AI History action -->
+    <record id="action_devops_ai_history" model="ir.actions.act_window">
+        <field name="name">Historial IA</field>
+        <field name="res_model">devops.ai.assistant</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <!-- Git Graph client action -->
+    <record id="action_devops_git_graph" model="ir.actions.client">
+        <field name="name">Git Graph</field>
+        <field name="tag">devops_git_graph</field>
+    </record>
+
+    <!-- Terminal client action -->
+    <record id="action_devops_terminal" model="ir.actions.client">
+        <field name="name">Terminal</field>
+        <field name="tag">devops_terminal</field>
+    </record>
+
+    <!-- Documentation URL action -->
+    <record id="action_devops_manual" model="ir.actions.act_url">
+        <field name="name">Manual de Usuario</field>
+        <field name="url">/pmb_devops/static/description/manual/index.html</field>
+        <field name="target">new</field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- Root menu                                                     -->
+    <!-- ============================================================ -->
+    <menuitem id="menu_devops_root"
+              name="DevOps"
+              web_icon="pmb_devops,static/description/icon.svg"
+              sequence="95"
+              groups="pmb_devops.group_devops_viewer"/>
+
+    <!-- ============================================================ -->
+    <!-- Top-level menu items                                          -->
+    <!-- ============================================================ -->
+    <menuitem id="menu_devops_projects"
+              name="Proyectos"
+              parent="menu_devops_root"
+              action="action_devops_project"
+              sequence="10"/>
+
+    <menuitem id="menu_devops_git_graph"
+              name="Git Graph"
+              parent="menu_devops_root"
+              action="action_devops_git_graph"
+              sequence="15"/>
+
+    <menuitem id="menu_devops_branches"
+              name="Ramas"
+              parent="menu_devops_root"
+              action="action_devops_branch"
+              sequence="20"/>
+
+    <menuitem id="menu_devops_builds"
+              name="Builds"
+              parent="menu_devops_root"
+              action="action_devops_build"
+              sequence="30"/>
+
+    <menuitem id="menu_devops_deploy_ai"
+              name="Deploy IA"
+              parent="menu_devops_root"
+              action="action_devops_deploy_ai"
+              sequence="35"/>
+
+    <menuitem id="menu_devops_logs"
+              name="Logs"
+              parent="menu_devops_root"
+              action="action_devops_log"
+              sequence="40"/>
+
+    <menuitem id="menu_devops_backups"
+              name="Backups"
+              parent="menu_devops_root"
+              action="action_devops_backup"
+              sequence="50"/>
+
+    <menuitem id="menu_devops_terminal"
+              name="Terminal"
+              parent="menu_devops_root"
+              action="action_devops_terminal"
+              sequence="55"/>
+
+    <!-- ============================================================ -->
+    <!-- AI submenu                                                    -->
+    <!-- ============================================================ -->
+    <menuitem id="menu_devops_ai"
+              name="Asistente IA"
+              parent="menu_devops_root"
+              sequence="60"/>
+
+    <menuitem id="menu_devops_ai_history"
+              name="Historial de Consultas"
+              parent="menu_devops_ai"
+              action="action_devops_ai_history"
+              sequence="10"/>
+
+    <!-- ============================================================ -->
+    <!-- Plugins                                                       -->
+    <!-- ============================================================ -->
+    <menuitem id="menu_devops_plugins"
+              name="Plugins"
+              parent="menu_devops_root"
+              action="action_devops_plugin"
+              sequence="65"/>
+
+    <!-- ============================================================ -->
+    <!-- Configuration                                                 -->
+    <!-- ============================================================ -->
+    <menuitem id="menu_devops_config"
+              name="Configuracion"
+              parent="menu_devops_root"
+              sequence="100"
+              groups="pmb_devops.group_devops_admin"/>
+
+    <menuitem id="menu_devops_settings"
+              name="Ajustes"
+              parent="menu_devops_config"
+              action="action_devops_settings"
+              sequence="10"/>
+
+    <menuitem id="menu_devops_docs"
+              name="Documentacion"
+              parent="menu_devops_config"
+              action="action_devops_manual"
+              sequence="20"/>
+
+</odoo>

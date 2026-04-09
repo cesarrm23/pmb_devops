@@ -1,2 +1,122 @@
 <?xml version="1.0" encoding="utf-8"?>
-<odoo></odoo>
+<odoo>
+
+    <!-- ============================================================ -->
+    <!-- Action                                                        -->
+    <!-- ============================================================ -->
+    <record id="action_devops_plugin" model="ir.actions.act_window">
+        <field name="name">Plugins Claude Code</field>
+        <field name="res_model">devops.plugin</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No hay plugins registrados
+            </p>
+            <p>Usa "Sync Plugins" para importar los plugins oficiales de Claude Code.</p>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- List view                                                     -->
+    <!-- ============================================================ -->
+    <record id="view_devops_plugin_list" model="ir.ui.view">
+        <field name="name">devops.plugin.list</field>
+        <field name="model">devops.plugin</field>
+        <field name="arch" type="xml">
+            <list string="Plugins Claude Code">
+                <field name="name"/>
+                <field name="package_name"/>
+                <field name="category" widget="badge"
+                       decoration-info="category in ('ai', 'web')"
+                       decoration-success="category in ('git', 'filesystem')"
+                       decoration-warning="category == 'database'"
+                       decoration-muted="category in ('utility', 'other', 'monitoring')"/>
+                <field name="is_installed" widget="boolean"/>
+                <field name="is_enabled"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- Form view                                                     -->
+    <!-- ============================================================ -->
+    <record id="view_devops_plugin_form" model="ir.ui.view">
+        <field name="name">devops.plugin.form</field>
+        <field name="model">devops.plugin</field>
+        <field name="arch" type="xml">
+            <form string="Plugin Claude Code">
+                <header>
+                    <button name="action_install" type="object"
+                            string="Install" class="oe_highlight"
+                            icon="fa-download"/>
+                    <button name="action_uninstall" type="object"
+                            string="Uninstall" class="btn-danger"
+                            icon="fa-trash"/>
+                    <button name="action_sync_plugins" type="object"
+                            string="Sync Plugins" icon="fa-refresh"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name" placeholder="Nombre del plugin"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group string="Informacion">
+                            <field name="package_name"/>
+                            <field name="category"/>
+                            <field name="version"/>
+                            <field name="is_installed"/>
+                            <field name="is_enabled"/>
+                        </group>
+                        <group string="Entornos">
+                            <field name="use_in_development"/>
+                            <field name="use_in_staging"/>
+                            <field name="use_in_production"/>
+                        </group>
+                    </group>
+                    <group>
+                        <field name="description"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- Search view                                                   -->
+    <!-- ============================================================ -->
+    <record id="view_devops_plugin_search" model="ir.ui.view">
+        <field name="name">devops.plugin.search</field>
+        <field name="model">devops.plugin</field>
+        <field name="arch" type="xml">
+            <search string="Plugins Claude Code">
+                <field name="name"/>
+                <field name="package_name"/>
+                <separator/>
+                <filter string="Sistema de Archivos" name="filter_filesystem"
+                        domain="[('category', '=', 'filesystem')]"/>
+                <filter string="Git / SCM" name="filter_git"
+                        domain="[('category', '=', 'git')]"/>
+                <filter string="Base de Datos" name="filter_database"
+                        domain="[('category', '=', 'database')]"/>
+                <filter string="Web / HTTP" name="filter_web"
+                        domain="[('category', '=', 'web')]"/>
+                <filter string="IA / ML" name="filter_ai"
+                        domain="[('category', '=', 'ai')]"/>
+                <filter string="Monitoreo" name="filter_monitoring"
+                        domain="[('category', '=', 'monitoring')]"/>
+                <filter string="Utilidad" name="filter_utility"
+                        domain="[('category', '=', 'utility')]"/>
+                <filter string="Otro" name="filter_other"
+                        domain="[('category', '=', 'other')]"/>
+                <separator/>
+                <filter string="Habilitados" name="filter_enabled"
+                        domain="[('is_enabled', '=', True)]"/>
+                <filter string="Deshabilitados" name="filter_disabled"
+                        domain="[('is_enabled', '=', False)]"/>
+            </search>
+        </field>
+    </record>
+
+</odoo>

@@ -1,2 +1,127 @@
 <?xml version="1.0" encoding="utf-8"?>
-<odoo></odoo>
+<odoo>
+
+    <!-- ============================================================ -->
+    <!-- Action                                                        -->
+    <!-- ============================================================ -->
+    <record id="action_devops_log" model="ir.actions.act_window">
+        <field name="name">Logs del Servidor</field>
+        <field name="res_model">devops.log</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No hay logs registrados
+            </p>
+            <p>Usa "Fetch Logs" en un proyecto para obtener logs del servicio.</p>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- List view                                                     -->
+    <!-- ============================================================ -->
+    <record id="view_devops_log_list" model="ir.ui.view">
+        <field name="name">devops.log.list</field>
+        <field name="model">devops.log</field>
+        <field name="arch" type="xml">
+            <list string="Logs del Servidor"
+                  decoration-danger="level in ('error', 'critical')"
+                  decoration-warning="level == 'warning'">
+                <field name="name"/>
+                <field name="project_id"/>
+                <field name="level" widget="badge"
+                       decoration-danger="level in ('error', 'critical')"
+                       decoration-warning="level == 'warning'"
+                       decoration-info="level == 'info'"
+                       decoration-muted="level == 'debug'"/>
+                <field name="source" widget="badge"/>
+                <field name="timestamp"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- Form view                                                     -->
+    <!-- ============================================================ -->
+    <record id="view_devops_log_form" model="ir.ui.view">
+        <field name="name">devops.log.form</field>
+        <field name="model">devops.log</field>
+        <field name="arch" type="xml">
+            <form string="Log del Servidor">
+                <header>
+                    <button name="action_analyze_with_ai" type="object"
+                            string="Analyze with AI" class="oe_highlight"
+                            icon="fa-magic"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group string="Metadata">
+                            <field name="project_id"/>
+                            <field name="level"/>
+                            <field name="source"/>
+                            <field name="timestamp"/>
+                        </group>
+                        <group string="Mensaje">
+                            <field name="message"/>
+                        </group>
+                    </group>
+                    <separator string="Log Completo"/>
+                    <field name="full_log" readonly="1" widget="text"/>
+                    <group>
+                        <group string="Analisis IA" invisible="not ai_analysis">
+                            <field name="ai_analysis" readonly="1"/>
+                        </group>
+                        <group string="Sugerencia IA" invisible="not ai_suggestion">
+                            <field name="ai_suggestion" readonly="1"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- Search view                                                   -->
+    <!-- ============================================================ -->
+    <record id="view_devops_log_search" model="ir.ui.view">
+        <field name="name">devops.log.search</field>
+        <field name="model">devops.log</field>
+        <field name="arch" type="xml">
+            <search string="Logs del Servidor">
+                <field name="name"/>
+                <field name="project_id"/>
+                <separator/>
+                <filter string="Debug" name="filter_debug"
+                        domain="[('level', '=', 'debug')]"/>
+                <filter string="Info" name="filter_info"
+                        domain="[('level', '=', 'info')]"/>
+                <filter string="Warning" name="filter_warning"
+                        domain="[('level', '=', 'warning')]"/>
+                <filter string="Error" name="filter_error"
+                        domain="[('level', '=', 'error')]"/>
+                <filter string="Critical" name="filter_critical"
+                        domain="[('level', '=', 'critical')]"/>
+                <separator/>
+                <filter string="Odoo" name="filter_odoo"
+                        domain="[('source', '=', 'odoo')]"/>
+                <filter string="Systemd" name="filter_systemd"
+                        domain="[('source', '=', 'systemd')]"/>
+                <filter string="Git" name="filter_git"
+                        domain="[('source', '=', 'git')]"/>
+                <filter string="Build" name="filter_build"
+                        domain="[('source', '=', 'build')]"/>
+                <filter string="Backup" name="filter_backup"
+                        domain="[('source', '=', 'backup')]"/>
+                <filter string="AI" name="filter_ai"
+                        domain="[('source', '=', 'ai')]"/>
+                <filter string="Cron" name="filter_cron"
+                        domain="[('source', '=', 'cron')]"/>
+            </search>
+        </field>
+    </record>
+
+</odoo>

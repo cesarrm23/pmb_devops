@@ -1,2 +1,129 @@
 <?xml version="1.0" encoding="utf-8"?>
-<odoo></odoo>
+<odoo>
+
+    <!-- ============================================================ -->
+    <!-- Action                                                        -->
+    <!-- ============================================================ -->
+    <record id="action_devops_branch" model="ir.actions.act_window">
+        <field name="name">Ramas Git</field>
+        <field name="res_model">devops.branch</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No hay ramas registradas
+            </p>
+            <p>Usa "Sync Branches" en el proyecto para importar ramas desde el repositorio.</p>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- List view                                                     -->
+    <!-- ============================================================ -->
+    <record id="view_devops_branch_list" model="ir.ui.view">
+        <field name="name">devops.branch.list</field>
+        <field name="model">devops.branch</field>
+        <field name="arch" type="xml">
+            <list string="Ramas Git">
+                <field name="name"/>
+                <field name="branch_type" widget="badge"
+                       decoration-danger="branch_type == 'production'"
+                       decoration-warning="branch_type == 'staging'"
+                       decoration-info="branch_type == 'development'"/>
+                <field name="is_current" widget="boolean"/>
+                <field name="last_commit_hash"/>
+                <field name="last_commit_message"/>
+                <field name="last_commit_author"/>
+                <field name="commits_ahead"/>
+                <field name="commits_behind"/>
+                <field name="project_id"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- Form view                                                     -->
+    <!-- ============================================================ -->
+    <record id="view_devops_branch_form" model="ir.ui.view">
+        <field name="name">devops.branch.form</field>
+        <field name="model">devops.branch</field>
+        <field name="arch" type="xml">
+            <form string="Rama Git">
+                <header>
+                    <button name="action_checkout" type="object"
+                            string="Checkout" class="oe_highlight"
+                            icon="fa-sign-in"
+                            confirm="Cambiar a esta rama?"/>
+                    <button name="action_pull" type="object"
+                            string="Pull" icon="fa-download"/>
+                    <button name="action_build" type="object"
+                            string="Build" icon="fa-cogs"/>
+                    <button name="action_deploy" type="object"
+                            string="Deploy" icon="fa-rocket"/>
+                    <button name="action_view_commits" type="object"
+                            string="View Commits" icon="fa-history"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name" placeholder="Nombre de la rama"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group string="Informacion">
+                            <field name="project_id"/>
+                            <field name="branch_type"/>
+                            <field name="is_remote"/>
+                            <field name="is_current"/>
+                        </group>
+                        <group string="Ultimo Commit">
+                            <field name="last_commit_hash"/>
+                            <field name="last_commit_message"/>
+                            <field name="last_commit_author"/>
+                            <field name="last_commit_date"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group string="Diff Stats">
+                            <field name="commits_ahead"/>
+                            <field name="commits_behind"/>
+                        </group>
+                        <group string="Build">
+                            <field name="last_build_id"/>
+                            <field name="last_build_state" widget="badge"
+                                   decoration-success="last_build_state == 'success'"
+                                   decoration-danger="last_build_state == 'failed'"
+                                   decoration-info="last_build_state == 'building'"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Historial de Commits" name="commits">
+                            <field name="commit_history" readonly="1"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- Search view                                                   -->
+    <!-- ============================================================ -->
+    <record id="view_devops_branch_search" model="ir.ui.view">
+        <field name="name">devops.branch.search</field>
+        <field name="model">devops.branch</field>
+        <field name="arch" type="xml">
+            <search string="Ramas Git">
+                <field name="name"/>
+                <field name="project_id"/>
+                <separator/>
+                <filter string="Production" name="filter_production"
+                        domain="[('branch_type', '=', 'production')]"/>
+                <filter string="Staging" name="filter_staging"
+                        domain="[('branch_type', '=', 'staging')]"/>
+                <filter string="Development" name="filter_development"
+                        domain="[('branch_type', '=', 'development')]"/>
+            </search>
+        </field>
+    </record>
+
+</odoo>

@@ -1,2 +1,97 @@
 <?xml version="1.0" encoding="utf-8"?>
-<odoo></odoo>
+<odoo>
+
+    <!-- ============================================================ -->
+    <!-- Claude Login Wizard — Form view                               -->
+    <!-- ============================================================ -->
+    <record id="view_devops_claude_login_wizard_form" model="ir.ui.view">
+        <field name="name">devops.claude.login.wizard.form</field>
+        <field name="model">devops.claude.login.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Configuracion Claude CLI">
+
+                <!-- ── State: START ─────────────────────────────── -->
+                <group invisible="state != 'start'">
+                    <group colspan="2">
+                        <field name="message" readonly="1" nolabel="1"
+                               colspan="2" widget="text"/>
+                    </group>
+                    <group>
+                        <field name="api_key" password="True"/>
+                    </group>
+                    <group>
+                        <field name="auth_method" readonly="1"/>
+                    </group>
+                </group>
+
+                <!-- ── State: SUCCESS ───────────────────────────── -->
+                <group invisible="state != 'success'">
+                    <div class="alert alert-success" role="alert" colspan="2">
+                        <i class="fa fa-check-circle"/>
+                        <strong> Autenticacion exitosa</strong>
+                    </div>
+                    <group colspan="2">
+                        <field name="message" readonly="1" nolabel="1"
+                               colspan="2" widget="text"/>
+                    </group>
+                    <group>
+                        <field name="auth_method" readonly="1"/>
+                    </group>
+                </group>
+
+                <!-- ── State: ERROR ─────────────────────────────── -->
+                <group invisible="state != 'error'">
+                    <div class="alert alert-danger" role="alert" colspan="2">
+                        <strong>Error de autenticacion</strong>
+                    </div>
+                    <group colspan="2">
+                        <field name="message" readonly="1" nolabel="1"
+                               colspan="2" widget="text"/>
+                    </group>
+                    <group>
+                        <field name="api_key" password="True"
+                               string="Nueva API Key"/>
+                    </group>
+                </group>
+
+                <field name="state" invisible="1"/>
+
+                <footer>
+                    <!-- Start state: Save + Open Console + Open Terminal -->
+                    <button name="action_save_api_key" type="object"
+                            string="Guardar API Key" class="btn-primary"
+                            icon="fa-save"
+                            invisible="state not in ('start', 'error')"/>
+                    <button name="action_open_console" type="object"
+                            string="Abrir Anthropic Console"
+                            icon="fa-external-link"
+                            invisible="state not in ('start', 'error')"/>
+                    <button name="action_open_terminal" type="object"
+                            string="Abrir Terminal"
+                            icon="fa-terminal"
+                            invisible="state not in ('start', 'error')"/>
+                    <!-- Success state: Close -->
+                    <button string="Cerrar" class="btn-primary"
+                            special="cancel"
+                            invisible="state != 'success'"/>
+                    <!-- Cancel (always except when processing) -->
+                    <button string="Cancelar" class="btn-secondary"
+                            special="cancel"
+                            invisible="state == 'success'"/>
+                </footer>
+
+            </form>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- Claude Login Wizard — Action                                  -->
+    <!-- ============================================================ -->
+    <record id="action_devops_claude_login_wizard" model="ir.actions.act_window">
+        <field name="name">Configurar Claude</field>
+        <field name="res_model">devops.claude.login.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+</odoo>

@@ -1,2 +1,92 @@
 <?xml version="1.0" encoding="utf-8"?>
-<odoo></odoo>
+<odoo>
+
+    <!-- ============================================================ -->
+    <!-- Deploy Wizard — Form view                                     -->
+    <!-- ============================================================ -->
+    <record id="view_devops_deploy_wizard_form" model="ir.ui.view">
+        <field name="name">devops.deploy.wizard.form</field>
+        <field name="model">devops.deploy.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Deploy">
+
+                <!-- ── State: CONFIRM ───────────────────────────── -->
+                <group invisible="state != 'confirm'">
+                    <group>
+                        <field name="project_id"/>
+                        <field name="branch_id"/>
+                        <field name="target_branch" readonly="1"/>
+                    </group>
+                    <group>
+                        <field name="create_backup"/>
+                        <field name="restart_service"/>
+                    </group>
+                    <group string="Commits a desplegar" colspan="2">
+                        <field name="commits_to_deploy" nolabel="1"
+                               colspan="2" readonly="1"
+                               widget="text"/>
+                    </group>
+                </group>
+
+                <!-- ── State: DEPLOYING ─────────────────────────── -->
+                <div invisible="state != 'deploying'" class="text-center py-5">
+                    <i class="fa fa-spinner fa-spin fa-3x text-warning mb-3"/>
+                    <h3>Desplegando...</h3>
+                    <p class="text-muted">
+                        Ejecutando deploy. No cierre esta ventana.
+                    </p>
+                </div>
+
+                <!-- ── State: DONE ──────────────────────────────── -->
+                <group invisible="state != 'done'">
+                    <div class="alert alert-success" role="alert" colspan="2">
+                        <i class="fa fa-check-circle"/> Deploy completado exitosamente.
+                    </div>
+                    <group string="Log de Deploy" colspan="2">
+                        <field name="deploy_log" nolabel="1" colspan="2"
+                               readonly="1" widget="text"/>
+                    </group>
+                </group>
+
+                <!-- ── State: FAILED ────────────────────────────── -->
+                <group invisible="state != 'failed'">
+                    <div class="alert alert-danger" role="alert" colspan="2">
+                        <strong>Error en el deploy:</strong>
+                        <field name="error_message" nolabel="1" readonly="1"/>
+                    </div>
+                    <group string="Log de Deploy" colspan="2">
+                        <field name="deploy_log" nolabel="1" colspan="2"
+                               readonly="1" widget="text"/>
+                    </group>
+                </group>
+
+                <field name="state" invisible="1"/>
+
+                <footer>
+                    <!-- Confirm state: Deploy button (danger for production emphasis) -->
+                    <button name="action_deploy" type="object"
+                            string="Desplegar" class="btn-primary btn-danger"
+                            icon="fa-rocket"
+                            confirm="Esta a punto de desplegar a produccion. Continuar?"
+                            invisible="state != 'confirm'"/>
+                    <!-- Done / Failed states: Close -->
+                    <button string="Cerrar" class="btn-secondary"
+                            special="cancel"
+                            invisible="state in ('deploying',)"/>
+                </footer>
+
+            </form>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- Deploy Wizard — Action                                        -->
+    <!-- ============================================================ -->
+    <record id="action_devops_deploy_wizard" model="ir.actions.act_window">
+        <field name="name">Deploy</field>
+        <field name="res_model">devops.deploy.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+</odoo>

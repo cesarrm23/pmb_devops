@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="pmb_devops.DevopsTerminal">
+        <div class="o_devops_terminal d-flex flex-column h-100"
+             style="background: #1a1b26; min-height: 600px;">
+            <!-- Toolbar -->
+            <div class="d-flex align-items-center px-3 py-2"
+                 style="background: #24283b; border-bottom: 1px solid #414868;">
+                <select class="form-select form-select-sm me-2"
+                        style="width: 200px; background: #1a1b26; color: #c0caf5; border-color: #414868;"
+                        t-on-change="(ev) => this._onProjectChange(ev)">
+                    <option value="">-- Proyecto --</option>
+                    <t t-foreach="state.projects" t-as="p" t-key="p.id">
+                        <option t-att-value="p.id"
+                                t-att-selected="p.id === state.projectId">
+                            <t t-esc="p.name"/>
+                        </option>
+                    </t>
+                </select>
+                <div class="btn-group btn-group-sm">
+                    <button class="btn"
+                            t-att-class="state.activeTab === 'claude' ? 'btn-primary' : 'btn-outline-secondary'"
+                            t-on-click="() => this._startSession('claude')">
+                        <i class="fa fa-robot me-1"/> AI
+                    </button>
+                    <button class="btn"
+                            t-att-class="state.activeTab === 'shell' ? 'btn-success' : 'btn-outline-secondary'"
+                            t-on-click="() => this._startSession('shell')">
+                        <i class="fa fa-terminal me-1"/> Shell
+                    </button>
+                    <button class="btn"
+                            t-att-class="state.activeTab === 'logs' ? 'btn-warning' : 'btn-outline-secondary'"
+                            t-on-click="() => this._startSession('logs')">
+                        <i class="fa fa-file-text me-1"/> Logs
+                    </button>
+                </div>
+                <span class="ms-auto small" style="color: #7aa2f7;">
+                    <t t-esc="state.status"/>
+                </span>
+            </div>
+            <!-- Terminal container -->
+            <div t-ref="terminalContainer" class="flex-grow-1"/>
+        </div>
+    </t>
+</templates>

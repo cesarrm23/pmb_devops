@@ -1,2 +1,191 @@
 <?xml version="1.0" encoding="utf-8"?>
-<odoo></odoo>
+<odoo>
+
+    <!-- ============================================================ -->
+    <!-- Action                                                        -->
+    <!-- ============================================================ -->
+    <record id="action_devops_project" model="ir.actions.act_window">
+        <field name="name">Proyectos DevOps</field>
+        <field name="res_model">devops.project</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Crea tu primer proyecto DevOps
+            </p>
+            <p>Administra instancias Odoo, ramas Git, builds y backups desde un solo lugar.</p>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- List view                                                     -->
+    <!-- ============================================================ -->
+    <record id="view_devops_project_list" model="ir.ui.view">
+        <field name="name">devops.project.list</field>
+        <field name="model">devops.project</field>
+        <field name="arch" type="xml">
+            <list string="Proyectos DevOps">
+                <field name="name"/>
+                <field name="environment" widget="badge"
+                       decoration-success="environment == 'production'"
+                       decoration-warning="environment == 'staging'"
+                       decoration-info="environment == 'development'"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'running'"
+                       decoration-danger="state == 'error'"
+                       decoration-warning="state == 'stopped'"
+                       decoration-muted="state == 'draft'"/>
+                <field name="repo_current_branch"/>
+                <field name="odoo_service_name"/>
+                <field name="connection_type"/>
+                <field name="database_name"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- Form view                                                     -->
+    <!-- ============================================================ -->
+    <record id="view_devops_project_form" model="ir.ui.view">
+        <field name="name">devops.project.form</field>
+        <field name="model">devops.project</field>
+        <field name="arch" type="xml">
+            <form string="Proyecto DevOps">
+                <header>
+                    <button name="action_refresh_status" type="object"
+                            string="Refresh Status" class="oe_highlight"
+                            icon="fa-refresh"/>
+                    <button name="action_restart_service" type="object"
+                            string="Restart Service" class="btn-warning"
+                            icon="fa-repeat"
+                            confirm="Reiniciar el servicio Odoo?"/>
+                    <button name="action_sync_branches" type="object"
+                            string="Sync Branches" icon="fa-code-fork"/>
+                    <button name="action_open_ai_assistant" type="object"
+                            string="AI Assistant" icon="fa-robot"/>
+                    <button name="action_create_backup" type="object"
+                            string="Create Backup" icon="fa-database"/>
+                    <button name="action_fetch_logs" type="object"
+                            string="Fetch Logs" icon="fa-file-text-o"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,running,stopped,error"/>
+                </header>
+                <sheet>
+                    <!-- Smart buttons -->
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_view_branches" type="object"
+                                class="oe_stat_button" icon="fa-code-fork">
+                            <field name="branch_count" widget="statinfo" string="Ramas"/>
+                        </button>
+                        <button name="action_view_builds" type="object"
+                                class="oe_stat_button" icon="fa-cogs">
+                            <field name="build_count" widget="statinfo" string="Builds"/>
+                        </button>
+                        <button name="action_view_backups" type="object"
+                                class="oe_stat_button" icon="fa-database">
+                            <field name="backup_count" widget="statinfo" string="Backups"/>
+                        </button>
+                        <button name="action_view_logs" type="object"
+                                class="oe_stat_button" icon="fa-file-text-o">
+                            <field name="log_count" widget="statinfo" string="Logs"/>
+                        </button>
+                    </div>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name" placeholder="Nombre del proyecto"/>
+                        </h1>
+                    </div>
+                    <notebook>
+                        <!-- Tab: General -->
+                        <page string="General" name="general">
+                            <group>
+                                <group string="Repositorio">
+                                    <field name="repo_path"/>
+                                    <field name="description" widget="html"/>
+                                    <field name="environment"/>
+                                    <field name="production_branch"/>
+                                    <field name="staging_branch"/>
+                                    <field name="auto_deploy"/>
+                                </group>
+                                <group string="Servicio Odoo">
+                                    <field name="odoo_service_name"/>
+                                    <field name="odoo_config_path"/>
+                                    <field name="odoo_url" widget="url"/>
+                                    <field name="database_name"/>
+                                    <field name="odoo_version"/>
+                                </group>
+                            </group>
+                        </page>
+                        <!-- Tab: Conexion -->
+                        <page string="Conexion" name="connection">
+                            <group>
+                                <group>
+                                    <field name="connection_type" widget="radio"/>
+                                </group>
+                                <group invisible="connection_type == 'local'">
+                                    <field name="ssh_host"/>
+                                    <field name="ssh_user"/>
+                                    <field name="ssh_port"/>
+                                    <field name="ssh_key_path"/>
+                                </group>
+                            </group>
+                        </page>
+                        <!-- Tab: Miembros -->
+                        <page string="Miembros" name="members">
+                            <field name="member_ids">
+                                <list editable="bottom">
+                                    <field name="user_id"/>
+                                    <field name="role"/>
+                                </list>
+                            </field>
+                        </page>
+                        <!-- Tab: IA -->
+                        <page string="IA" name="ai"
+                              groups="pmb_devops.group_devops_admin">
+                            <group>
+                                <group>
+                                    <field name="ai_api_key" password="True"/>
+                                </group>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- Search view                                                   -->
+    <!-- ============================================================ -->
+    <record id="view_devops_project_search" model="ir.ui.view">
+        <field name="name">devops.project.search</field>
+        <field name="model">devops.project</field>
+        <field name="arch" type="xml">
+            <search string="Proyectos DevOps">
+                <field name="name"/>
+                <field name="database_name"/>
+                <field name="odoo_service_name"/>
+                <separator/>
+                <filter string="Produccion" name="filter_production"
+                        domain="[('environment', '=', 'production')]"/>
+                <filter string="Staging" name="filter_staging"
+                        domain="[('environment', '=', 'staging')]"/>
+                <filter string="Desarrollo" name="filter_development"
+                        domain="[('environment', '=', 'development')]"/>
+                <separator/>
+                <filter string="Ejecutando" name="filter_running"
+                        domain="[('state', '=', 'running')]"/>
+                <filter string="Detenido" name="filter_stopped"
+                        domain="[('state', '=', 'stopped')]"/>
+                <filter string="Error" name="filter_error"
+                        domain="[('state', '=', 'error')]"/>
+                <separator/>
+                <filter string="Local" name="filter_local"
+                        domain="[('connection_type', '=', 'local')]"/>
+                <filter string="SSH" name="filter_ssh"
+                        domain="[('connection_type', '=', 'ssh')]"/>
+            </search>
+        </field>
+    </record>
+
+</odoo>

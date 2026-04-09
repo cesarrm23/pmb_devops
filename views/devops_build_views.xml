@@ -1,2 +1,138 @@
 <?xml version="1.0" encoding="utf-8"?>
-<odoo></odoo>
+<odoo>
+
+    <!-- ============================================================ -->
+    <!-- Action                                                        -->
+    <!-- ============================================================ -->
+    <record id="action_devops_build" model="ir.actions.act_window">
+        <field name="name">Builds</field>
+        <field name="res_model">devops.build</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No hay builds registrados
+            </p>
+            <p>Los builds se crean al hacer deploy o manualmente desde una rama.</p>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- List view                                                     -->
+    <!-- ============================================================ -->
+    <record id="view_devops_build_list" model="ir.ui.view">
+        <field name="name">devops.build.list</field>
+        <field name="model">devops.build</field>
+        <field name="arch" type="xml">
+            <list string="Builds"
+                  decoration-success="state == 'success'"
+                  decoration-danger="state == 'failed'"
+                  decoration-info="state == 'building'">
+                <field name="name"/>
+                <field name="branch_id"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'success'"
+                       decoration-danger="state == 'failed'"
+                       decoration-info="state == 'building'"
+                       decoration-warning="state == 'warning'"
+                       decoration-muted="state == 'pending'"/>
+                <field name="build_type"/>
+                <field name="commit_hash"/>
+                <field name="triggered_by"/>
+                <field name="duration"/>
+                <field name="create_date"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- Form view                                                     -->
+    <!-- ============================================================ -->
+    <record id="view_devops_build_form" model="ir.ui.view">
+        <field name="name">devops.build.form</field>
+        <field name="model">devops.build</field>
+        <field name="arch" type="xml">
+            <form string="Build">
+                <header>
+                    <button name="action_rebuild" type="object"
+                            string="Rebuild" class="oe_highlight"
+                            icon="fa-repeat"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="pending,building,testing,success,failed"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group string="Informacion del Build">
+                            <field name="project_id"/>
+                            <field name="branch_id"/>
+                            <field name="build_type"/>
+                            <field name="triggered_by"/>
+                        </group>
+                        <group string="Commit">
+                            <field name="commit_hash"/>
+                            <field name="commit_message"/>
+                            <field name="commit_author"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group string="Tiempos">
+                            <field name="started_at"/>
+                            <field name="finished_at"/>
+                            <field name="duration"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Build Log" name="build_log">
+                            <field name="build_log" readonly="1"
+                                   widget="text" placeholder="Sin logs de build..."/>
+                        </page>
+                        <page string="Error Log" name="error_log">
+                            <field name="error_log" readonly="1"
+                                   widget="text" placeholder="Sin errores..."/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- Search view                                                   -->
+    <!-- ============================================================ -->
+    <record id="view_devops_build_search" model="ir.ui.view">
+        <field name="name">devops.build.search</field>
+        <field name="model">devops.build</field>
+        <field name="arch" type="xml">
+            <search string="Builds">
+                <field name="name"/>
+                <field name="branch_id"/>
+                <field name="project_id"/>
+                <separator/>
+                <filter string="Pendiente" name="filter_pending"
+                        domain="[('state', '=', 'pending')]"/>
+                <filter string="Construyendo" name="filter_building"
+                        domain="[('state', '=', 'building')]"/>
+                <filter string="Exitoso" name="filter_success"
+                        domain="[('state', '=', 'success')]"/>
+                <filter string="Fallido" name="filter_failed"
+                        domain="[('state', '=', 'failed')]"/>
+                <filter string="Con Advertencias" name="filter_warning"
+                        domain="[('state', '=', 'warning')]"/>
+                <separator/>
+                <filter string="Push" name="filter_push"
+                        domain="[('build_type', '=', 'push')]"/>
+                <filter string="Manual" name="filter_manual"
+                        domain="[('build_type', '=', 'manual')]"/>
+                <filter string="Cron" name="filter_cron"
+                        domain="[('build_type', '=', 'cron')]"/>
+                <filter string="Deploy" name="filter_deploy"
+                        domain="[('build_type', '=', 'deploy')]"/>
+            </search>
+        </field>
+    </record>
+
+</odoo>

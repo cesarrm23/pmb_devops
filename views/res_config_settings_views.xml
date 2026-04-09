@@ -1,2 +1,120 @@
 <?xml version="1.0" encoding="utf-8"?>
-<odoo></odoo>
+<odoo>
+
+    <!-- ============================================================ -->
+    <!-- Action                                                        -->
+    <!-- ============================================================ -->
+    <record id="action_devops_settings" model="ir.actions.act_window">
+        <field name="name">DevOps Settings</field>
+        <field name="res_model">res.config.settings</field>
+        <field name="view_mode">form</field>
+        <field name="target">main</field>
+        <field name="context">{'module': 'pmb_devops'}</field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- Settings form (inherit res.config.settings)                   -->
+    <!-- ============================================================ -->
+    <record id="view_res_config_settings_form" model="ir.ui.view">
+        <field name="name">res.config.settings.form.pmb_devops</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="DevOps" string="DevOps" name="pmb_devops">
+
+                    <!-- ========== Claude Code Section ========== -->
+                    <block title="Claude Code" name="devops_claude_section">
+                        <setting string="API Key" help="Clave de API para Claude. Se usa como fallback si Claude CLI no esta autenticado.">
+                            <div class="content-group">
+                                <div class="row mt-2">
+                                    <label for="devops_claude_api_key" class="col-lg-3 o_light_label"/>
+                                    <field name="devops_claude_api_key" password="True" class="col-lg-6"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="Modelo" help="Modelo de Claude a utilizar para analisis y asistencia IA.">
+                            <div class="content-group">
+                                <div class="row mt-2">
+                                    <label for="devops_claude_model" class="col-lg-3 o_light_label"/>
+                                    <field name="devops_claude_model" class="col-lg-6"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="Estado Claude CLI" help="Estado de la instalacion y autenticacion de Claude CLI en el servidor.">
+                            <div class="content-group">
+                                <div class="row mt-2">
+                                    <label for="devops_claude_installed" class="col-lg-3 o_light_label"/>
+                                    <field name="devops_claude_installed" readonly="1"/>
+                                </div>
+                                <div class="row mt-1">
+                                    <label for="devops_claude_version" class="col-lg-3 o_light_label"/>
+                                    <field name="devops_claude_version" readonly="1" class="col-lg-6"/>
+                                </div>
+                                <div class="row mt-1">
+                                    <label for="devops_claude_logged_in" class="col-lg-3 o_light_label"/>
+                                    <field name="devops_claude_logged_in" readonly="1"/>
+                                </div>
+                                <div class="row mt-1">
+                                    <label for="devops_claude_auth_method" class="col-lg-3 o_light_label"/>
+                                    <field name="devops_claude_auth_method" readonly="1" class="col-lg-6"/>
+                                </div>
+                                <div class="row mt-1">
+                                    <label for="devops_claude_status_message" class="col-lg-3 o_light_label"/>
+                                    <field name="devops_claude_status_message" readonly="1" class="col-lg-6"/>
+                                </div>
+                                <div class="row mt-3">
+                                    <div class="col-lg-12">
+                                        <button name="action_test_claude_connection" type="object"
+                                                string="Test Connection" class="btn-primary me-2"
+                                                icon="fa-plug"/>
+                                        <button name="action_open_claude_login" type="object"
+                                                string="Login" class="btn-secondary"
+                                                icon="fa-sign-in"/>
+                                    </div>
+                                </div>
+                            </div>
+                        </setting>
+                    </block>
+
+                    <!-- ========== Backups Section ========== -->
+                    <block title="Backups" name="devops_backup_section">
+                        <setting string="Ruta de Backups" help="Directorio en el servidor donde se almacenan los archivos de backup.">
+                            <div class="content-group">
+                                <div class="row mt-2">
+                                    <label for="devops_backup_path" class="col-lg-3 o_light_label"/>
+                                    <field name="devops_backup_path" class="col-lg-6"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="Retencion" help="Cantidad de dias que se conservan los backups automaticos antes de eliminarlos.">
+                            <div class="content-group">
+                                <div class="row mt-2">
+                                    <label for="devops_backup_retention_days" class="col-lg-3 o_light_label"/>
+                                    <field name="devops_backup_retention_days" class="col-lg-3"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="Backup Automatico" help="Habilitar backups automaticos mediante cron.">
+                            <field name="devops_auto_backup"/>
+                        </setting>
+                    </block>
+
+                    <!-- ========== Git Section ========== -->
+                    <block title="Git" name="devops_git_section">
+                        <setting string="Ruta por Defecto" help="Ruta base predeterminada para repositorios Git de nuevos proyectos.">
+                            <div class="content-group">
+                                <div class="row mt-2">
+                                    <label for="devops_default_repo_path" class="col-lg-3 o_light_label"/>
+                                    <field name="devops_default_repo_path" class="col-lg-6"/>
+                                </div>
+                            </div>
+                        </setting>
+                    </block>
+
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>
