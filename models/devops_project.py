@@ -230,9 +230,17 @@ class DevopsProject(models.Model):
                     'is_remote': bdata.get('is_remote', False),
                 })
             else:
+                # Determine branch type
+                branch_type = 'development'
+                if branch_name == self.production_branch:
+                    branch_type = 'production'
+                elif branch_name == self.staging_branch:
+                    branch_type = 'staging'
+
                 BranchModel.create({
                     'project_id': self.id,
                     'name': branch_name,
+                    'branch_type': branch_type,
                     'last_commit_hash': bdata.get('hash', ''),
                     'last_commit_message': bdata.get('message', ''),
                     'last_commit_author': bdata.get('author', ''),
@@ -240,6 +248,12 @@ class DevopsProject(models.Model):
                     'is_remote': bdata.get('is_remote', False),
                 })
 
+        # Remove branches that no longer exist
+        current_names = {b.get('name') for b in branches_data if b.get('name')}
+        to_delete = self.branch_ids.filtered(lambda b: b.name not in current_names)
+        to_delete.unlink()
+
+        self._compute_repo_info()
         self.message_post(
             body=_("Ramas sincronizadas: %d encontradas.") % len(branches_data),
         )
