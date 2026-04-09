@@ -88,10 +88,10 @@ class DevopsPlugin(models.Model):
     use_in_production = fields.Boolean(string='Usar en Producción', default=False)
     use_in_development = fields.Boolean(string='Usar en Development', default=True)
 
-    _sql_constraints = [
-        ('unique_package', 'unique(package_name)',
-         'Ya existe un plugin con este nombre de paquete.'),
-    ]
+    _unique_package = models.Constraint(
+        'UNIQUE(package_name)',
+        'Ya existe un plugin con este nombre de paquete.',
+    )
 
     # ------------------------------------------------------------------
     # Computed

@@ -105,7 +105,7 @@
                         domain="[('context_type', '=', 'log')]"/>
                 <filter string="Build" name="filter_build"
                         domain="[('context_type', '=', 'build')]"/>
-                <group expand="0" string="Agrupar por">
+                <separator/>
                     <filter string="Proyecto" name="group_project"
                             context="{'group_by': 'project_id'}"/>
                     <filter string="Estado" name="group_state"
@@ -114,7 +114,6 @@
                             context="{'group_by': 'context_type'}"/>
                     <filter string="Usuario" name="group_user"
                             context="{'group_by': 'user_id'}"/>
-                </group>
             </search>
         </field>
     </record>

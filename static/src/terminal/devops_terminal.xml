@@ -21,17 +21,17 @@
                     <button class="btn"
                             t-att-class="state.activeTab === 'claude' ? 'btn-primary' : 'btn-outline-secondary'"
                             t-on-click="() => this._startSession('claude')">
-                        <i class="fa fa-robot me-1"/> AI
+                        <i class="fa fa-robot me-1" title="AI"/> AI
                     </button>
                     <button class="btn"
                             t-att-class="state.activeTab === 'shell' ? 'btn-success' : 'btn-outline-secondary'"
                             t-on-click="() => this._startSession('shell')">
-                        <i class="fa fa-terminal me-1"/> Shell
+                        <i class="fa fa-terminal me-1" title="Shell"/> Shell
                     </button>
                     <button class="btn"
                             t-att-class="state.activeTab === 'logs' ? 'btn-warning' : 'btn-outline-secondary'"
                             t-on-click="() => this._startSession('logs')">
-                        <i class="fa fa-file-text me-1"/> Logs
+                        <i class="fa fa-file-text me-1" title="Logs"/> Logs
                     </button>
                 </div>
                 <span class="ms-auto small" style="color: #7aa2f7;">

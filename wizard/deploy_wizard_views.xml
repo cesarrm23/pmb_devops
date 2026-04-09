@@ -30,7 +30,7 @@
 
                 <!-- ── State: DEPLOYING ─────────────────────────── -->
                 <div invisible="state != 'deploying'" class="text-center py-5">
-                    <i class="fa fa-spinner fa-spin fa-3x text-warning mb-3"/>
+                    <i class="fa fa-spinner fa-spin fa-3x text-warning mb-3" title="Desplegando"/>
                     <h3>Desplegando...</h3>
                     <p class="text-muted">
                         Ejecutando deploy. No cierre esta ventana.
@@ -40,7 +40,7 @@
                 <!-- ── State: DONE ──────────────────────────────── -->
                 <group invisible="state != 'done'">
                     <div class="alert alert-success" role="alert" colspan="2">
-                        <i class="fa fa-check-circle"/> Deploy completado exitosamente.
+                        <i class="fa fa-check-circle" title="Exitoso"/> Deploy completado exitosamente.
                     </div>
                     <group string="Log de Deploy" colspan="2">
                         <field name="deploy_log" nolabel="1" colspan="2"

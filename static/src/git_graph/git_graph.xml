@@ -24,7 +24,7 @@
                                      style="color: #c0caf5;"
                                      t-att-class="state.selectedBranch === branch.id ? 'bg-primary' : ''"
                                      t-on-click="() => this._selectBranch(branch)">
-                                    <i class="fa fa-code-fork me-1"/>
+                                    <i class="fa fa-code-fork me-1" title="Rama"/>
                                     <t t-esc="branch.name"/>
                                     <span t-if="branch.is_current" class="badge bg-warning ms-1">HEAD</span>
                                 </div>
@@ -33,14 +33,14 @@
                     </t>
                     <button class="btn btn-sm btn-outline-info w-100 mt-2"
                             t-on-click="_loadData">
-                        <i class="fa fa-refresh me-1"/> Actualizar
+                        <i class="fa fa-refresh me-1" title="Actualizar"/> Actualizar
                     </button>
                 </div>
             </div>
             <!-- Canvas -->
             <div class="flex-grow-1 p-3" style="overflow: auto;">
                 <div t-if="state.loading" class="text-center py-5" style="color: #7aa2f7;">
-                    <i class="fa fa-spinner fa-spin fa-2x"/>
+                    <i class="fa fa-spinner fa-spin fa-2x" title="Cargando"/>
                 </div>
                 <canvas t-ref="graphCanvas" t-if="!state.loading"/>
             </div>

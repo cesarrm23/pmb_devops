@@ -65,10 +65,10 @@ class DevopsBranch(models.Model):
         'Commits Atrás', compute='_compute_diff_stats',
     )
 
-    _sql_constraints = [
-        ('unique_branch', 'unique(project_id, name)',
-         'Ya existe una rama con este nombre en el proyecto.'),
-    ]
+    _unique_branch = models.Constraint(
+        'UNIQUE(project_id, name)',
+        'Ya existe una rama con este nombre en el proyecto.',
+    )
 
     # ── Computed fields ─────────────────────────────────────────────
 

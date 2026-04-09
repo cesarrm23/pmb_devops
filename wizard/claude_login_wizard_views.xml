@@ -27,7 +27,7 @@
                 <!-- ── State: SUCCESS ───────────────────────────── -->
                 <group invisible="state != 'success'">
                     <div class="alert alert-success" role="alert" colspan="2">
-                        <i class="fa fa-check-circle"/>
+                        <i class="fa fa-check-circle" title="Exitoso"/>
                         <strong> Autenticacion exitosa</strong>
                     </div>
                     <group colspan="2">

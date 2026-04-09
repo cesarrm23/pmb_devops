@@ -20,7 +20,7 @@ class DevopsProjectMember(models.Model):
         ('viewer', 'Viewer'),
     ], string='Rol', required=True, default='developer')
 
-    _sql_constraints = [
-        ('unique_member', 'unique(project_id, user_id)',
-         'El usuario ya es miembro de este proyecto.'),
-    ]
+    _unique_member = models.Constraint(
+        'UNIQUE(project_id, user_id)',
+        'El usuario ya es miembro de este proyecto.',
+    )

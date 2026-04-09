@@ -39,7 +39,7 @@ class DevopsBuild(models.Model):
         ('success', 'Exitoso'),
         ('warning', 'Con Advertencias'),
         ('failed', 'Fallido'),
-    ], string='Estado', default='pending', required=True, tracking=True)
+    ], string='Estado', default='pending', required=True)
     build_type = fields.Selection([
         ('push', 'Push'),
         ('manual', 'Manual'),
