@@ -445,3 +445,47 @@ class DevopsInstanceInfra(models.Model):
                 rec.state = 'stopped'
             else:
                 rec.state = 'error'
+
+    # ---- Cron methods ----
+
+    @api.model
+    def _cron_auto_stop(self):
+        """Stop staging/dev instances with >1h inactivity."""
+        from datetime import timedelta
+        cutoff = fields.Datetime.now() - timedelta(hours=1)
+        instances = self.search([
+            ('instance_type', 'in', ['staging', 'development']),
+            ('state', '=', 'running'),
+            ('last_activity', '<', cutoff),
+        ])
+        for inst in instances:
+            try:
+                inst.action_stop()
+            except Exception as e:
+                _logger.warning("Auto-stop failed for %s: %s", inst.name, e)
+
+    @api.model
+    def _cron_auto_destroy(self):
+        """Destroy stopped development instances after configured hours."""
+        from datetime import timedelta
+        instances = self.search([
+            ('instance_type', '=', 'development'),
+            ('state', '=', 'stopped'),
+        ])
+        for inst in instances:
+            hours = inst.project_id.auto_destroy_hours or 24
+            cutoff = fields.Datetime.now() - timedelta(hours=hours)
+            if inst.last_activity and inst.last_activity < cutoff:
+                try:
+                    inst.action_destroy()
+                except Exception as e:
+                    _logger.warning("Auto-destroy failed for %s: %s", inst.name, e)
+
+    @api.model
+    def _cron_health_check(self):
+        """Check service status of all running/error instances."""
+        instances = self.search([
+            ('state', 'in', ['running', 'error']),
+            ('service_name', '!=', False),
+        ])
+        instances._check_service_status()
