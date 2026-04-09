@@ -1,0 +1,331 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="pmb_devops.PmbDevopsApp">
+        <div class="pmb-app d-flex flex-column vh-100">
+            <!-- NAVBAR -->
+            <div class="pmb-navbar d-flex align-items-center px-3"
+                 style="height: 46px; background: #1e1e2e; border-bottom: 1px solid #313244;">
+                <span class="fw-bold me-4" style="color: #cdd6f4; font-size: 16px;">
+                    PMB DevOps
+                </span>
+                <!-- Nav tabs -->
+                <span class="px-3 py-2 cursor-pointer"
+                      t-att-style="state.activeNavTab === 'branches' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
+                      t-on-click="() => this._onNavTabChange('branches')">
+                    Branches
+                </span>
+                <span class="px-3 py-2 cursor-pointer"
+                      t-att-style="state.activeNavTab === 'builds' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
+                      t-on-click="() => this._onNavTabChange('builds')">
+                    Builds
+                </span>
+                <span class="px-3 py-2 cursor-pointer"
+                      t-att-style="state.activeNavTab === 'status' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
+                      t-on-click="() => this._onNavTabChange('status')">
+                    Status
+                </span>
+                <span class="px-3 py-2 cursor-pointer"
+                      t-att-style="state.activeNavTab === 'logs' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
+                      t-on-click="() => this._onNavTabChange('logs')">
+                    Logs
+                </span>
+                <!-- Settings -->
+                <span class="px-3 py-2 cursor-pointer"
+                      t-att-style="state.activeNavTab === 'settings' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
+                      t-on-click="() => this._onNavTabChange('settings')">
+                    Settings
+                </span>
+
+                <!-- Spacer -->
+                <div class="flex-grow-1"/>
+
+                <!-- Project selector -->
+                <select class="form-select form-select-sm"
+                        style="width: 200px; background: #313244; color: #cdd6f4; border-color: #45475a; font-size: 13px;"
+                        t-on-change="(ev) => this._onProjectChange(ev)">
+                    <t t-foreach="state.projects" t-as="p" t-key="p.id">
+                        <option t-att-value="p.id" t-att-selected="p.id === state.currentProjectId">
+                            <t t-esc="p.name"/>
+                        </option>
+                    </t>
+                </select>
+            </div>
+
+            <!-- BODY: sidebar + main -->
+            <div class="d-flex flex-grow-1" style="overflow: hidden;">
+
+                <!-- SIDEBAR -->
+                <div class="pmb-sidebar d-flex flex-column"
+                     style="width: 260px; background: #1e1e2e; border-right: 1px solid #313244; overflow-y: auto;"
+                     t-if="state.activeNavTab === 'branches'">
+
+                    <!-- Filter -->
+                    <div class="p-2">
+                        <input type="text" class="form-control form-control-sm"
+                               placeholder="Filter branches..."
+                               style="background: #313244; color: #cdd6f4; border-color: #45475a; font-size: 12px;"
+                               t-model="state.sidebarFilter"/>
+                    </div>
+
+                    <!-- Production -->
+                    <div class="px-3 pt-2">
+                        <div class="fw-bold small mb-1" style="color: #f38ba8;">Production</div>
+                        <t t-foreach="this._getFilteredInstances('production')" t-as="inst" t-key="inst.id">
+                            <div class="d-flex align-items-center px-2 py-1 rounded cursor-pointer mb-1"
+                                 t-att-style="state.selectedInstance and state.selectedInstance.id === inst.id ? 'background: #313244;' : ''"
+                                 t-on-click="() => this._selectInstance(inst)">
+                                <span class="me-2" t-att-style="'width:8px; height:8px; border-radius:50%; display:inline-block; background:' + this._getStatusColor(inst)"/>
+                                <span style="color: #cdd6f4; font-size: 13px;" class="text-truncate flex-grow-1">
+                                    <t t-esc="inst.branch_name || inst.name"/>
+                                </span>
+                                <span style="color: #6c7086; font-size: 11px;" class="ms-1">19.0</span>
+                            </div>
+                        </t>
+                    </div>
+
+                    <!-- Staging -->
+                    <div class="px-3 pt-3">
+                        <div class="d-flex align-items-center mb-1">
+                            <span class="fw-bold small flex-grow-1" style="color: #fab387;">Staging</span>
+                            <button class="btn btn-sm p-0" style="color: #fab387; font-size: 16px; line-height: 1;"
+                                    t-on-click="() => this._showCreateDialog('staging')" title="Create staging">+</button>
+                        </div>
+                        <t t-foreach="this._getFilteredInstances('staging')" t-as="inst" t-key="inst.id">
+                            <div class="d-flex align-items-center px-2 py-1 rounded cursor-pointer mb-1"
+                                 t-att-style="state.selectedInstance and state.selectedInstance.id === inst.id ? 'background: #313244;' : ''"
+                                 t-on-click="() => this._selectInstance(inst)">
+                                <span class="me-2" t-att-style="'width:8px; height:8px; border-radius:50%; display:inline-block; background:' + this._getStatusColor(inst)"/>
+                                <span style="color: #cdd6f4; font-size: 13px;" class="text-truncate flex-grow-1">
+                                    <t t-esc="inst.branch_name || inst.name"/>
+                                </span>
+                                <span style="color: #6c7086; font-size: 11px;" class="ms-1">19.0</span>
+                            </div>
+                        </t>
+                    </div>
+
+                    <!-- Development -->
+                    <div class="px-3 pt-3">
+                        <div class="d-flex align-items-center mb-1">
+                            <span class="fw-bold small flex-grow-1" style="color: #a6e3a1;">Development</span>
+                            <button class="btn btn-sm p-0" style="color: #a6e3a1; font-size: 16px; line-height: 1;"
+                                    t-on-click="() => this._showCreateDialog('development')" title="Create development">+</button>
+                        </div>
+                        <t t-foreach="this._getFilteredInstances('development')" t-as="inst" t-key="inst.id">
+                            <div class="d-flex align-items-center px-2 py-1 rounded cursor-pointer mb-1"
+                                 t-att-style="state.selectedInstance and state.selectedInstance.id === inst.id ? 'background: #313244;' : ''"
+                                 t-on-click="() => this._selectInstance(inst)">
+                                <span class="me-2" t-att-style="'width:8px; height:8px; border-radius:50%; display:inline-block; background:' + this._getStatusColor(inst)"/>
+                                <span style="color: #cdd6f4; font-size: 13px;" class="text-truncate flex-grow-1">
+                                    <t t-esc="inst.branch_name || inst.name"/>
+                                </span>
+                                <span style="color: #6c7086; font-size: 11px;" class="ms-1">19.0</span>
+                            </div>
+                        </t>
+                    </div>
+                </div>
+
+                <!-- MAIN CONTENT -->
+                <div class="flex-grow-1 d-flex flex-column" style="background: #181825; overflow-y: auto;">
+                    <t t-if="state.selectedInstance">
+                        <!-- Branch header -->
+                        <div class="px-4 pt-3">
+                            <h2 style="color: #cdd6f4; font-weight: 300;">
+                                <t t-esc="state.selectedInstance.branch_name || state.selectedInstance.name"/>
+                            </h2>
+                            <div class="d-flex align-items-center gap-2 mb-2">
+                                <span class="badge" t-att-style="'background:' + this._getStatusColor(state.selectedInstance) + '; color: #1e1e2e; font-size: 11px;'">
+                                    <t t-esc="state.selectedInstance.state"/>
+                                </span>
+                                <span t-if="state.selectedInstance.url" style="color: #89b4fa; font-size: 12px;">
+                                    <t t-esc="state.selectedInstance.url"/>
+                                </span>
+                                <span t-if="state.selectedInstance.port" style="color: #6c7086; font-size: 12px;">
+                                    :<t t-esc="state.selectedInstance.port"/>
+                                </span>
+                            </div>
+                        </div>
+
+                        <!-- Action bar -->
+                        <div class="px-4 pb-2 d-flex gap-1">
+                            <button class="btn btn-sm"
+                                    style="background: #313244; color: #cdd6f4; border: 1px solid #45475a; font-size: 12px;"
+                                    t-on-click="() => this._onAction('Clone')">
+                                Clone
+                            </button>
+                            <button class="btn btn-sm"
+                                    style="background: #313244; color: #cdd6f4; border: 1px solid #45475a; font-size: 12px;"
+                                    t-on-click="() => this._onAction('Fork')">
+                                Fork
+                            </button>
+                            <button class="btn btn-sm"
+                                    style="background: #313244; color: #cdd6f4; border: 1px solid #45475a; font-size: 12px;"
+                                    t-on-click="() => this._onAction('Merge')">
+                                Merge
+                            </button>
+                            <button class="btn btn-sm"
+                                    style="background: #313244; color: #cdd6f4; border: 1px solid #45475a; font-size: 12px;"
+                                    t-on-click="() => this._onAction('SSH')">
+                                SSH
+                            </button>
+                            <button class="btn btn-sm"
+                                    style="background: #313244; color: #cdd6f4; border: 1px solid #45475a; font-size: 12px;"
+                                    t-on-click="() => this._onAction('SQL')">
+                                SQL
+                            </button>
+                            <button class="btn btn-sm"
+                                    style="background: #45475a; color: #f38ba8; border: 1px solid #f38ba8; font-size: 12px;"
+                                    t-on-click="() => this._destroyInstance()"
+                                    t-if="state.selectedInstance.instance_type !== 'production'">
+                                Delete
+                            </button>
+                        </div>
+
+                        <!-- Content tabs -->
+                        <div class="d-flex px-4 gap-0" style="border-bottom: 1px solid #313244;">
+                            <span class="px-3 py-2 cursor-pointer"
+                                  t-att-style="state.activeContentTab === 'history' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
+                                  t-on-click="() => this._onContentTabChange('history')">
+                                HISTORY
+                            </span>
+                            <span class="px-3 py-2 cursor-pointer"
+                                  t-att-style="state.activeContentTab === 'ai' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
+                                  t-on-click="() => this._onContentTabChange('ai')">
+                                AI
+                            </span>
+                            <span class="px-3 py-2 cursor-pointer"
+                                  t-att-style="state.activeContentTab === 'shell' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
+                                  t-on-click="() => this._onContentTabChange('shell')">
+                                SHELL
+                            </span>
+                            <span class="px-3 py-2 cursor-pointer"
+                                  t-att-style="state.activeContentTab === 'logs' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
+                                  t-on-click="() => this._onContentTabChange('logs')">
+                                LOGS
+                            </span>
+                            <span class="px-3 py-2 cursor-pointer"
+                                  t-att-style="state.activeContentTab === 'backups' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
+                                  t-on-click="() => this._onContentTabChange('backups')">
+                                BACKUPS
+                            </span>
+                            <span class="px-3 py-2 cursor-pointer"
+                                  t-att-style="state.activeContentTab === 'upgrade' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
+                                  t-on-click="() => this._onContentTabChange('upgrade')">
+                                UPGRADE
+                            </span>
+                            <span class="px-3 py-2 cursor-pointer"
+                                  t-att-style="state.activeContentTab === 'tools' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
+                                  t-on-click="() => this._onContentTabChange('tools')">
+                                TOOLS
+                            </span>
+                        </div>
+
+                        <!-- Tab content area -->
+                        <div class="flex-grow-1 p-4" style="overflow-y: auto;">
+                            <!-- HISTORY tab -->
+                            <div t-if="state.activeContentTab === 'history'" style="color: #cdd6f4;">
+                                <div t-if="state.selectedBranch and state.selectedBranch.last_commit_hash" class="mb-3">
+                                    <div class="d-flex align-items-center gap-2 mb-2">
+                                        <span style="color: #89b4fa; font-family: monospace; font-size: 13px;">
+                                            <t t-esc="(state.selectedBranch.last_commit_hash || '').substring(0, 8)"/>
+                                        </span>
+                                        <span style="color: #cdd6f4; font-size: 13px;">
+                                            <t t-esc="state.selectedBranch.last_commit_message"/>
+                                        </span>
+                                    </div>
+                                    <div style="color: #6c7086; font-size: 12px;">
+                                        by <t t-esc="state.selectedBranch.last_commit_author"/>
+                                    </div>
+                                </div>
+                                <p t-if="!state.selectedBranch or !state.selectedBranch.last_commit_hash" style="color: #6c7086;">
+                                    No commit history available. Sync branches from the project settings.
+                                </p>
+                            </div>
+
+                            <!-- AI tab -->
+                            <div t-if="state.activeContentTab === 'ai'" class="flex-grow-1" style="min-height: 500px;">
+                                <div t-ref="terminalAI" style="height: 100%;"/>
+                                <p style="color: #6c7086; font-size: 13px;">AI terminal will be connected here (Task 10).</p>
+                            </div>
+
+                            <!-- SHELL tab -->
+                            <div t-if="state.activeContentTab === 'shell'" class="flex-grow-1" style="min-height: 500px;">
+                                <div t-ref="terminalShell" style="height: 100%;"/>
+                                <p style="color: #6c7086; font-size: 13px;">Shell terminal will be connected here (Task 10).</p>
+                            </div>
+
+                            <!-- LOGS tab -->
+                            <div t-if="state.activeContentTab === 'logs'" class="flex-grow-1" style="min-height: 500px;">
+                                <div t-ref="terminalLogs" style="height: 100%;"/>
+                                <p style="color: #6c7086; font-size: 13px;">Logs terminal will be connected here (Task 10).</p>
+                            </div>
+
+                            <!-- BACKUPS tab -->
+                            <div t-if="state.activeContentTab === 'backups'" style="color: #cdd6f4;">
+                                <p style="color: #6c7086;">Backups management will load here...</p>
+                            </div>
+
+                            <!-- UPGRADE tab -->
+                            <div t-if="state.activeContentTab === 'upgrade'" style="color: #cdd6f4;">
+                                <p style="color: #6c7086;">Deploy/Upgrade pipeline will load here...</p>
+                            </div>
+
+                            <!-- TOOLS tab -->
+                            <div t-if="state.activeContentTab === 'tools'" style="color: #cdd6f4;">
+                                <p style="color: #6c7086;">DevOps tools will load here...</p>
+                            </div>
+                        </div>
+                    </t>
+
+                    <!-- No instance selected -->
+                    <t t-if="!state.selectedInstance">
+                        <div class="d-flex align-items-center justify-content-center flex-grow-1" style="color: #6c7086;">
+                            <div class="text-center">
+                                <div style="font-size: 48px; margin-bottom: 16px; color: #89b4fa;">&#9889;</div>
+                                <h3 style="color: #cdd6f4; font-weight: 300;">PatchMyByte DevOps</h3>
+                                <p>Select a branch from the sidebar to begin.</p>
+                            </div>
+                        </div>
+                    </t>
+                </div>
+            </div>
+
+            <!-- CREATE INSTANCE DIALOG -->
+            <div t-if="state.showCreateDialog" class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
+                 style="background: rgba(0,0,0,0.6); z-index: 1050;">
+                <div style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; width: 400px; padding: 24px;">
+                    <h5 style="color: #cdd6f4;" class="mb-3">
+                        Create <t t-esc="state.createDialogType"/> instance
+                    </h5>
+                    <div class="mb-3">
+                        <label style="color: #a6adc8; font-size: 13px;">Name</label>
+                        <input type="text" class="form-control form-control-sm"
+                               style="background: #313244; color: #cdd6f4; border-color: #45475a;"
+                               t-model="state.createName"
+                               t-att-placeholder="state.createDialogType === 'staging' ? 'staging-hotfix' : 'dev-feature-x'"/>
+                    </div>
+                    <div class="mb-3">
+                        <label style="color: #a6adc8; font-size: 13px;">Branch from</label>
+                        <input type="text" class="form-control form-control-sm"
+                               style="background: #313244; color: #cdd6f4; border-color: #45475a;"
+                               t-model="state.createBranchFrom"/>
+                    </div>
+                    <div class="d-flex justify-content-end gap-2">
+                        <button class="btn btn-sm" style="background: #45475a; color: #cdd6f4;"
+                                t-on-click="() => { this.state.showCreateDialog = false; }">Cancel</button>
+                        <button class="btn btn-sm" style="background: #89b4fa; color: #1e1e2e; font-weight: 600;"
+                                t-on-click="() => this._createInstance()">Create</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- LOADING overlay -->
+            <div t-if="state.loading" class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
+                 style="background: rgba(0,0,0,0.5); z-index: 1060;">
+                <div class="text-center" style="color: #cdd6f4;">
+                    <div class="spinner-border mb-3" role="status"/>
+                    <div>Creating instance...</div>
+                </div>
+            </div>
+        </div>
+    </t>
+</templates>

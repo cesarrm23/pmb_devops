@@ -116,7 +116,7 @@ def _write_bridge_script():
 class DevopsTerminalController(http.Controller):
 
     @http.route('/devops/terminal/start', type='json', auth='user')
-    def terminal_start(self, session_type='shell', service=None):
+    def terminal_start(self, session_type='shell', service=None, instance_id=None):
         """Start a terminal session (claude/shell/logs)."""
         uid = request.env.uid
         session_dir = _get_session_dir(uid, session_type)
@@ -142,6 +142,29 @@ class DevopsTerminalController(http.Controller):
         else:
             return {'error': f'Unknown session type: {session_type}'}
 
+        # Determine working directory
+        cwd = os.path.expanduser('~')
+
+        # If instance_id provided, use its config
+        if instance_id:
+            instance = request.env['devops.instance'].browse(instance_id)
+            if instance.exists():
+                if instance.instance_path:
+                    cwd = instance.instance_path
+                elif instance.project_id.repo_path:
+                    cwd = instance.project_id.repo_path
+
+                # For logs, use instance service
+                if session_type == 'logs' and instance.service_name:
+                    service = instance.service_name
+                    cmd = [
+                        'journalctl', '-u', f'{service}.service',
+                        '-f', '-n', '200', '--no-pager', '--output=short-iso',
+                    ]
+
+                # Update activity
+                instance._update_activity()
+
         # Write bridge script
         bridge_path = _write_bridge_script()
 
@@ -162,7 +185,7 @@ class DevopsTerminalController(http.Controller):
             process = subprocess.Popen(
                 ['python3', bridge_path] + cmd,
                 env=env,
-                cwd=os.path.expanduser('~'),
+                cwd=cwd,
                 start_new_session=True,
             )
 
@@ -187,7 +210,7 @@ class DevopsTerminalController(http.Controller):
             return {'error': str(e)}
 
     @http.route('/devops/terminal/read', type='json', auth='user')
-    def terminal_read(self, session_type='shell', pos=0):
+    def terminal_read(self, session_type='shell', pos=0, instance_id=None):
         """Read output from a terminal session."""
         uid = request.env.uid
         session_dir = _get_session_dir(uid, session_type)
@@ -208,6 +231,15 @@ class DevopsTerminalController(http.Controller):
                 with open(alive_file, 'r') as f:
                     alive = f.read().strip() == '1'
 
+            # Update instance activity on read
+            if instance_id:
+                try:
+                    instance = request.env['devops.instance'].browse(instance_id)
+                    if instance.exists():
+                        instance._update_activity()
+                except Exception:
+                    pass
+
             return {
                 'output': data.decode('utf-8', errors='replace'),
                 'pos': new_pos,
@@ -218,7 +250,7 @@ class DevopsTerminalController(http.Controller):
             return {'output': '', 'pos': pos, 'alive': False, 'error': str(e)}
 
     @http.route('/devops/terminal/write', type='json', auth='user')
-    def terminal_write(self, session_type='shell', data=''):
+    def terminal_write(self, session_type='shell', data='', instance_id=None):
         """Send input to a terminal session."""
         uid = request.env.uid
         session_dir = _get_session_dir(uid, session_type)
@@ -230,6 +262,16 @@ class DevopsTerminalController(http.Controller):
         try:
             with open(input_file, 'ab') as f:
                 f.write(data.encode('utf-8'))
+
+            # Update instance activity on write
+            if instance_id:
+                try:
+                    instance = request.env['devops.instance'].browse(instance_id)
+                    if instance.exists():
+                        instance._update_activity()
+                except Exception:
+                    pass
+
             return {'status': 'ok'}
         except Exception as e:
             _logger.exception("Failed to write terminal input")

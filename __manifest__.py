@@ -40,10 +40,11 @@ Administra múltiples instancias Odoo desde una plataforma central.
     'installable': True,
     'assets': {
         'web.assets_backend': [
+            'pmb_devops/static/src/pmb_app/pmb_app.scss',
+            'pmb_devops/static/src/pmb_app/pmb_app.js',
+            'pmb_devops/static/src/pmb_app/pmb_app.xml',
             'pmb_devops/static/src/terminal/devops_terminal.js',
             'pmb_devops/static/src/terminal/devops_terminal.xml',
-            'pmb_devops/static/src/git_graph/git_graph.js',
-            'pmb_devops/static/src/git_graph/git_graph.xml',
         ],
     },
     'author': 'PatchMyByte',
