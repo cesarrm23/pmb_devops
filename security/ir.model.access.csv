@@ -26,3 +26,6 @@ access_deploy_wizard_admin,devops.deploy.wizard.admin,model_devops_deploy_wizard
 access_login_wizard_admin,devops.claude.login.wizard.admin,model_devops_claude_login_wizard,pmb_devops.group_devops_admin,1,1,1,1
 access_plugin_admin,devops.plugin.admin,model_devops_plugin,pmb_devops.group_devops_admin,1,1,1,1
 access_plugin_developer,devops.plugin.developer,model_devops_plugin,pmb_devops.group_devops_developer,1,0,0,0
+access_instance_admin,devops.instance.admin,model_devops_instance,pmb_devops.group_devops_admin,1,1,1,1
+access_instance_developer,devops.instance.developer,model_devops_instance,pmb_devops.group_devops_developer,1,1,1,0
+access_instance_viewer,devops.instance.viewer,model_devops_instance,pmb_devops.group_devops_viewer,1,0,0,0

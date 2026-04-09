@@ -19,6 +19,7 @@ class DevopsBuild(models.Model):
         'devops.project', string='Proyecto',
         required=True, ondelete='cascade',
     )
+    instance_id = fields.Many2one('devops.instance', string='Instancia', ondelete='cascade')
     branch_id = fields.Many2one(
         'devops.branch', string='Rama',
         required=True, ondelete='cascade',

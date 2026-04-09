@@ -33,7 +33,15 @@ class DevopsProject(models.Model):
         store=True, readonly=True,
     )
 
-    # ---- Odoo service ----
+    # ---- Domain & Instances ----
+    domain = fields.Char(string='Dominio', help='ej: cremara.com')
+    instance_ids = fields.One2many('devops.instance', 'project_id', string='Instancias')
+    production_instance_id = fields.Many2one('devops.instance', string='Instancia Producción')
+    max_staging = fields.Integer(string='Max Staging', default=3)
+    max_development = fields.Integer(string='Max Development', default=5)
+    auto_destroy_hours = fields.Integer(string='Auto-destroy (horas)', default=24)
+
+    # ---- Odoo service (DEPRECATED — will be replaced by instance fields) ----
     odoo_service_name = fields.Char(string='Nombre del Servicio', default='odoo19')
     odoo_config_path = fields.Char(string='Ruta Config Odoo')
     odoo_url = fields.Char(string='URL de Odoo', tracking=True)
@@ -42,10 +50,10 @@ class DevopsProject(models.Model):
         store=True, readonly=True,
     )
 
-    # ---- Database ----
+    # ---- Database (DEPRECATED — will be replaced by instance fields) ----
     database_name = fields.Char(string='Base de Datos', tracking=True)
 
-    # ---- Environment & state ----
+    # ---- Environment & state (DEPRECATED — will be replaced by instance fields) ----
     environment = fields.Selection([
         ('production', 'Producción'),
         ('staging', 'Staging'),

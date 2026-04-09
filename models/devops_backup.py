@@ -20,6 +20,7 @@ class DevopsBackup(models.Model):
         'devops.project', string='Proyecto',
         required=True, ondelete='cascade', index=True,
     )
+    instance_id = fields.Many2one('devops.instance', string='Instancia', ondelete='cascade')
     state = fields.Selection([
         ('pending', 'Pendiente'),
         ('running', 'En Progreso'),

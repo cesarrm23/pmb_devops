@@ -20,6 +20,7 @@ class DevopsBranch(models.Model):
         'devops.project', string='Proyecto',
         required=True, ondelete='cascade',
     )
+    instance_id = fields.Many2one('devops.instance', string='Instancia', ondelete='set null')
     build_ids = fields.One2many(
         'devops.build', 'branch_id', string='Builds',
     )

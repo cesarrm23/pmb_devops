@@ -1,5 +1,7 @@
 from . import devops_project
 from . import devops_project_member
+from . import devops_instance
+from . import devops_instance_infra
 from . import devops_branch
 from . import devops_build
 from . import devops_log
