@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>PatchMyByte DevOps - Manual de Usuario</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; background: #f5f5f5; color: #333; }
+        h1 { color: #1a1b26; border-bottom: 3px solid #7aa2f7; padding-bottom: 10px; }
+        h2 { color: #24283b; margin-top: 40px; border-left: 4px solid #7aa2f7; padding-left: 12px; }
+        img { max-width: 100%; border: 2px solid #ddd; border-radius: 8px; margin: 15px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .step { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+        .step-num { display: inline-block; background: #7aa2f7; color: white; width: 28px; height: 28px; border-radius: 50%; text-align: center; line-height: 28px; font-weight: bold; margin-right: 8px; font-size: 14px; }
+        code { background: #e8e8e8; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+        .tip { background: #e8f4fd; border-left: 4px solid #7aa2f7; padding: 12px 16px; margin: 12px 0; border-radius: 0 8px 8px 0; }
+        .warning { background: #fff3cd; border-left: 4px solid #e0af68; padding: 12px 16px; margin: 12px 0; border-radius: 0 8px 8px 0; }
+        table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+        th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
+        th { background: #7aa2f7; color: white; }
+    </style>
+</head>
+<body>
+    <h1>PatchMyByte DevOps - Manual de Usuario</h1>
+    <p>Guía completa para administrar tus instancias Odoo desde una plataforma central.</p>
+
+    <h2>1. Acceso al Módulo</h2>
+    <div class="step">
+        <p><span class="step-num">1</span> Inicia sesión en <strong>asistentelisto.com</strong></p>
+        <p><span class="step-num">2</span> Haz clic en el menú de hamburguesa y selecciona <strong>DevOps</strong></p>
+        <img src="img/01_menu_devops.png" alt="Menú DevOps"/>
+        <p>Verás el dashboard de Proyectos con los submenús: Proyectos, Git Graph, Ramas, Builds, Deploy IA, Logs, Backups, Terminal, Asistente IA, Plugins y Configuración.</p>
+    </div>
+
+    <h2>2. Crear un Proyecto</h2>
+    <div class="step">
+        <p><span class="step-num">1</span> Ve a <strong>DevOps &gt; Proyectos</strong> y haz clic en <strong>Nuevo</strong></p>
+        <p><span class="step-num">2</span> Llena los campos del formulario:</p>
+        <table>
+            <tr><th>Campo</th><th>Ejemplo (Cremara)</th><th>Descripción</th></tr>
+            <tr><td>Nombre</td><td>Cremara</td><td>Nombre del negocio/proyecto</td></tr>
+            <tr><td>Ruta del Repositorio</td><td>/opt/odoo19Test/cremara_addons</td><td>Ruta absoluta al repo Git</td></tr>
+            <tr><td>Servicio systemd</td><td>odoo19Test</td><td>Nombre del servicio (sin .service)</td></tr>
+            <tr><td>URL</td><td>https://test.cremara.com</td><td>URL de la instancia</td></tr>
+            <tr><td>Base de Datos</td><td>odoo19test</td><td>Nombre de la BD PostgreSQL</td></tr>
+            <tr><td>Entorno</td><td>Staging</td><td>Producción/Staging/Desarrollo</td></tr>
+            <tr><td>Conexión</td><td>Local</td><td>Local (mismo servidor) o SSH</td></tr>
+        </table>
+        <p><span class="step-num">3</span> En la pestaña <strong>Miembros</strong>, agrega usuarios y asigna roles (Admin/Developer/Viewer)</p>
+        <p><span class="step-num">4</span> Guarda el proyecto</p>
+    </div>
+
+    <h2>3. Sincronizar Ramas</h2>
+    <div class="step">
+        <p><span class="step-num">1</span> Abre un proyecto y haz clic en <strong>Sincronizar Ramas</strong></p>
+        <p>Las ramas se clasifican automáticamente como Production, Staging o Development según la configuración del proyecto.</p>
+        <div class="tip">Las ramas se pueden ver también en el <strong>Git Graph</strong> con visualización por colores.</div>
+    </div>
+
+    <h2>4. Terminal Web</h2>
+    <div class="step">
+        <p>La terminal tiene 3 pestañas:</p>
+        <table>
+            <tr><th>Tab</th><th>Función</th></tr>
+            <tr><td><strong>AI</strong></td><td>Claude Code CLI — asistente IA con acceso al código</td></tr>
+            <tr><td><strong>Shell</strong></td><td>Bash interactivo en el servidor</td></tr>
+            <tr><td><strong>Logs</strong></td><td>journalctl en tiempo real del servicio</td></tr>
+        </table>
+        <img src="img/02_terminal.png" alt="Terminal Web"/>
+        <p><span class="step-num">1</span> Selecciona un proyecto del dropdown</p>
+        <p><span class="step-num">2</span> Haz clic en el tab deseado (AI/Shell/Logs)</p>
+    </div>
+
+    <h2>5. Git Graph</h2>
+    <div class="step">
+        <p>Visualización de ramas con sidebar por tipo:</p>
+        <ul>
+            <li><span style="color: #f7768e; font-weight: bold;">PRODUCTION</span> — rama principal (main)</li>
+            <li><span style="color: #e0af68; font-weight: bold;">STAGING</span> — rama de pruebas</li>
+            <li><span style="color: #9ece6a; font-weight: bold;">DEVELOPMENT</span> — ramas de desarrollo</li>
+        </ul>
+        <img src="img/03_git_graph.png" alt="Git Graph"/>
+    </div>
+
+    <h2>6. Backups</h2>
+    <div class="step">
+        <p><span class="step-num">1</span> Ve a <strong>DevOps &gt; Backups</strong> para ver todos los backups</p>
+        <p><span class="step-num">2</span> Para crear uno manualmente, abre un proyecto y haz clic en <strong>Crear Backup</strong></p>
+        <div class="tip">Los backups automáticos se ejecutan diariamente vía cron. Configurar retención en <strong>Configuración &gt; Ajustes</strong>.</div>
+    </div>
+
+    <h2>7. Builds &amp; Deploy</h2>
+    <div class="step">
+        <p><strong>Build manual:</strong> Desde una rama, haz clic en <strong>Build</strong> (pull + restart)</p>
+        <p><strong>Deploy con IA:</strong> Ve a <strong>Deploy IA</strong> y crea un nuevo deploy. El flujo es:</p>
+        <ol>
+            <li>Tests IA — Claude evalúa si es seguro deployar</li>
+            <li>Backup automático de la BD</li>
+            <li>Git pull de la rama origen</li>
+            <li>Restart del servicio (nunca stop)</li>
+            <li>Verificación HTTP</li>
+            <li>Auto-rollback si algo falla</li>
+        </ol>
+        <div class="warning"><strong>Importante:</strong> Solo administradores pueden deployar a producción.</div>
+    </div>
+
+    <h2>8. Roles y Permisos</h2>
+    <div class="step">
+        <table>
+            <tr><th>Rol</th><th>Acceso</th></tr>
+            <tr><td><strong>Superadmin</strong></td><td>Acceso total a todos los proyectos. Deploy a producción en cualquier proyecto.</td></tr>
+            <tr><td><strong>Admin (por proyecto)</strong></td><td>Deploy a producción en su proyecto. Gestión completa.</td></tr>
+            <tr><td><strong>Developer</strong></td><td>Trabaja en staging/development. Terminal, AI, logs. NO deploy a producción.</td></tr>
+            <tr><td><strong>Viewer</strong></td><td>Solo lectura. Ve branches, builds, logs, backups.</td></tr>
+        </table>
+    </div>
+
+    <h2>9. Configuración</h2>
+    <div class="step">
+        <p>Ve a <strong>DevOps &gt; Configuración &gt; Ajustes</strong> para configurar:</p>
+        <ul>
+            <li><strong>Claude Code:</strong> API Key, modelo IA, test de conexión</li>
+            <li><strong>Backups:</strong> Ruta de almacenamiento, días de retención, auto-backup</li>
+            <li><strong>Git:</strong> Ruta por defecto del repositorio</li>
+        </ul>
+    </div>
+
+    <hr/>
+    <p style="text-align: center; color: #888;"><em>PatchMyByte DevOps v19.0.1.0.0 — Generado automáticamente</em></p>
+</body>
+</html>
