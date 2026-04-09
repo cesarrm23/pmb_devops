@@ -1,2 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<odoo></odoo>
+<odoo>
+    <data noupdate="1">
+        <record id="config_backup_path" model="ir.config_parameter">
+            <field name="key">pmb_devops.backup_path</field>
+            <field name="value">/var/backups/odoo</field>
+        </record>
+        <record id="config_backup_retention" model="ir.config_parameter">
+            <field name="key">pmb_devops.backup_retention_days</field>
+            <field name="value">7</field>
+        </record>
+        <record id="config_default_repo" model="ir.config_parameter">
+            <field name="key">pmb_devops.default_repo_path</field>
+            <field name="value">/opt/odooAL</field>
+        </record>
+        <record id="config_claude_model" model="ir.config_parameter">
+            <field name="key">pmb_devops.claude_model</field>
+            <field name="value">claude-opus-4-6-20250414</field>
+        </record>
+    </data>
+</odoo>
