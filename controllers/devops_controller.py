@@ -19,9 +19,9 @@ class DevopsController(http.Controller):
 
         instances = request.env['devops.instance'].search_read(
             [('project_id', '=', project_id)],
-            ['id', 'name', 'instance_type', 'state', 'full_domain', 'port',
-             'database_name', 'service_name', 'url', 'branch_id', 'subdomain',
-             'last_activity'],
+            ['id', 'name', 'instance_type', 'state', 'creation_step',
+             'full_domain', 'port', 'database_name', 'service_name', 'url',
+             'branch_id', 'subdomain', 'last_activity'],
             order='instance_type, name',
         )
         branches = request.env['devops.branch'].search_read(
@@ -83,12 +83,26 @@ class DevopsController(http.Controller):
             'cloned_from_id': clone_from.id if clone_from else False,
         })
 
-        # Run creation pipeline
+        # Run creation pipeline (non-blocking: spawns background thread)
         try:
             instance.action_create_instance()
-            return {'status': 'ok', 'instance_id': instance.id, 'url': instance.url}
+            return {
+                'status': 'creating',
+                'instance_id': instance.id,
+            }
         except Exception as e:
             return {'status': 'error', 'error': str(e)}
+
+    @http.route('/devops/instance/poll_status', type='json', auth='user')
+    def instance_poll_status(self, instance_id):
+        """Poll instance creation status."""
+        instance = request.env['devops.instance'].browse(instance_id)
+        if not instance.exists():
+            return {'error': 'Not found'}
+        return {
+            'state': instance.state,
+            'creation_step': instance.creation_step or '',
+        }
 
     @http.route('/devops/instance/destroy', type='json', auth='user')
     def instance_destroy(self, instance_id):

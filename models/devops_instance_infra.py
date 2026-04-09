@@ -5,6 +5,7 @@ logic using system commands through infra_utils.
 """
 import logging
 import subprocess
+import threading
 import time
 
 from odoo import _, api, fields, models
@@ -19,85 +20,121 @@ class DevopsInstanceInfra(models.Model):
     _inherit = 'devops.instance'
 
     # ------------------------------------------------------------------
-    # Action: Create Instance (15-step pipeline)
+    # Action: Create Instance (background pipeline)
     # ------------------------------------------------------------------
 
     def action_create_instance(self):
-        """Full automated creation pipeline for a new Odoo instance.
+        """Start instance creation in background.
 
-        Steps:
-         1. Validate limits (max_staging / max_development)
-         2. Assign port via _find_free_port(), gevent = port + 1000
-         3. Generate names (service, db, subdomain, paths)
-         4. Create git branch if branch_id exists
-         5. Clone database from source
-         6. Create instance directory + symlink repo
-         7. Generate Odoo config
-         8. Create systemd service
-         9. Create nginx vhost
-        10. Reload nginx
-        11. Start service
-        12. SSL certificate via certbot
-        13. Verify HTTP 200
-        14. Update state to 'running' or 'error'
-        15. Post creation log to chatter
+        Validates limits, assigns port/names, writes initial infra fields,
+        then spawns a background thread for the heavy work (DB clone, etc.)
+        and returns immediately so the HTTP request is not blocked.
+        """
+        self.ensure_one()
+        project = self.project_id
+
+        # ---- Step 1: Validate limits ----
+        self._validate_instance_limits()
+
+        # ---- Step 2: Assign ports ----
+        port = self._find_free_port()
+        gevent_port = port + 1000
+
+        # ---- Step 3: Generate names ----
+        safe_name = self.name.replace(' ', '-').lower()
+        service_name = f"odoo-{project.name.replace(' ', '').lower()}-{safe_name}"
+        db_name = f"{project.name.replace(' ', '_').lower()}_{safe_name}"
+        if self.instance_type == 'production':
+            subdomain = ''
+        else:
+            subdomain = f"{safe_name}"
+        instance_path = f"/opt/instances/{service_name}"
+        config_path = f"/etc/{service_name}.conf"
+        domain = project.domain or ''
+        if subdomain and domain:
+            full_domain = f"{subdomain}.{domain}"
+        elif domain:
+            full_domain = domain
+        else:
+            raise UserError(
+                _("El proyecto no tiene dominio configurado.")
+            )
+        nginx_path = f"/etc/nginx/sites-enabled/{full_domain}"
+
+        # Write names to record
+        self.write({
+            'port': port,
+            'gevent_port': gevent_port,
+            'service_name': service_name,
+            'database_name': db_name,
+            'subdomain': subdomain,
+            'odoo_config_path': config_path,
+            'instance_path': instance_path,
+            'nginx_config_path': nginx_path,
+            'state': 'creating',
+            'creation_step': 'Iniciando...',
+        })
+        self.env.cr.commit()  # persist so SPA can see the record immediately
+
+        # Spawn background thread
+        instance_id = self.id
+        dbname = self.env.cr.dbname
+        thread = threading.Thread(
+            target=self._run_creation_pipeline_thread,
+            args=(instance_id, dbname),
+            daemon=True,
+        )
+        thread.start()
+        # Return immediately -- SPA will poll status
+
+    @api.model
+    def _run_creation_pipeline_thread(self, instance_id, dbname):
+        """Run creation pipeline in background thread with its own cursor."""
+        import odoo
+        with odoo.registry(dbname).cursor() as cr:
+            env = odoo.api.Environment(cr, odoo.SUPERUSER_ID, {})
+            instance = env['devops.instance'].browse(instance_id)
+            try:
+                instance._run_creation_pipeline()
+            except Exception as e:
+                _logger.error(
+                    "Background creation failed for %s: %s", instance_id, e,
+                )
+                try:
+                    instance.write({
+                        'state': 'error',
+                        'creation_step': f'Error: {str(e)[:200]}',
+                    })
+                    cr.commit()
+                except Exception:
+                    _logger.exception(
+                        "Failed to write error state for instance %s",
+                        instance_id,
+                    )
+
+    def _update_step(self, step_text):
+        """Update creation_step using commit so it's visible to the SPA immediately."""
+        self.env.cr.commit()  # commit current work
+        self.write({'creation_step': step_text})
+        self.env.cr.commit()  # commit the status update
+
+    def _run_creation_pipeline(self):
+        """Execute all creation steps sequentially.
+
+        This runs inside a background thread with its own cursor.
+        Each step commits progress so the SPA can poll and display it.
         """
         self.ensure_one()
         project = self.project_id
         errors = []
 
         try:
-            # ---- Step 1: Validate limits ----
-            self._validate_instance_limits()
-
-            # ---- Step 2: Assign ports ----
-            port = self._find_free_port()
-            gevent_port = port + 1000
-
-            # ---- Step 3: Generate names ----
-            safe_name = self.name.replace(' ', '-').lower()
-            service_name = f"odoo-{project.name.replace(' ', '').lower()}-{safe_name}"
-            db_name = f"{project.name.replace(' ', '_').lower()}_{safe_name}"
-            if self.instance_type == 'production':
-                subdomain = ''
-            else:
-                subdomain = f"{safe_name}"
-            instance_path = f"/opt/instances/{service_name}"
-            config_path = f"/etc/{service_name}.conf"
-            domain = project.domain or ''
-            if subdomain and domain:
-                full_domain = f"{subdomain}.{domain}"
-            elif domain:
-                full_domain = domain
-            else:
-                raise UserError(
-                    _("El proyecto no tiene dominio configurado.")
-                )
-            nginx_path = f"/etc/nginx/sites-enabled/{full_domain}"
-
-            # Addons path: instance addons + custom + odoo source
-            addons_path = f"{instance_path}/addons"
-
-            # Write names to record
-            self.write({
-                'port': port,
-                'gevent_port': gevent_port,
-                'service_name': service_name,
-                'database_name': db_name,
-                'subdomain': subdomain,
-                'odoo_config_path': config_path,
-                'instance_path': instance_path,
-                'nginx_config_path': nginx_path,
-                'state': 'creating',
-            })
-            self.env.cr.commit()  # noqa: E501 -- persist partial state in case of failure
-
-            # ---- Step 4: Create git branch if needed ----
+            # ---- Step 1: Create git branch if needed ----
             if self.branch_id and project.repo_path:
+                self._update_step('Configurando rama git...')
                 try:
                     from ..utils import git_utils
                     git_utils.git_fetch(project)
-                    # Create and checkout branch for the instance
                     _logger.info(
                         "Branch %s assigned to instance %s",
                         self.branch_id.name, self.name,
@@ -105,7 +142,7 @@ class DevopsInstanceInfra(models.Model):
                 except Exception as e:
                     _logger.warning("Git branch setup skipped: %s", e)
 
-            # ---- Step 5: Clone database ----
+            # ---- Step 2: Clone database ----
             source_db = None
             if self.cloned_from_id and self.cloned_from_id.database_name:
                 source_db = self.cloned_from_id.database_name
@@ -113,71 +150,93 @@ class DevopsInstanceInfra(models.Model):
                 source_db = project.database_name
 
             if source_db:
-                _logger.info("Cloning database %s -> %s", source_db, db_name)
-                infra_utils.clone_database(source_db, db_name, timeout=600)
+                self._update_step(
+                    f'Clonando base de datos ({source_db})...'
+                )
+                _logger.info(
+                    "Cloning database %s -> %s",
+                    source_db, self.database_name,
+                )
+                infra_utils.clone_database(
+                    source_db, self.database_name, timeout=1800,
+                )
             else:
+                self._update_step('Creando base de datos vacía...')
                 _logger.warning(
                     "No source database for cloning; "
                     "instance %s will start with empty database", self.name,
                 )
 
-            # ---- Step 6: Create instance directory + symlink ----
-            infra_utils.create_instance_directory(instance_path)
+            # ---- Step 3: Create instance directory + symlink ----
+            self._update_step('Creando directorio de instancia...')
+            infra_utils.create_instance_directory(self.instance_path)
             if project.repo_path:
                 infra_utils.sudo_run(
-                    f"ln -sfn {project.repo_path} {instance_path}/addons"
+                    f"ln -sfn {project.repo_path} {self.instance_path}/addons"
                 )
 
-            # ---- Step 7: Generate Odoo config ----
+            # ---- Step 4: Generate Odoo config ----
+            self._update_step('Generando configuración Odoo...')
+            addons_path = f"{self.instance_path}/addons"
             infra_utils.create_odoo_config(
-                service_name=service_name,
-                db_name=db_name,
-                port=port,
-                gevent_port=gevent_port,
-                instance_path=instance_path,
+                service_name=self.service_name,
+                db_name=self.database_name,
+                port=self.port,
+                gevent_port=self.gevent_port,
+                instance_path=self.instance_path,
                 addons_path=addons_path,
             )
 
-            # ---- Step 8: Create systemd service ----
+            # ---- Step 5: Create systemd service ----
+            self._update_step('Creando servicio systemd...')
             infra_utils.create_systemd_service(
-                service_name=service_name,
-                config_path=config_path,
-                instance_path=instance_path,
+                service_name=self.service_name,
+                config_path=self.odoo_config_path,
+                instance_path=self.instance_path,
             )
 
-            # ---- Step 9: Create nginx vhost ----
+            # ---- Step 6: Create nginx vhost ----
+            self._update_step('Configurando Nginx...')
             infra_utils.create_nginx_vhost(
-                domain=full_domain,
-                port=port,
-                gevent_port=gevent_port,
+                domain=self.full_domain,
+                port=self.port,
+                gevent_port=self.gevent_port,
                 instance_id=self.id,
-                instance_name=service_name,
+                instance_name=self.service_name,
             )
 
-            # ---- Step 10: Reload nginx ----
+            # ---- Step 7: Reload nginx ----
             infra_utils.reload_nginx()
 
-            # ---- Step 11: Start service ----
-            infra_utils.start_service(service_name, timeout=30)
-            # Give Odoo a few seconds to initialize
+            # ---- Step 8: Start service ----
+            self._update_step('Iniciando servicio Odoo...')
+            infra_utils.start_service(self.service_name, timeout=30)
             time.sleep(5)
 
-            # ---- Step 12: SSL certificate ----
+            # ---- Step 9: SSL certificate ----
+            self._update_step('Obteniendo certificado SSL...')
             try:
-                infra_utils.obtain_ssl_cert(full_domain)
+                infra_utils.obtain_ssl_cert(self.full_domain)
             except Exception as e:
                 errors.append(f"SSL certificate: {e}")
-                _logger.warning("SSL cert failed for %s: %s", full_domain, e)
+                _logger.warning(
+                    "SSL cert failed for %s: %s", self.full_domain, e,
+                )
 
-            # ---- Step 13: Verify HTTP 200 ----
+            # ---- Step 10: Verify HTTP ----
+            self._update_step('Verificando...')
             http_ok = False
             try:
                 verify = subprocess.run(
-                    ['curl', '-s', '-o', '/dev/null', '-w', '%{http_code}',
-                     '-k', f'https://{full_domain}/web/login'],
-                    capture_output=True, text=True, timeout=15,
+                    [
+                        'curl', '-s', '-o', '/dev/null', '-w',
+                        '%{http_code}', '-k',
+                        f'https://{self.full_domain}/web/login',
+                        '--max-time', '15',
+                    ],
+                    capture_output=True, text=True, timeout=20,
                 )
-                if verify.stdout.strip() in ('200', '303'):
+                if verify.stdout.strip() in ('200', '303', '302'):
                     http_ok = True
                 else:
                     errors.append(
@@ -186,46 +245,52 @@ class DevopsInstanceInfra(models.Model):
             except Exception as e:
                 errors.append(f"HTTP verify: {e}")
 
-            # ---- Step 14: Update state ----
-            if http_ok and not errors:
-                self.write({'state': 'running'})
-            elif http_ok:
-                # Running but with warnings
-                self.write({'state': 'running'})
+            # ---- Step 11: Update state ----
+            if http_ok:
+                self.write({'state': 'running', 'creation_step': ''})
             else:
-                self.write({'state': 'error'})
+                self.write({
+                    'state': 'error',
+                    'creation_step': (
+                        f'HTTP {verify.stdout.strip()}'
+                        if not errors
+                        else errors[-1]
+                    ),
+                })
 
             self._update_activity()
 
-            # ---- Step 15: Post chatter log ----
+            # ---- Step 12: Post chatter log ----
             body = _(
                 "<b>Instancia creada</b><br/>"
                 "Puerto: %(port)s | Gevent: %(gevent)s<br/>"
                 "BD: %(db)s<br/>"
                 "Dominio: %(domain)s<br/>"
                 "Servicio: %(service)s<br/>",
-                port=port,
-                gevent=gevent_port,
-                db=db_name,
-                domain=full_domain,
-                service=service_name,
+                port=self.port,
+                gevent=self.gevent_port,
+                db=self.database_name,
+                domain=self.full_domain,
+                service=self.service_name,
             )
             if errors:
-                body += _("<br/><b>Advertencias:</b><br/>%s") % '<br/>'.join(errors)
+                body += _(
+                    "<br/><b>Advertencias:</b><br/>%s"
+                ) % '<br/>'.join(errors)
             self.message_post(body=body)
+            self.env.cr.commit()
             _logger.info("Instance %s created successfully", self.name)
 
-        except UserError:
-            raise
         except Exception as e:
-            _logger.exception("Error creating instance %s", self.name)
-            self.write({'state': 'error'})
+            _logger.exception("Creation pipeline failed for %s", self.name)
+            self.write({
+                'state': 'error',
+                'creation_step': f'Error: {str(e)[:200]}',
+            })
             self.message_post(
                 body=_("<b>Error creando instancia:</b><br/>%s") % str(e),
             )
-            raise UserError(
-                _("Error creando instancia: %s") % str(e)
-            )
+            self.env.cr.commit()
 
     # ------------------------------------------------------------------
     # Limit validation

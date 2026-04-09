@@ -80,6 +80,10 @@
                                 </span>
                                 <span style="color: #6c7086; font-size: 11px;" class="ms-1">19.0</span>
                             </div>
+                            <div t-if="inst.state === 'creating' and inst.creation_step"
+                                 style="color: #f9e2af; font-size: 10px; padding-left: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                <t t-esc="inst.creation_step"/>
+                            </div>
                         </t>
                     </div>
 
@@ -100,6 +104,10 @@
                                 </span>
                                 <span style="color: #6c7086; font-size: 11px;" class="ms-1">19.0</span>
                             </div>
+                            <div t-if="inst.state === 'creating' and inst.creation_step"
+                                 style="color: #f9e2af; font-size: 10px; padding-left: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                <t t-esc="inst.creation_step"/>
+                            </div>
                         </t>
                     </div>
 
@@ -119,6 +127,10 @@
                                     <t t-esc="inst.branch_name || inst.name"/>
                                 </span>
                                 <span style="color: #6c7086; font-size: 11px;" class="ms-1">19.0</span>
+                            </div>
+                            <div t-if="inst.state === 'creating' and inst.creation_step"
+                                 style="color: #f9e2af; font-size: 10px; padding-left: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                <t t-esc="inst.creation_step"/>
                             </div>
                         </t>
                     </div>
@@ -323,7 +335,7 @@
                  style="background: rgba(0,0,0,0.5); z-index: 1060;">
                 <div class="text-center" style="color: #cdd6f4;">
                     <div class="spinner-border mb-3" role="status"/>
-                    <div>Creating instance...</div>
+                    <div><t t-esc="state.loadingMessage || 'Loading...'"/></div>
                 </div>
             </div>
         </div>

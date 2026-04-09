@@ -305,58 +305,54 @@ def create_odoo_config(service_name, db_name, port, gevent_port,
 # ---------------------------------------------------------------------------
 
 
-def clone_database(source_db, target_db, timeout=600):
-    """Clone a PostgreSQL database.
+def clone_database(source_db, target_db, timeout=1800):
+    """Clone a PostgreSQL database using pg_dump | psql in background.
 
-    Tries createdb -T (fast template clone) first; falls back to
-    pg_dump | psql if the template approach fails (e.g. active connections).
+    NEVER terminates connections on production databases.
+    Uses pg_dump | psql which works while source DB is active.
     """
-    # Attempt 1: createdb -T (requires no active connections on source)
-    result = sudo_run(
-        f'su - postgres -c "createdb -T {source_db} {target_db}"',
-        timeout=timeout,
-    )
-    if result.returncode == 0:
-        _logger.info("Database %s cloned from %s via createdb -T", target_db, source_db)
-        return
+    _logger.info("Cloning database %s -> %s (pg_dump|psql)", source_db, target_db)
 
-    _logger.info(
-        "createdb -T failed (%s), falling back to pg_dump|psql",
-        result.stderr.strip(),
-    )
-
-    # Attempt 2: pg_dump | psql
-    result = sudo_run(
-        f'su - postgres -c "createdb {target_db}"',
-        timeout=60,
+    # Create empty target database
+    result = subprocess.run(
+        ['createdb', '-O', 'odooal', target_db],
+        capture_output=True, text=True, timeout=60,
     )
     if result.returncode != 0:
-        raise RuntimeError(f"Error creating target database: {result.stderr}")
+        raise RuntimeError(f"Error creating database {target_db}: {result.stderr}")
 
-    result = sudo_run(
-        f'su - postgres -c "pg_dump {source_db} | psql {target_db}"',
-        timeout=timeout,
+    # pg_dump | psql — safe for active databases
+    result = subprocess.run(
+        f'pg_dump {source_db} | psql -q {target_db}',
+        shell=True, capture_output=True, text=True, timeout=timeout,
     )
     if result.returncode != 0:
-        # Cleanup failed target
-        sudo_run(f'su - postgres -c "dropdb --if-exists {target_db}"')
-        raise RuntimeError(f"Error cloning database via pg_dump: {result.stderr}")
+        subprocess.run(['dropdb', '--if-exists', target_db],
+                       capture_output=True, text=True)
+        raise RuntimeError(f"Error cloning database: {result.stderr}")
+
+    _logger.info("Database %s cloned from %s successfully", target_db, source_db)
 
     _logger.info("Database %s cloned from %s via pg_dump|psql", target_db, source_db)
 
 
 def drop_database(db_name):
-    """Terminate all connections and drop a PostgreSQL database."""
-    # Terminate active connections
-    sudo_run(
-        f"su - postgres -c \"psql -c "
-        f"\\\"SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-        f"WHERE datname = '{db_name}' AND pid <> pg_backend_pid();\\\"\"",
-        timeout=30,
+    """Terminate connections on the target DB and drop it.
+
+    ONLY terminates connections on the DB being dropped (staging/dev),
+    NEVER on production databases.
+    """
+    # Terminate connections on THIS database only (safe — it's being destroyed)
+    subprocess.run(
+        ['psql', '-c',
+         f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+         f"WHERE datname = '{db_name}' AND pid <> pg_backend_pid();",
+         'odooal'],
+        capture_output=True, text=True, timeout=30,
     )
-    result = sudo_run(
-        f'su - postgres -c "dropdb --if-exists {db_name}"',
-        timeout=60,
+    result = subprocess.run(
+        ['dropdb', '--if-exists', db_name],
+        capture_output=True, text=True, timeout=60,
     )
     if result.returncode != 0:
         raise RuntimeError(f"Error dropping database {db_name}: {result.stderr}")

@@ -39,11 +39,15 @@ class PmbDevopsApp extends Component {
 
             // Terminal
             terminalConnected: false,
+
+            // Loading
+            loadingMessage: '',
         });
 
         this.terminalAIRef = useRef("terminalAI");
         this.terminalShellRef = useRef("terminalShell");
         this.terminalLogsRef = useRef("terminalLogs");
+        this._pollTimer = null;
 
         onMounted(async () => {
             await this._loadProjects();
@@ -51,6 +55,13 @@ class PmbDevopsApp extends Component {
                 this.state.currentProjectId = this.state.projects[0].id;
                 this.state.currentProject = this.state.projects[0];
                 await this._loadProjectData();
+            }
+        });
+
+        onWillUnmount(() => {
+            if (this._pollTimer) {
+                clearInterval(this._pollTimer);
+                this._pollTimer = null;
             }
         });
     }
@@ -100,6 +111,7 @@ class PmbDevopsApp extends Component {
                         "name",
                         "instance_type",
                         "state",
+                        "creation_step",
                         "full_domain",
                         "port",
                         "database_name",
@@ -285,46 +297,69 @@ class PmbDevopsApp extends Component {
     }
 
     async _createInstance() {
-        if (!this.state.createName || !this.state.currentProjectId) {
+        const name = this.state.createName.trim();
+        if (!name || !this.state.currentProjectId) {
             return;
         }
 
-        this.state.loading = true;
         this.state.showCreateDialog = false;
+        this.state.loading = true;
+        this.state.loadingMessage = 'Creando instancia...';
 
         try {
-            // Create the instance record
-            const ids = await rpc("/web/dataset/call_kw", {
-                model: "devops.instance",
-                method: "create",
-                args: [
-                    {
-                        name: this.state.createName,
-                        instance_type: this.state.createDialogType,
-                        project_id: this.state.currentProjectId,
-                    },
-                ],
-                kwargs: {},
+            const result = await rpc('/devops/instance/create', {
+                project_id: this.state.currentProjectId,
+                name: name,
+                instance_type: this.state.createDialogType,
+                branch_from: this.state.createBranchFrom,
             });
 
-            const instanceId = Array.isArray(ids) ? ids[0] : ids;
+            if (result.error) {
+                this.state.loading = false;
+                alert('Error: ' + result.error);
+                return;
+            }
 
-            // Run the creation pipeline
-            await rpc("/web/dataset/call_kw", {
-                model: "devops.instance",
-                method: "action_create_instance",
-                args: [[instanceId]],
-                kwargs: {},
-            });
-
-            // Reload data
-            await this._loadProjectData();
-        } catch (err) {
-            console.error("PmbDevopsApp: error creating instance", err);
-            alert("Error creating instance: " + (err.message || err));
-        } finally {
+            // Instance created, background pipeline started
+            const instanceId = result.instance_id;
             this.state.loading = false;
+            await this._loadProjectData();  // reload to show the new instance in sidebar
+
+            // Start polling for creation progress
+            this._pollCreation(instanceId);
+
+        } catch (e) {
+            this.state.loading = false;
+            alert('Error: ' + (e.message || e));
         }
+    }
+
+    async _pollCreation(instanceId) {
+        if (this._pollTimer) {
+            clearInterval(this._pollTimer);
+        }
+        this._pollTimer = setInterval(async () => {
+            try {
+                const status = await rpc('/devops/instance/poll_status', {
+                    instance_id: instanceId,
+                });
+
+                // Update the instance in our local state
+                const inst = this.state.instances.find(i => i.id === instanceId);
+                if (inst) {
+                    inst.state = status.state;
+                    inst.creation_step = status.creation_step;
+                }
+
+                if (status.state === 'running' || status.state === 'error') {
+                    clearInterval(this._pollTimer);
+                    this._pollTimer = null;
+                    await this._loadProjectData();
+                }
+            } catch (e) {
+                // Ignore polling errors silently
+            }
+        }, 3000);
     }
 
     // ------------------------------------------------------------------

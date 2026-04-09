@@ -44,6 +44,9 @@ class DevopsInstance(models.Model):
         ('error', 'Error'),
         ('destroying', 'Destruyendo'),
     ], string='Estado', default='creating', tracking=True)
+    creation_step = fields.Char(
+        string='Paso Actual', help='Current step during creation',
+    )
     last_activity = fields.Datetime(
         string='Última Actividad', default=fields.Datetime.now,
     )
