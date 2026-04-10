@@ -101,8 +101,11 @@ class DevopsInstanceInfra(models.Model):
         elif project.database_name:
             source_db = project.database_name
 
-        # Build addons path
-        addons_path = f"/opt/odooAL/odoo/odoo/addons,/opt/odooAL/odoo/addons,/opt/odooAL/custom_addons"
+        # Build addons path (include enterprise if configured)
+        addons_path = f"/opt/odooAL/odoo/odoo/addons,/opt/odooAL/odoo/addons"
+        if project.enterprise_path:
+            addons_path += f",{project.enterprise_path}"
+        addons_path += f",/opt/odooAL/custom_addons"
         if project.repo_path:
             addons_path += f",{project.repo_path}"
 

@@ -40,6 +40,10 @@ class DevopsProject(models.Model):
     max_staging = fields.Integer(string='Max Staging', default=3)
     max_development = fields.Integer(string='Max Development', default=5)
     auto_destroy_hours = fields.Integer(string='Auto-destroy (horas)', default=24)
+    enterprise_path = fields.Char(
+        string='Ruta Enterprise Addons',
+        help='Ruta a los addons enterprise (ej: /opt/odoo19Test/enterprise)',
+    )
 
     # ---- Odoo service (DEPRECATED — will be replaced by instance fields) ----
     odoo_service_name = fields.Char(string='Nombre del Servicio', default='odoo19')
