@@ -107,13 +107,24 @@ class DevopsInstanceInfra(models.Model):
         elif project.database_name:
             source_db = project.database_name
 
-        # Build addons path (include enterprise if configured)
-        addons_path = f"/opt/odooAL/odoo/odoo/addons,/opt/odooAL/odoo/addons"
-        if project.enterprise_path:
-            addons_path += f",{project.enterprise_path}"
+        # Build addons path using instance-local paths
+        # Each instance gets: odoo (symlink), enterprise (symlink), cremara_addons (git clone)
+        inst_path = rec.instance_path
+        addons_path = f"{inst_path}/odoo/odoo/addons,{inst_path}/odoo/addons"
+        addons_path += f",{inst_path}/enterprise"
         addons_path += f",/opt/odooAL/custom_addons"
-        if project.repo_path:
-            addons_path += f",{project.repo_path}"
+        addons_path += f",{inst_path}/cremara_addons"
+
+        # Git repo URL for cloning into instance
+        repo_url = project.repo_url or ''
+        if not repo_url and project.repo_path:
+            try:
+                from ..utils import ssh_utils
+                result = ssh_utils.execute_command(project, ['git', 'remote', 'get-url', 'origin'], cwd=project.repo_path)
+                if result.returncode == 0:
+                    repo_url = result.stdout.strip()
+            except Exception:
+                pass
 
         script = f"""#!/bin/bash
 set -e
@@ -140,12 +151,28 @@ if [ -n "{source_filestore}" ] && [ -d "{source_filestore}" ]; then
     sudo chown -R odooal:odooal "{rec.instance_path}/.local/share/Odoo"
 fi
 
-# Step 2: Create directory
-STEP "Creando directorio de instancia..."
-sudo mkdir -p "{rec.instance_path}/.local/share/Odoo"
-sudo chown -R odooal:odooal "{rec.instance_path}"
-if [ -n "{project.repo_path}" ]; then
-    sudo ln -sfn "{project.repo_path}" "{rec.instance_path}/addons"
+# Step 2: Create directory + clone repo + symlinks
+STEP "Preparando directorio de instancia..."
+sudo mkdir -p "{inst_path}/.local/share/Odoo"
+sudo chown -R odooal:odooal "{inst_path}"
+
+# Symlink shared Odoo source
+ln -sfn /opt/odooAL/odoo "{inst_path}/odoo"
+
+# Symlink shared enterprise addons
+if [ -d "/opt/odoo19/enterprise" ]; then
+    ln -sfn /opt/odoo19/enterprise "{inst_path}/enterprise"
+elif [ -n "{project.enterprise_path}" ] && [ -d "{project.enterprise_path}" ]; then
+    ln -sfn "{project.enterprise_path}" "{inst_path}/enterprise"
+fi
+
+# Clone custom addons repo into instance (own copy per branch)
+if [ -n "{repo_url}" ]; then
+    STEP "Clonando repositorio de addons..."
+    BRANCH="{rec.name}"
+    git clone "{repo_url}" "{inst_path}/cremara_addons" --branch staging --single-branch 2>/dev/null || \
+    git clone "{repo_url}" "{inst_path}/cremara_addons" 2>/dev/null || \
+    echo "WARNING: repo clone failed"
 fi
 
 # Step 3: Odoo config
