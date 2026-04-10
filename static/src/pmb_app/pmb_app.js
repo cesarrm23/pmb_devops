@@ -606,7 +606,12 @@ class PmbDevopsApp extends Component {
             });
             if (result.output && this._term) {
                 this._term.write(result.output);
-                this._termIdleCount = 0;  // got data, reset idle
+                // Only count as "active" if substantial output (>20 bytes)
+                if (result.output.length > 20) {
+                    this._termIdleCount = 0;
+                } else {
+                    this._termIdleCount++;
+                }
             } else {
                 this._termIdleCount++;
             }
@@ -617,9 +622,9 @@ class PmbDevopsApp extends Component {
             }
         } catch (e) { /* ignore */ }
 
-        // Schedule next poll: 200ms if active, 2000ms if idle (>5 empty reads)
+        // Schedule next poll: 250ms if active, 2000ms if idle (>3 empty reads)
         if (this._termConnected) {
-            const delay = this._termIdleCount > 5 ? 2000 : 200;
+            const delay = this._termIdleCount > 3 ? 2000 : 250;
             this._termPollTimeout = setTimeout(() => this._pollTerminalLoop(), delay);
         }
     }
