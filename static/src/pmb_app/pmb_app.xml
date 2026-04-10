@@ -279,11 +279,25 @@
                                                         <t t-esc="commit._files.length"/> archivo(s) modificado(s)
                                                     </div>
                                                     <t t-foreach="commit._files" t-as="file" t-key="file.path">
-                                                        <div class="d-flex align-items-center py-1">
-                                                            <span class="me-2" t-att-style="'font-size: 11px; font-weight: bold; width: 16px; color:' + (file.status === 'A' ? '#a6e3a1' : file.status === 'D' ? '#f38ba8' : '#f9e2af')">
-                                                                <t t-esc="file.status"/>
-                                                            </span>
-                                                            <code style="color: #89b4fa; font-size: 11px;"><t t-esc="file.path"/></code>
+                                                        <div>
+                                                            <div class="d-flex align-items-center py-1 cursor-pointer"
+                                                                 t-on-click="() => this._toggleFileDiff(commit, file)">
+                                                                <span class="me-2" t-att-style="'font-size: 11px; font-weight: bold; width: 16px; color:' + (file.status === 'A' ? '#a6e3a1' : file.status === 'D' ? '#f38ba8' : '#f9e2af')">
+                                                                    <t t-esc="file.status"/>
+                                                                </span>
+                                                                <code style="color: #89b4fa; font-size: 11px;"><t t-esc="file.path"/></code>
+                                                                <span class="ms-2" style="color: #6c7086; font-size: 10px;">
+                                                                    <t t-if="file._expanded">▼</t>
+                                                                    <t t-else="">▶</t>
+                                                                </span>
+                                                            </div>
+                                                            <div t-if="file._expanded" class="mb-2 p-2" style="background: #11111b; border-radius: 4px; overflow-x: auto;">
+                                                                <t t-if="file._loading">
+                                                                    <span style="color: #6c7086; font-size: 11px;">Cargando diff...</span>
+                                                                </t>
+                                                                <pre t-if="file._diff" style="color: #cdd6f4; font-size: 11px; margin: 0; white-space: pre-wrap; word-break: break-all;"><t t-foreach="(file._diff || '').split('\n')" t-as="line" t-key="line_index"><span t-att-style="line.startsWith('+') and !line.startsWith('+++') ? 'color: #a6e3a1;' : line.startsWith('-') and !line.startsWith('---') ? 'color: #f38ba8;' : line.startsWith('@@') ? 'color: #89b4fa;' : 'color: #6c7086;'"><t t-esc="line"/>
+</span></t></pre>
+                                                            </div>
                                                         </div>
                                                     </t>
                                                 </div>

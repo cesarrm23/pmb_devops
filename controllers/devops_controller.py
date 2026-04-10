@@ -212,6 +212,26 @@ class DevopsController(http.Controller):
 
         return {'body': body, 'files': files, 'stat': stat}
 
+    @http.route('/devops/commit/file_diff', type='json', auth='user')
+    def commit_file_diff(self, project_id, commit_hash, file_path):
+        """Get the diff of a specific file in a commit."""
+        project = request.env['devops.project'].browse(project_id)
+        if not project.exists():
+            return {'error': 'Proyecto no encontrado'}
+
+        from ..utils import ssh_utils
+        result = ssh_utils.execute_command(project, [
+            'git', 'diff', f'{commit_hash}~1', commit_hash, '--', file_path,
+        ], cwd=project.repo_path)
+
+        if result.returncode != 0:
+            # Maybe first commit, try show
+            result = ssh_utils.execute_command(project, [
+                'git', 'show', f'{commit_hash}', '--', file_path,
+            ], cwd=project.repo_path)
+
+        return {'diff': result.stdout if result.returncode == 0 else 'No diff available'}
+
     @http.route('/devops/branch/merge', type='json', auth='user')
     def branch_merge(self, project_id, source_branch, target_branch):
         """Merge source branch into target."""

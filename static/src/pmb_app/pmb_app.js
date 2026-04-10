@@ -532,6 +532,26 @@ class PmbDevopsApp extends Component {
         }
     }
 
+    async _toggleFileDiff(commit, file) {
+        if (file._expanded) {
+            file._expanded = false;
+            return;
+        }
+        file._expanded = true;
+        file._loading = true;
+        try {
+            const result = await rpc('/devops/commit/file_diff', {
+                project_id: this.state.currentProjectId,
+                commit_hash: commit.full_hash,
+                file_path: file.path,
+            });
+            file._diff = result.diff || 'No diff available';
+        } catch (e) {
+            file._diff = 'Error loading diff';
+        }
+        file._loading = false;
+    }
+
     async _toggleCommitDetail(commit) {
         if (commit._expanded) {
             commit._expanded = false;
@@ -545,7 +565,9 @@ class PmbDevopsApp extends Component {
                 commit_hash: commit.full_hash,
             });
             commit._body = result.body || '';
-            commit._files = result.files || [];
+            commit._files = (result.files || []).map(f => ({
+                ...f, _expanded: false, _loading: false, _diff: '',
+            }));
             commit._stat = result.stat || '';
         } catch (e) {
             commit._body = 'Error loading detail';
