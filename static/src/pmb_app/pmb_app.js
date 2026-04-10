@@ -579,7 +579,7 @@ class PmbDevopsApp extends Component {
 
             // Start polling output
             this._terminalType = sessionType;
-            this._termPollInterval = setInterval(() => this._pollTerminal(), 100);
+            this._termPollInterval = setInterval(() => this._pollTerminal(), 500);
 
         } catch (e) {
             if (this._term) {
