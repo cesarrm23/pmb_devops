@@ -291,12 +291,22 @@
                                                                     <t t-else="">▶</t>
                                                                 </span>
                                                             </div>
-                                                            <div t-if="file._expanded" class="mb-2 p-2" style="background: #11111b; border-radius: 4px; overflow-x: auto;">
+                                                            <div t-if="file._expanded" class="mb-2" style="background: #11111b; border-radius: 6px; overflow-x: auto; border: 1px solid #313244;">
                                                                 <t t-if="file._loading">
-                                                                    <span style="color: #6c7086; font-size: 11px;">Cargando diff...</span>
+                                                                    <div class="p-3" style="color: #6c7086; font-size: 12px;">Cargando diff...</div>
                                                                 </t>
-                                                                <pre t-if="file._diff" style="color: #cdd6f4; font-size: 11px; margin: 0; white-space: pre-wrap; word-break: break-all;"><t t-foreach="(file._diff || '').split('\n')" t-as="line" t-key="line_index"><span t-att-style="line.startsWith('+') and !line.startsWith('+++') ? 'color: #a6e3a1;' : line.startsWith('-') and !line.startsWith('---') ? 'color: #f38ba8;' : line.startsWith('@@') ? 'color: #89b4fa;' : 'color: #6c7086;'"><t t-esc="line"/>
-</span></t></pre>
+                                                                <table t-if="file._diff" style="width: 100%; border-collapse: collapse; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12px; line-height: 1.5;">
+                                                                    <t t-foreach="(file._diff || '').split('\n')" t-as="line" t-key="line_index">
+                                                                        <tr t-att-style="line.startsWith('+') and !line.startsWith('+++') ? 'background: rgba(166,227,161,0.1);' : line.startsWith('-') and !line.startsWith('---') ? 'background: rgba(243,139,168,0.1);' : line.startsWith('@@') ? 'background: rgba(137,180,250,0.08);' : ''">
+                                                                            <td style="padding: 0 8px; text-align: right; user-select: none; min-width: 40px; color: #45475a; border-right: 1px solid #313244;">
+                                                                                <t t-esc="line_index + 1"/>
+                                                                            </td>
+                                                                            <td style="padding: 0 12px; white-space: pre;" t-att-style="'color:' + (line.startsWith('+') and !line.startsWith('+++') ? '#a6e3a1' : line.startsWith('-') and !line.startsWith('---') ? '#f38ba8' : line.startsWith('@@') ? '#89b4fa' : line.startsWith('diff ') or line.startsWith('index ') ? '#6c7086' : '#cdd6f4')">
+                                                                                <t t-esc="line"/>
+                                                                            </td>
+                                                                        </tr>
+                                                                    </t>
+                                                                </table>
                                                             </div>
                                                         </div>
                                                     </t>
