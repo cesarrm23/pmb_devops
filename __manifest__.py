@@ -38,6 +38,7 @@ Administra múltiples instancias Odoo desde una plataforma central.
     ],
     'application': True,
     'installable': True,
+    'post_init_hook': '_post_init_hook',
     'assets': {
         'web.assets_backend': [
             'pmb_devops/static/src/pmb_app/pmb_app.scss',
