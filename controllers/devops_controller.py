@@ -266,7 +266,7 @@ class DevopsController(http.Controller):
             return {'error': 'Acceso denegado'}
 
         result = ssh_utils.execute_command(project, [
-            'find', full_path, '-maxdepth', '1', '-printf', '%y|||%f|||%s|||%T@\n',
+            'find', full_path, '-maxdepth', '1', '-mindepth', '1', '-printf', '%y|||%f|||%s|||%T@\n',
         ], cwd=base_dir, timeout=10)
 
         if result.returncode != 0:

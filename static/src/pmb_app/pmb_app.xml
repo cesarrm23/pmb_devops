@@ -480,7 +480,7 @@
                                         <t t-if="state.editorLoading">
                                             <div style="color: #6c7086;">Cargando...</div>
                                         </t>
-                                        <t t-foreach="state.editorFiles" t-as="item" t-key="item.name">
+                                        <t t-foreach="state.editorFiles" t-as="item" t-key="item.path">
                                             <div class="d-flex align-items-center py-1 px-1 rounded cursor-pointer"
                                                  t-att-style="state.editorSelectedFile === item.path ? 'background: #313244;' : ''"
                                                  t-on-click="() => item.type === 'dir' ? this._browseDir(item.path) : this._openFile(item)">
