@@ -694,15 +694,21 @@ class PmbDevopsApp extends Component {
             this._termConnected = true;  // non-reactive flag
             this._terminalType = sessionType;
 
-            // Handle input — reset idle on keystroke
-            this._term.onData((data) => {
+            // Handle input — write then immediately read for fast echo
+            this._term.onData(async (data) => {
                 if (!this._termConnected) return;
-                rpc('/devops/terminal/write', {
+                await rpc('/devops/terminal/write', {
                     session_type: sessionType,
                     data: data,
                     instance_id: instanceId,
                 });
+                // Immediate read after write for instant echo
                 this._termHasInput = true;
+                if (this._termPollTimeout) {
+                    clearTimeout(this._termPollTimeout);
+                    this._termPollTimeout = null;
+                }
+                this._pollTerminal();
             });
 
             // Start output polling (lightweight, adaptive)
