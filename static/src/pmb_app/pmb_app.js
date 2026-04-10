@@ -579,7 +579,8 @@ class PmbDevopsApp extends Component {
 
             // Start polling output
             this._terminalType = sessionType;
-            this._termPollInterval = setInterval(() => this._pollTerminal(), 500);
+            this._termIdleCount = 0;
+            this._startTerminalPolling();
 
         } catch (e) {
             if (this._term) {
@@ -590,7 +591,13 @@ class PmbDevopsApp extends Component {
         }
     }
 
-    async _pollTerminal() {
+    _startTerminalPolling() {
+        // Adaptive polling: fast when active, slow when idle
+        if (this._termPollTimeout) clearTimeout(this._termPollTimeout);
+        this._pollTerminalLoop();
+    }
+
+    async _pollTerminalLoop() {
         if (!this._termConnected) return;
         try {
             const result = await rpc('/devops/terminal/read', {
@@ -599,14 +606,22 @@ class PmbDevopsApp extends Component {
             });
             if (result.output && this._term) {
                 this._term.write(result.output);
+                this._termIdleCount = 0;  // got data, reset idle
+            } else {
+                this._termIdleCount++;
             }
             if (!result.alive) {
                 this._termConnected = false;
-                clearInterval(this._termPollInterval);
-                this._termPollInterval = null;
                 if (this._term) this._term.writeln('\r\n\x1b[31m[Session ended]\x1b[0m');
+                return;  // stop polling
             }
-        } catch (e) { /* ignore polling errors */ }
+        } catch (e) { /* ignore */ }
+
+        // Schedule next poll: 200ms if active, 2000ms if idle (>5 empty reads)
+        if (this._termConnected) {
+            const delay = this._termIdleCount > 5 ? 2000 : 200;
+            this._termPollTimeout = setTimeout(() => this._pollTerminalLoop(), delay);
+        }
     }
 
     _cleanupTerminal() {
@@ -618,6 +633,10 @@ class PmbDevopsApp extends Component {
         if (this._termPollInterval) {
             clearInterval(this._termPollInterval);
             this._termPollInterval = null;
+        }
+        if (this._termPollTimeout) {
+            clearTimeout(this._termPollTimeout);
+            this._termPollTimeout = null;
         }
         if (this._term) {
             this._term.dispose();
