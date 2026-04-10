@@ -151,20 +151,28 @@ if [ -n "{source_filestore}" ] && [ -d "{source_filestore}" ]; then
     sudo chown -R odooal:odooal "{rec.instance_path}/.local/share/Odoo"
 fi
 
-# Step 2: Create directory + clone repo + symlinks
+# Step 2: Create directory + copy odoo/enterprise + clone repo
 STEP "Preparando directorio de instancia..."
 sudo mkdir -p "{inst_path}/.local/share/Odoo"
 sudo chown -R odooal:odooal "{inst_path}"
 
-# Symlink shared Odoo source
-ln -sfn /opt/odooAL/odoo "{inst_path}/odoo"
+# Copy Odoo source (each instance gets its own copy, no __pycache__)
+STEP "Copiando Odoo source..."
+rsync -a --exclude='__pycache__' /opt/odooAL/odoo/ "{inst_path}/odoo/"
 
-# Symlink shared enterprise addons
+# Copy enterprise addons (each instance gets its own copy, no __pycache__)
 if [ -d "/opt/odoo19/enterprise" ]; then
-    ln -sfn /opt/odoo19/enterprise "{inst_path}/enterprise"
+    STEP "Copiando enterprise addons..."
+    sudo rsync -a --exclude='__pycache__' /opt/odoo19/enterprise/ "{inst_path}/enterprise/"
+    sudo chown -R odooal:odooal "{inst_path}/enterprise"
 elif [ -n "{project.enterprise_path}" ] && [ -d "{project.enterprise_path}" ]; then
-    ln -sfn "{project.enterprise_path}" "{inst_path}/enterprise"
+    STEP "Copiando enterprise addons..."
+    sudo rsync -a --exclude='__pycache__' "{project.enterprise_path}/" "{inst_path}/enterprise/"
+    sudo chown -R odooal:odooal "{inst_path}/enterprise"
 fi
+
+# Symlink venv (shared, read-only executables)
+ln -sfn /opt/odooAL/.venv "{inst_path}/.venv"
 
 # Clone custom addons repo into instance (own copy per branch)
 if [ -n "{repo_url}" ]; then
@@ -206,7 +214,7 @@ After=network.target postgresql.service
 Type=simple
 User=odooal
 Group=odooal
-ExecStart=/opt/odooAL/.venv/bin/python /opt/odooAL/odoo/odoo-bin -c {rec.odoo_config_path}
+ExecStart={inst_path}/.venv/bin/python {inst_path}/odoo/odoo-bin -c {rec.odoo_config_path}
 WorkingDirectory={rec.instance_path}
 Restart=on-failure
 RestartSec=5s
