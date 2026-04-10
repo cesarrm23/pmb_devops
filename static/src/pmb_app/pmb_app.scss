@@ -35,4 +35,77 @@
         background: #313244;
         color: #cdd6f4;
     }
+
+    // Mobile responsive
+    @media (max-width: 768px) {
+        .pmb-navbar {
+            flex-wrap: wrap;
+            height: auto !important;
+            padding: 8px !important;
+
+            > span, > div {
+                font-size: 11px !important;
+            }
+
+            select.form-select {
+                width: 100% !important;
+                margin-top: 6px;
+            }
+        }
+
+        .pmb-sidebar {
+            width: 200px !important;
+            min-width: 200px;
+            font-size: 12px;
+        }
+
+        .pmb-main {
+            min-width: 0;
+        }
+
+        // Action bar wraps on mobile
+        .pmb-actions {
+            flex-wrap: wrap;
+            gap: 4px !important;
+
+            .btn {
+                font-size: 11px !important;
+                padding: 2px 6px !important;
+            }
+        }
+
+        // Content tabs scroll horizontally
+        .pmb-content-tabs {
+            overflow-x: auto;
+            white-space: nowrap;
+            -webkit-overflow-scrolling: touch;
+
+            > span {
+                font-size: 11px !important;
+                padding: 6px 8px !important;
+            }
+        }
+
+        // Terminal smaller on mobile
+        .pmb-terminal-container {
+            height: 350px !important;
+        }
+    }
+
+    @media (max-width: 480px) {
+        .pmb-sidebar {
+            width: 160px !important;
+            min-width: 160px;
+
+            .branch-entry {
+                font-size: 11px;
+            }
+        }
+
+        .pmb-navbar {
+            > span {
+                padding: 4px 6px !important;
+            }
+        }
+    }
 }

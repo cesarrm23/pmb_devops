@@ -3,7 +3,7 @@
     <t t-name="pmb_devops.PmbDevopsApp">
         <div class="pmb-app d-flex flex-column vh-100">
             <!-- NAVBAR -->
-            <div class="pmb-navbar d-flex align-items-center px-3"
+            <div class="pmb-navbar d-flex align-items-center flex-wrap px-3"
                  style="height: 46px; background: #1e1e2e; border-bottom: 1px solid #313244;">
                 <span class="fw-bold me-4" style="color: #cdd6f4; font-size: 16px;">
                     PMB DevOps
@@ -137,7 +137,7 @@
                 </div>
 
                 <!-- MAIN CONTENT -->
-                <div class="flex-grow-1 d-flex flex-column" style="background: #181825; overflow-y: auto;">
+                <div class="pmb-main flex-grow-1 d-flex flex-column" style="background: #181825; overflow-y: auto;">
                     <t t-if="state.selectedInstance">
                         <!-- Branch header -->
                         <div class="px-4 pt-3">
@@ -158,7 +158,7 @@
                         </div>
 
                         <!-- Action bar -->
-                        <div class="px-4 pb-2 d-flex gap-1">
+                        <div class="pmb-actions px-4 pb-2 d-flex gap-1">
                             <button class="btn btn-sm"
                                     style="background: #313244; color: #cdd6f4; border: 1px solid #45475a; font-size: 12px;"
                                     t-on-click="() => this._onAction('Clone')">
@@ -193,7 +193,7 @@
                         </div>
 
                         <!-- Content tabs -->
-                        <div class="d-flex px-4 gap-0" style="border-bottom: 1px solid #313244;">
+                        <div class="pmb-content-tabs d-flex px-4 gap-0" style="border-bottom: 1px solid #313244;">
                             <span class="px-3 py-2 cursor-pointer"
                                   t-att-style="state.activeContentTab === 'history' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
                                   t-on-click="() => this._onContentTabChange('history')">
@@ -254,17 +254,17 @@
                             </div>
 
                             <!-- AI tab -->
-                            <div t-if="state.activeContentTab === 'ai'" style="height: 500px;">
+                            <div t-if="state.activeContentTab === 'ai'" class="pmb-terminal-container" style="height: 500px;">
                                 <div t-ref="terminalAI" style="height: 100%; width: 100%;"/>
                             </div>
 
                             <!-- SHELL tab -->
-                            <div t-if="state.activeContentTab === 'shell'" style="height: 500px;">
+                            <div t-if="state.activeContentTab === 'shell'" class="pmb-terminal-container" style="height: 500px;">
                                 <div t-ref="terminalShell" style="height: 100%; width: 100%;"/>
                             </div>
 
                             <!-- LOGS tab -->
-                            <div t-if="state.activeContentTab === 'logs'" style="height: 500px;">
+                            <div t-if="state.activeContentTab === 'logs'" class="pmb-terminal-container" style="height: 500px;">
                                 <div t-ref="terminalLogs" style="height: 100%; width: 100%;"/>
                             </div>
 

@@ -156,15 +156,21 @@ class PmbDevopsApp extends Component {
             this.state.instances = instances;
             this.state.branches = branches;
 
-            // Auto-select first instance: prefer production, then first available
-            this.state.selectedInstance = null;
-            this.state.selectedBranch = null;
+            // Preserve current selection if it still exists, otherwise auto-select
+            const currentId = this.state.selectedInstance ? this.state.selectedInstance.id : null;
+            const stillExists = currentId ? instances.find(i => i.id === currentId) : null;
 
-            if (instances.length > 0) {
+            if (stillExists) {
+                // Update the selected instance data without changing selection
+                this.state.selectedInstance = stillExists;
+            } else if (instances.length > 0) {
                 const production = instances.find(
                     (i) => i.instance_type === "production"
                 );
                 this._selectInstance(production || instances[0]);
+            } else {
+                this.state.selectedInstance = null;
+                this.state.selectedBranch = null;
             }
         } catch (err) {
             console.error("PmbDevopsApp: error loading project data", err);
@@ -288,8 +294,11 @@ class PmbDevopsApp extends Component {
     }
 
     async _onContentTabChange(tab) {
+        if (tab === this.state.activeContentTab) return;  // prevent re-entry
+
         // Cleanup terminal when leaving terminal tabs
-        if (['ai', 'shell', 'logs'].includes(this.state.activeContentTab) && !['ai', 'shell', 'logs'].includes(tab)) {
+        const termTabs = ['ai', 'shell', 'logs'];
+        if (termTabs.includes(this.state.activeContentTab)) {
             this._cleanupTerminal();
         }
 
@@ -300,11 +309,14 @@ class PmbDevopsApp extends Component {
             await this._loadHistory();
         } else if (tab === 'backups') {
             await this._loadBackups();
-        } else if (['ai', 'shell', 'logs'].includes(tab)) {
-            // Wait for DOM to render the ref, then init terminal
-            await new Promise(r => setTimeout(r, 100));
-            const sessionType = tab === 'ai' ? 'claude' : tab === 'shell' ? 'shell' : 'logs';
-            await this._initTerminal(sessionType);
+        } else if (termTabs.includes(tab)) {
+            // Wait for DOM to render, then init terminal ONCE
+            setTimeout(async () => {
+                if (this.state.activeContentTab === tab && !this._termInitializing) {
+                    const sessionType = tab === 'ai' ? 'claude' : tab === 'shell' ? 'shell' : 'logs';
+                    await this._initTerminal(sessionType);
+                }
+            }, 200);
         }
     }
 
@@ -495,53 +507,64 @@ class PmbDevopsApp extends Component {
     // ------------------------------------------------------------------
 
     async _initTerminal(sessionType) {
-        // Clean previous terminal
-        this._cleanupTerminal();
+        // Guard against re-entry
+        if (this._termInitializing) return;
+        this._termInitializing = true;
 
-        // Load xterm.js from CDN if not loaded
-        if (!window.Terminal) {
-            await this._loadScript('https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js');
-            await this._loadCSS('https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css');
-            await this._loadScript('https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js');
-        }
-
-        const container = this._getTerminalContainer();
-        if (!container) return;
-
-        this._term = new window.Terminal({
-            cursorBlink: true,
-            fontSize: 14,
-            fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-            theme: {
-                background: '#1e1e2e',
-                foreground: '#cdd6f4',
-                cursor: '#f5e0dc',
-                selectionBackground: '#45475a',
-                black: '#45475a', red: '#f38ba8', green: '#a6e3a1',
-                yellow: '#f9e2af', blue: '#89b4fa', magenta: '#cba6f7',
-                cyan: '#94e2d5', white: '#bac2de',
-            },
-            allowProposedApi: true,
-        });
-
-        this._fitAddon = new window.FitAddon.FitAddon();
-        this._term.loadAddon(this._fitAddon);
-        this._term.open(container);
-        this._fitAddon.fit();
-
-        // Start session
-        const instanceId = this.state.selectedInstance ? this.state.selectedInstance.id : null;
-        const projectId = this.state.currentProjectId;
         try {
-            await rpc('/devops/terminal/start', {
+            // Clean previous terminal without touching reactive state
+            this._doCleanupTerminal();
+
+            // Load xterm.js from CDN if not loaded
+            if (!window.Terminal) {
+                await this._loadScript('https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js');
+                await this._loadCSS('https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css');
+                await this._loadScript('https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js');
+            }
+
+            const container = this._getTerminalContainer();
+            if (!container) return;
+
+            this._term = new window.Terminal({
+                cursorBlink: true,
+                fontSize: 14,
+                fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                theme: {
+                    background: '#1e1e2e',
+                    foreground: '#cdd6f4',
+                    cursor: '#f5e0dc',
+                    selectionBackground: '#45475a',
+                    black: '#45475a', red: '#f38ba8', green: '#a6e3a1',
+                    yellow: '#f9e2af', blue: '#89b4fa', magenta: '#cba6f7',
+                    cyan: '#94e2d5', white: '#bac2de',
+                },
+                allowProposedApi: true,
+            });
+
+            this._fitAddon = new window.FitAddon.FitAddon();
+            this._term.loadAddon(this._fitAddon);
+            this._term.open(container);
+            this._fitAddon.fit();
+
+            // Start session
+            const instanceId = this.state.selectedInstance ? this.state.selectedInstance.id : null;
+            const projectId = this.state.currentProjectId;
+            const result = await rpc('/devops/terminal/start', {
                 session_type: sessionType,
                 project_id: projectId,
                 instance_id: instanceId,
             });
-            this.state.terminalConnected = true;
+
+            if (result && result.error) {
+                this._term.writeln('\x1b[31mError: ' + result.error + '\x1b[0m');
+                return;
+            }
+
+            this._termConnected = true;  // non-reactive flag
 
             // Handle input
             this._term.onData((data) => {
+                if (!this._termConnected) return;
                 rpc('/devops/terminal/write', {
                     session_type: sessionType,
                     data: data,
@@ -554,12 +577,16 @@ class PmbDevopsApp extends Component {
             this._termPollInterval = setInterval(() => this._pollTerminal(), 100);
 
         } catch (e) {
-            this._term.writeln('\x1b[31mError starting session: ' + e.message + '\x1b[0m');
+            if (this._term) {
+                this._term.writeln('\x1b[31mError: ' + (e.message || e) + '\x1b[0m');
+            }
+        } finally {
+            this._termInitializing = false;
         }
     }
 
     async _pollTerminal() {
-        if (!this.state.terminalConnected) return;
+        if (!this._termConnected) return;
         try {
             const result = await rpc('/devops/terminal/read', {
                 session_type: this._terminalType,
@@ -569,14 +596,20 @@ class PmbDevopsApp extends Component {
                 this._term.write(result.output);
             }
             if (!result.alive) {
-                this.state.terminalConnected = false;
+                this._termConnected = false;
                 clearInterval(this._termPollInterval);
+                this._termPollInterval = null;
                 if (this._term) this._term.writeln('\r\n\x1b[31m[Session ended]\x1b[0m');
             }
         } catch (e) { /* ignore polling errors */ }
     }
 
     _cleanupTerminal() {
+        this._doCleanupTerminal();
+    }
+
+    _doCleanupTerminal() {
+        // Internal cleanup — does NOT touch reactive state to avoid re-render loops
         if (this._termPollInterval) {
             clearInterval(this._termPollInterval);
             this._termPollInterval = null;
@@ -586,7 +619,7 @@ class PmbDevopsApp extends Component {
             this._term = null;
         }
         this._fitAddon = null;
-        this.state.terminalConnected = false;
+        this._termConnected = false;
         // Stop server session
         if (this._terminalType) {
             rpc('/devops/terminal/stop', { session_type: this._terminalType }).catch(() => {});
