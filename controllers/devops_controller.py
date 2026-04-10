@@ -316,6 +316,65 @@ class DevopsController(http.Controller):
 
         return {'content': result.stdout, 'path': path, 'name': os.path.basename(path)}
 
+    @http.route('/devops/git/status', type='json', auth='user')
+    def git_status(self, project_id, instance_id=None):
+        """Get git status: staged, unstaged, and untracked files."""
+        project = request.env['devops.project'].browse(project_id)
+        if not project.exists():
+            return {'error': 'Proyecto no encontrado'}
+
+        from ..utils import ssh_utils
+
+        # Determine repo path
+        repo_path = project.repo_path
+        if instance_id:
+            inst = request.env['devops.instance'].browse(instance_id)
+            if inst.exists() and inst.instance_path and inst.instance_type != 'production':
+                repo_path = f"{inst.instance_path}/cremara_addons"
+
+        # git status --porcelain=v1
+        result = ssh_utils.execute_command(project, [
+            'git', 'status', '--porcelain=v1',
+        ], cwd=repo_path, timeout=10)
+
+        staged = []
+        unstaged = []
+        untracked = []
+        if result.returncode == 0:
+            for line in result.stdout.split('\n'):
+                if not line:
+                    continue
+                x = line[0]   # index status
+                y = line[1]   # worktree status
+                filepath = line[3:]
+                if x == '?':
+                    untracked.append(filepath)
+                elif x != ' ':
+                    staged.append({'status': x, 'path': filepath})
+                if y != ' ' and y != '?':
+                    unstaged.append({'status': y, 'path': filepath})
+
+        # git log outgoing (ahead of remote)
+        outgoing = []
+        result = ssh_utils.execute_command(project, [
+            'git', 'log', '--oneline', '@{upstream}..HEAD',
+        ], cwd=repo_path, timeout=10)
+        if result.returncode == 0 and result.stdout.strip():
+            for line in result.stdout.strip().split('\n'):
+                if line.strip():
+                    parts = line.split(' ', 1)
+                    outgoing.append({
+                        'hash': parts[0],
+                        'message': parts[1] if len(parts) > 1 else '',
+                    })
+
+        return {
+            'staged': staged,
+            'unstaged': unstaged,
+            'untracked': untracked,
+            'outgoing': outgoing,
+        }
+
     @http.route('/devops/branch/merge', type='json', auth='user')
     def branch_merge(self, project_id, source_branch, target_branch):
         """Merge source branch into target."""

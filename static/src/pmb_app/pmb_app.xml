@@ -327,9 +327,93 @@
                             </div>
 
                             <!-- AI tab (always in DOM, hidden when not active) -->
-                            <div class="pmb-terminal-container"
-                                 t-att-style="'height: 500px;' + (state.activeContentTab !== 'ai' ? ' display: none;' : '')">
-                                <div t-ref="terminalAI" style="height: 100%; width: 100%;"/>
+                            <div t-att-style="state.activeContentTab !== 'ai' ? 'display: none;' : ''">
+                                <div class="pmb-ai-layout d-flex" style="gap: 0;">
+                                    <!-- Git changes panel (left on desktop, top on mobile) -->
+                                    <div class="pmb-git-panel" style="width: 260px; min-width: 260px; background: #11111b; border-right: 1px solid #313244; overflow-y: auto; max-height: 500px;">
+                                        <div class="p-2">
+                                            <div class="d-flex align-items-center justify-content-between mb-2">
+                                                <span style="color: #cdd6f4; font-size: 12px; font-weight: 600;">Git Changes</span>
+                                                <button class="btn btn-sm p-0" style="color: #89b4fa; font-size: 12px;"
+                                                        t-on-click="_refreshGitStatus" title="Refresh">↻</button>
+                                            </div>
+
+                                            <!-- Outgoing commits -->
+                                            <t t-if="state.gitOutgoing.length > 0">
+                                                <div class="mb-2">
+                                                    <div style="color: #a6e3a1; font-size: 11px; font-weight: 600;" class="mb-1">
+                                                        ↑ Outgoing (<t t-esc="state.gitOutgoing.length"/>)
+                                                    </div>
+                                                    <t t-foreach="state.gitOutgoing" t-as="c" t-key="c.hash">
+                                                        <div class="py-1" style="font-size: 11px; color: #a6adc8;">
+                                                            <code style="color: #89b4fa; font-size: 10px;"><t t-esc="c.hash"/></code>
+                                                            <span class="ms-1"><t t-esc="c.message"/></span>
+                                                        </div>
+                                                    </t>
+                                                </div>
+                                            </t>
+
+                                            <!-- Staged changes -->
+                                            <t t-if="state.gitStaged.length > 0">
+                                                <div class="mb-2">
+                                                    <div style="color: #a6e3a1; font-size: 11px; font-weight: 600;" class="mb-1">
+                                                        ✓ Staged (<t t-esc="state.gitStaged.length"/>)
+                                                    </div>
+                                                    <t t-foreach="state.gitStaged" t-as="f" t-key="f.path">
+                                                        <div class="py-1 d-flex" style="font-size: 11px;">
+                                                            <span class="me-1" t-att-style="'font-weight:bold; width:12px; color:' + (f.status === 'A' ? '#a6e3a1' : f.status === 'D' ? '#f38ba8' : '#f9e2af')">
+                                                                <t t-esc="f.status"/>
+                                                            </span>
+                                                            <span style="color: #cdd6f4;" class="text-truncate"><t t-esc="f.path"/></span>
+                                                        </div>
+                                                    </t>
+                                                </div>
+                                            </t>
+
+                                            <!-- Unstaged changes -->
+                                            <t t-if="state.gitUnstaged.length > 0">
+                                                <div class="mb-2">
+                                                    <div style="color: #f9e2af; font-size: 11px; font-weight: 600;" class="mb-1">
+                                                        ● Modified (<t t-esc="state.gitUnstaged.length"/>)
+                                                    </div>
+                                                    <t t-foreach="state.gitUnstaged" t-as="f" t-key="f.path">
+                                                        <div class="py-1 d-flex" style="font-size: 11px;">
+                                                            <span class="me-1" style="font-weight:bold; width:12px; color:#f9e2af;">
+                                                                <t t-esc="f.status"/>
+                                                            </span>
+                                                            <span style="color: #cdd6f4;" class="text-truncate"><t t-esc="f.path"/></span>
+                                                        </div>
+                                                    </t>
+                                                </div>
+                                            </t>
+
+                                            <!-- Untracked -->
+                                            <t t-if="state.gitUntracked.length > 0">
+                                                <div class="mb-2">
+                                                    <div style="color: #6c7086; font-size: 11px; font-weight: 600;" class="mb-1">
+                                                        ? Untracked (<t t-esc="state.gitUntracked.length"/>)
+                                                    </div>
+                                                    <t t-foreach="state.gitUntracked" t-as="f" t-key="f">
+                                                        <div class="py-1" style="font-size: 11px; color: #6c7086;">
+                                                            <t t-esc="f"/>
+                                                        </div>
+                                                    </t>
+                                                </div>
+                                            </t>
+
+                                            <!-- No changes -->
+                                            <div t-if="state.gitStaged.length === 0 and state.gitUnstaged.length === 0 and state.gitUntracked.length === 0 and state.gitOutgoing.length === 0"
+                                                 style="color: #6c7086; font-size: 11px;">
+                                                No hay cambios pendientes
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- AI Terminal (right) -->
+                                    <div class="flex-grow-1 pmb-terminal-container" style="height: 500px;">
+                                        <div t-ref="terminalAI" style="height: 100%; width: 100%;"/>
+                                    </div>
+                                </div>
                             </div>
 
                             <!-- SHELL tab (always in DOM, hidden when not active) -->

@@ -53,6 +53,12 @@ class PmbDevopsApp extends Component {
             // Logs
             logType: 'service',  // 'service' (journalctl) or 'odoo' (logfile)
 
+            // Git changes (AI tab sidebar)
+            gitStaged: [],
+            gitUnstaged: [],
+            gitUntracked: [],
+            gitOutgoing: [],
+
             // Editor / file browser
             editorPath: '',
             editorFiles: [],
@@ -341,6 +347,10 @@ class PmbDevopsApp extends Component {
         } else if (tab === 'backups') {
             await this._loadBackups();
         } else if (isTermTab) {
+            // Load git status once when entering AI tab (no polling)
+            if (tab === 'ai') {
+                this._refreshGitStatus();
+            }
             const sessionType = tab === 'ai' ? 'claude' : tab === 'shell' ? 'shell' : (this.state.logType === 'odoo' ? 'odoo_log' : 'logs');
             // If same session type is still alive, just resume polling
             if (this._termConnected && this._terminalType === sessionType && this._term) {
@@ -822,6 +832,26 @@ class PmbDevopsApp extends Component {
     // ------------------------------------------------------------------
     // Instance management (Upgrade tab)
     // ------------------------------------------------------------------
+
+    // ------------------------------------------------------------------
+    // Git changes (AI tab panel) — loaded once on tab enter + manual refresh
+    // ------------------------------------------------------------------
+
+    async _refreshGitStatus() {
+        if (!this.state.currentProjectId) return;
+        try {
+            const result = await rpc('/devops/git/status', {
+                project_id: this.state.currentProjectId,
+                instance_id: this.state.selectedInstance ? this.state.selectedInstance.id : null,
+            });
+            if (!result.error) {
+                this.state.gitStaged = result.staged || [];
+                this.state.gitUnstaged = result.unstaged || [];
+                this.state.gitUntracked = result.untracked || [];
+                this.state.gitOutgoing = result.outgoing || [];
+            }
+        } catch (e) { /* ignore */ }
+    }
 
     // ------------------------------------------------------------------
     // Editor / File browser

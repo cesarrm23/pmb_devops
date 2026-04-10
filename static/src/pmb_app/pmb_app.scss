@@ -90,6 +90,19 @@
         .pmb-terminal-container {
             height: 350px !important;
         }
+
+        // AI tab: git panel on top, terminal below
+        .pmb-ai-layout {
+            flex-direction: column !important;
+
+            .pmb-git-panel {
+                width: 100% !important;
+                min-width: 100% !important;
+                max-height: 200px !important;
+                border-right: none !important;
+                border-bottom: 1px solid #313244;
+            }
+        }
     }
 
     @media (max-width: 480px) {
