@@ -273,9 +273,23 @@
                             </div>
 
                             <!-- LOGS tab (always in DOM, hidden when not active) -->
-                            <div class="pmb-terminal-container"
-                                 t-att-style="'height: 500px;' + (state.activeContentTab !== 'logs' ? ' display: none;' : '')">
-                                <div t-ref="terminalLogs" style="height: 100%; width: 100%;"/>
+                            <div t-att-style="state.activeContentTab !== 'logs' ? 'display: none;' : ''">
+                                <!-- Log type selector -->
+                                <div class="d-flex gap-2 mb-2 px-1">
+                                    <button class="btn btn-sm"
+                                            t-att-style="state.logType === 'service' ? 'background: #89b4fa; color: #1e1e2e; font-weight: 600;' : 'background: #313244; color: #cdd6f4;'"
+                                            t-on-click="() => this._switchLogType('service')">
+                                        Service (journalctl)
+                                    </button>
+                                    <button class="btn btn-sm"
+                                            t-att-style="state.logType === 'odoo' ? 'background: #89b4fa; color: #1e1e2e; font-weight: 600;' : 'background: #313244; color: #cdd6f4;'"
+                                            t-on-click="() => this._switchLogType('odoo')">
+                                        Odoo Log
+                                    </button>
+                                </div>
+                                <div class="pmb-terminal-container" style="height: 470px;">
+                                    <div t-ref="terminalLogs" style="height: 100%; width: 100%;"/>
+                                </div>
                             </div>
 
                             <!-- BACKUPS tab -->

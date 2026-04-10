@@ -167,6 +167,16 @@ class DevopsTerminalController(http.Controller):
                 'journalctl', '-u', f'{service}.service',
                 '-f', '-n', '200', '--no-pager', '--output=short-iso',
             ]
+        elif session_type == 'odoo_log':
+            # Tail the Odoo logfile directly
+            logfile = f'/var/log/odoo/{service}.log' if service else ''
+            if instance_id:
+                inst = request.env['devops.instance'].browse(instance_id)
+                if inst.exists() and inst.service_name:
+                    logfile = f'/var/log/odoo/{inst.service_name}.log'
+            if not logfile or not os.path.exists(logfile):
+                return {'error': f'Log file not found: {logfile}'}
+            cmd = ['tail', '-f', '-n', '200', logfile]
         else:
             return {'error': f'Unknown session type: {session_type}'}
 

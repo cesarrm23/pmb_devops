@@ -49,6 +49,9 @@ class PmbDevopsApp extends Component {
 
             // Backups
             backups: [],
+
+            // Logs
+            logType: 'service',  // 'service' (journalctl) or 'odoo' (logfile)
         });
 
         this.terminalAIRef = useRef("terminalAI");
@@ -328,7 +331,7 @@ class PmbDevopsApp extends Component {
         } else if (tab === 'backups') {
             await this._loadBackups();
         } else if (isTermTab) {
-            const sessionType = tab === 'ai' ? 'claude' : tab === 'shell' ? 'shell' : 'logs';
+            const sessionType = tab === 'ai' ? 'claude' : tab === 'shell' ? 'shell' : (this.state.logType === 'odoo' ? 'odoo_log' : 'logs');
             // If same session type is still alive, just resume polling
             if (this._termConnected && this._terminalType === sessionType && this._term) {
                 this._resumeTerminalPolling();
@@ -764,6 +767,16 @@ class PmbDevopsApp extends Component {
     // ------------------------------------------------------------------
     // Instance management (Upgrade tab)
     // ------------------------------------------------------------------
+
+    async _switchLogType(type) {
+        if (type === this.state.logType) return;
+        this.state.logType = type;
+        // Destroy current terminal and start new one with the right session type
+        this._doCleanupTerminal();
+        await new Promise(r => setTimeout(r, 200));
+        const sessionType = type === 'odoo' ? 'odoo_log' : 'logs';
+        await this._initTerminal(sessionType);
+    }
 
     async _startInstance() {
         if (!this.state.selectedInstance) return;
