@@ -158,7 +158,7 @@ class DevopsTerminalController(http.Controller):
 
         # Determine command based on session type
         if session_type == 'claude':
-            cmd = ['claude', '--no-update']
+            cmd = ['claude']
         elif session_type == 'shell':
             cmd = ['/bin/bash', '-i']
         elif session_type == 'logs':
