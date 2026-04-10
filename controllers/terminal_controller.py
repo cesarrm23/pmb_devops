@@ -134,12 +134,18 @@ class DevopsTerminalController(http.Controller):
         if instance_id:
             instance = request.env['devops.instance'].browse(instance_id)
             if instance.exists():
-                # For production, always use repo_path (odooal may not own instance_path)
-                if instance.instance_type == 'production' and instance.project_id.repo_path:
-                    cwd = instance.project_id.repo_path
+                # Set cwd based on session type and instance type
+                if session_type == 'logs':
+                    # Logs don't need a specific cwd, just the service name
+                    cwd = '/tmp'
+                elif instance.instance_type == 'production':
+                    # Production: try repo_path, fallback to home
+                    repo = instance.project_id.repo_path
+                    if repo and os.path.isdir(repo) and os.access(repo, os.R_OK):
+                        cwd = repo
                 elif instance.instance_path and os.path.isdir(instance.instance_path):
                     cwd = instance.instance_path
-                elif instance.project_id.repo_path:
+                elif instance.project_id.repo_path and os.path.isdir(instance.project_id.repo_path):
                     cwd = instance.project_id.repo_path
 
                 # For logs, get service name from instance
