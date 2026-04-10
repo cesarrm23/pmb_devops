@@ -584,6 +584,9 @@ class PmbDevopsApp extends Component {
                 return;
             }
 
+            // Wait for bridge to initialize (write alive=1, create output file)
+            await new Promise(r => setTimeout(r, 1000));
+
             this._termConnected = true;  // non-reactive flag
 
             // Handle input
@@ -640,9 +643,15 @@ class PmbDevopsApp extends Component {
                 this._termIdleCount++;
             }
             if (!result.alive) {
-                this._termConnected = false;
-                if (this._term) this._term.writeln('\r\n\x1b[31m[Session ended]\x1b[0m');
-                return;  // stop polling
+                // Give a few chances before declaring dead (bridge may be starting)
+                this._termDeadCount = (this._termDeadCount || 0) + 1;
+                if (this._termDeadCount > 5) {
+                    this._termConnected = false;
+                    if (this._term) this._term.writeln('\r\n\x1b[31m[Session ended]\x1b[0m');
+                    return;  // stop polling
+                }
+            } else {
+                this._termDeadCount = 0;
             }
         } catch (e) { /* ignore */ }
 
