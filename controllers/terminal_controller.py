@@ -158,7 +158,7 @@ class DevopsTerminalController(http.Controller):
 
         # Determine command based on session type
         if session_type == 'claude':
-            cmd = ['claude']
+            cmd = ['claude', '--no-update']
         elif session_type == 'shell':
             cmd = ['/bin/bash', '-i']
         elif session_type == 'logs':
@@ -196,8 +196,9 @@ class DevopsTerminalController(http.Controller):
         except KeyError:
             env['HOME'] = '/opt/odooAL'
 
-        # For claude sessions, set API key from config
+        # For claude sessions, set API key and disable auto-update
         if session_type == 'claude':
+            env['CLAUDE_CODE_DISABLE_AUTOUPDATE'] = '1'
             api_key = request.env['ir.config_parameter'].sudo().get_param(
                 'pmb_devops.claude_api_key', ''
             )
