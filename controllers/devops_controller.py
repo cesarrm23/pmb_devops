@@ -176,6 +176,42 @@ class DevopsController(http.Controller):
         commits = git_utils.git_log(project, branch=branch_name, count=limit)
         return {'commits': commits}
 
+    @http.route('/devops/commit/detail', type='json', auth='user')
+    def commit_detail(self, project_id, commit_hash):
+        """Get commit detail: full message + changed files."""
+        project = request.env['devops.project'].browse(project_id)
+        if not project.exists():
+            return {'error': 'Proyecto no encontrado'}
+
+        from ..utils import ssh_utils
+
+        # Get full commit message (body)
+        result = ssh_utils.execute_command(project, [
+            'git', 'log', '-1', '--format=%B', commit_hash,
+        ], cwd=project.repo_path)
+        body = result.stdout.strip() if result.returncode == 0 else ''
+
+        # Get changed files with stats
+        result = ssh_utils.execute_command(project, [
+            'git', 'diff-tree', '--no-commit-id', '-r', '--name-status', commit_hash,
+        ], cwd=project.repo_path)
+        files = []
+        if result.returncode == 0:
+            for line in result.stdout.strip().split('\n'):
+                if not line.strip():
+                    continue
+                parts = line.split('\t', 1)
+                if len(parts) >= 2:
+                    files.append({'status': parts[0], 'path': parts[1]})
+
+        # Get diff stat
+        result = ssh_utils.execute_command(project, [
+            'git', 'diff-tree', '--no-commit-id', '--stat', commit_hash,
+        ], cwd=project.repo_path)
+        stat = result.stdout.strip() if result.returncode == 0 else ''
+
+        return {'body': body, 'files': files, 'stat': stat}
+
     @http.route('/devops/branch/merge', type='json', auth='user')
     def branch_merge(self, project_id, source_branch, target_branch):
         """Merge source branch into target."""

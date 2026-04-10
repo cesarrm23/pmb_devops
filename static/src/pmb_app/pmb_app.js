@@ -524,10 +524,33 @@ class PmbDevopsApp extends Component {
                 branch_name: branchName,
                 limit: 30,
             });
-            this.state.commits = result.commits || [];
+            this.state.commits = (result.commits || []).map(c => ({
+                ...c, _expanded: false, _loading: false, _body: '', _files: [], _stat: '',
+            }));
         } catch (e) {
             this.state.commits = [];
         }
+    }
+
+    async _toggleCommitDetail(commit) {
+        if (commit._expanded) {
+            commit._expanded = false;
+            return;
+        }
+        commit._expanded = true;
+        commit._loading = true;
+        try {
+            const result = await rpc('/devops/commit/detail', {
+                project_id: this.state.currentProjectId,
+                commit_hash: commit.full_hash,
+            });
+            commit._body = result.body || '';
+            commit._files = result.files || [];
+            commit._stat = result.stat || '';
+        } catch (e) {
+            commit._body = 'Error loading detail';
+        }
+        commit._loading = false;
     }
 
     // ------------------------------------------------------------------
