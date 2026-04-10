@@ -76,6 +76,8 @@ class PmbDevopsApp extends Component {
         this.terminalShellRef = useRef("terminalShell");
         this.terminalLogsRef = useRef("terminalLogs");
         this._pollTimer = null;
+        this.busService = this.env.services.bus_service;
+        this._currentUserId = this.env.services.user?.userId || 0;
 
         onMounted(async () => {
             await this._loadProjects();
@@ -347,13 +349,7 @@ class PmbDevopsApp extends Component {
         const wasTermTab = termTabs.includes(this.state.activeContentTab);
         const isTermTab = termTabs.includes(tab);
 
-        // When leaving a terminal tab for a NON-terminal tab, just pause polling
-        // (don't destroy the session — user may come back)
-        if (wasTermTab && !isTermTab) {
-            this._pauseTerminalPolling();
-        }
-
-        // When switching between different terminal types (shell→ai), destroy old
+        // When switching between different terminal types (shell->ai), destroy old
         if (wasTermTab && isTermTab && tab !== this.state.activeContentTab) {
             this._cleanupTerminal();
         }
@@ -372,9 +368,8 @@ class PmbDevopsApp extends Component {
                 this._refreshGitStatus();
             }
             const sessionType = tab === 'ai' ? 'claude' : tab === 'shell' ? 'shell' : (this.state.logType === 'odoo' ? 'odoo_log' : 'logs');
-            // If same session type is still alive, just resume polling
+            // If same session type is still alive, just make sure bus is subscribed
             if (this._termConnected && this._terminalType === sessionType && this._term) {
-                this._resumeTerminalPolling();
                 // Re-fit terminal after DOM re-renders
                 setTimeout(() => { if (this._fitAddon) this._fitAddon.fit(); }, 100);
             } else {
@@ -691,8 +686,9 @@ class PmbDevopsApp extends Component {
             await new Promise(r => setTimeout(r, 1000));
 
             this._termConnected = true;  // non-reactive flag
+            this._terminalType = sessionType;
 
-            // Handle input — reset idle on every keystroke for fast echo
+            // Handle input
             this._term.onData((data) => {
                 if (!this._termConnected) return;
                 rpc('/devops/terminal/write', {
@@ -700,20 +696,16 @@ class PmbDevopsApp extends Component {
                     data: data,
                     instance_id: instanceId,
                 });
-                // User is typing — force fast polling
-                this._termIdleCount = 0;
-                if (this._termPollTimeout) {
-                    clearTimeout(this._termPollTimeout);
-                    this._termPollTimeout = null;
-                    this._pollTerminalLoop();
-                }
             });
 
-            // Start polling output
-            this._terminalType = sessionType;
-            this._termIdleCount = 0;
-            this._termReadPos = 0;  // track read position
-            this._startTerminalPolling();
+            // Subscribe to bus for terminal output (push, no polling)
+            const channel = `terminal_${this._currentUserId}_${sessionType}`;
+            this._termBusChannel = channel;
+
+            if (this.busService) {
+                this.busService.addChannel(channel);
+                this.busService.addEventListener('notification', this._onBusNotification.bind(this));
+            }
 
         } catch (e) {
             if (this._term) {
@@ -724,65 +716,17 @@ class PmbDevopsApp extends Component {
         }
     }
 
-    _startTerminalPolling() {
-        // Adaptive polling: fast when active, slow when idle
-        if (this._termPollTimeout) clearTimeout(this._termPollTimeout);
-        this._pollTerminalLoop();
-    }
-
-    async _pollTerminalLoop() {
-        if (!this._termConnected) return;
-        try {
-            const result = await rpc('/devops/terminal/read', {
-                session_type: this._terminalType,
-                instance_id: this.state.selectedInstance ? this.state.selectedInstance.id : null,
-                pos: this._termReadPos || 0,
-            });
-            if (result.pos !== undefined) {
-                this._termReadPos = result.pos;
-            }
-            if (result.output && this._term) {
-                this._term.write(result.output);
-                // Only count as "active" if substantial output (>20 bytes)
-                if (result.output.length > 20) {
-                    this._termIdleCount = 0;
-                } else {
-                    this._termIdleCount++;
+    _onBusNotification({ detail: notifications }) {
+        for (const { payload, type } of notifications) {
+            if (type === 'terminal_output' && this._termConnected && this._term) {
+                if (payload.output) {
+                    this._term.write(payload.output);
                 }
-            } else {
-                this._termIdleCount++;
-            }
-            if (!result.alive) {
-                // Give a few chances before declaring dead (bridge may be starting)
-                this._termDeadCount = (this._termDeadCount || 0) + 1;
-                if (this._termDeadCount > 5) {
+                if (!payload.alive) {
                     this._termConnected = false;
-                    if (this._term) this._term.writeln('\r\n\x1b[31m[Session ended]\x1b[0m');
-                    return;  // stop polling
+                    this._term.writeln('\r\n\x1b[31m[Session ended]\x1b[0m');
                 }
-            } else {
-                this._termDeadCount = 0;
             }
-        } catch (e) { /* ignore */ }
-
-        // Schedule next poll: 150ms if active, 2000ms if idle (>10 reads with no substantial output)
-        if (this._termConnected) {
-            const delay = this._termIdleCount > 10 ? 2000 : 150;
-            this._termPollTimeout = setTimeout(() => this._pollTerminalLoop(), delay);
-        }
-    }
-
-    _pauseTerminalPolling() {
-        if (this._termPollTimeout) {
-            clearTimeout(this._termPollTimeout);
-            this._termPollTimeout = null;
-        }
-    }
-
-    _resumeTerminalPolling() {
-        if (this._termConnected && !this._termPollTimeout) {
-            this._termIdleCount = 0;
-            this._pollTerminalLoop();
         }
     }
 
@@ -792,13 +736,10 @@ class PmbDevopsApp extends Component {
 
     _doCleanupTerminal() {
         // Internal cleanup — does NOT touch reactive state to avoid re-render loops
-        if (this._termPollInterval) {
-            clearInterval(this._termPollInterval);
-            this._termPollInterval = null;
-        }
-        if (this._termPollTimeout) {
-            clearTimeout(this._termPollTimeout);
-            this._termPollTimeout = null;
+        // Unsubscribe from bus
+        if (this._termBusChannel && this.busService) {
+            this.busService.deleteChannel(this._termBusChannel);
+            this._termBusChannel = null;
         }
         if (this._term) {
             this._term.dispose();

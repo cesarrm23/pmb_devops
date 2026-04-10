@@ -3,6 +3,7 @@ import logging
 import os
 import signal
 import subprocess
+import time
 
 from odoo import http
 from odoo.http import request
@@ -209,6 +210,9 @@ class DevopsTerminalController(http.Controller):
             with open(bridge_pid_file, 'w') as f:
                 f.write(str(process.pid))
 
+            # Start output watcher thread that pushes to bus
+            self._start_output_watcher(uid, session_type, session_dir)
+
             _logger.info(
                 "Terminal session started: type=%s, uid=%s, bridge_pid=%s",
                 session_type, uid, process.pid,
@@ -324,6 +328,55 @@ class DevopsTerminalController(http.Controller):
         uid = request.env.uid
         self._stop_session(uid, session_type)
         return {'status': 'stopped', 'session_type': session_type}
+
+    def _start_output_watcher(self, uid, session_type, session_dir):
+        """Start a background thread that watches the output file and publishes to bus.bus."""
+        import threading
+
+        output_file = os.path.join(session_dir, 'output')
+        alive_file = os.path.join(session_dir, 'alive')
+        channel = f'terminal_{uid}_{session_type}'
+        dbname = request.env.cr.dbname
+
+        def watcher():
+            import odoo
+            pos = 0
+            while True:
+                time.sleep(0.15)  # 150ms check interval
+                try:
+                    if not os.path.exists(alive_file):
+                        break
+                    with open(alive_file, 'r') as f:
+                        if f.read().strip() != '1':
+                            # Send final notification
+                            with odoo.registry(dbname).cursor() as cr:
+                                env = odoo.api.Environment(cr, odoo.SUPERUSER_ID, {})
+                                env['bus.bus']._sendone(
+                                    channel, 'terminal_output',
+                                    {'output': '', 'alive': False},
+                                )
+                            break
+
+                    if not os.path.exists(output_file):
+                        continue
+
+                    with open(output_file, 'rb') as f:
+                        f.seek(pos)
+                        data = f.read()
+                        if data:
+                            pos += len(data)
+                            text = data.decode('utf-8', errors='replace')
+                            with odoo.registry(dbname).cursor() as cr:
+                                env = odoo.api.Environment(cr, odoo.SUPERUSER_ID, {})
+                                env['bus.bus']._sendone(
+                                    channel, 'terminal_output',
+                                    {'output': text, 'alive': True},
+                                )
+                except Exception:
+                    break
+
+        t = threading.Thread(target=watcher, daemon=True)
+        t.start()
 
     def _stop_session(self, uid, session_type):
         """Kill bridge process and clean up session directory."""
