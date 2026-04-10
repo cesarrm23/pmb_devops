@@ -260,18 +260,21 @@
                                 </t>
                             </div>
 
-                            <!-- AI tab -->
-                            <div t-if="state.activeContentTab === 'ai'" class="pmb-terminal-container" style="height: 500px;">
+                            <!-- AI tab (always in DOM, hidden when not active) -->
+                            <div class="pmb-terminal-container"
+                                 t-att-style="'height: 500px;' + (state.activeContentTab !== 'ai' ? ' display: none;' : '')">
                                 <div t-ref="terminalAI" style="height: 100%; width: 100%;"/>
                             </div>
 
-                            <!-- SHELL tab -->
-                            <div t-if="state.activeContentTab === 'shell'" class="pmb-terminal-container" style="height: 500px;">
+                            <!-- SHELL tab (always in DOM, hidden when not active) -->
+                            <div class="pmb-terminal-container"
+                                 t-att-style="'height: 500px;' + (state.activeContentTab !== 'shell' ? ' display: none;' : '')">
                                 <div t-ref="terminalShell" style="height: 100%; width: 100%;"/>
                             </div>
 
-                            <!-- LOGS tab -->
-                            <div t-if="state.activeContentTab === 'logs'" class="pmb-terminal-container" style="height: 500px;">
+                            <!-- LOGS tab (always in DOM, hidden when not active) -->
+                            <div class="pmb-terminal-container"
+                                 t-att-style="'height: 500px;' + (state.activeContentTab !== 'logs' ? ' display: none;' : '')">
                                 <div t-ref="terminalLogs" style="height: 100%; width: 100%;"/>
                             </div>
 

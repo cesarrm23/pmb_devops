@@ -186,6 +186,10 @@ class PmbDevopsApp extends Component {
         if (!instance) {
             return;
         }
+        // Cleanup terminal when switching instances
+        if (this._termConnected || this._term) {
+            this._cleanupTerminal();
+        }
         this.state.selectedInstance = instance;
         this.state.activeContentTab = "history";
         // Collapse sidebar on mobile
@@ -299,29 +303,44 @@ class PmbDevopsApp extends Component {
     }
 
     async _onContentTabChange(tab) {
-        if (tab === this.state.activeContentTab) return;  // prevent re-entry
+        if (tab === this.state.activeContentTab) return;
 
-        // Cleanup terminal when leaving terminal tabs
         const termTabs = ['ai', 'shell', 'logs'];
-        if (termTabs.includes(this.state.activeContentTab)) {
+        const wasTermTab = termTabs.includes(this.state.activeContentTab);
+        const isTermTab = termTabs.includes(tab);
+
+        // When leaving a terminal tab for a NON-terminal tab, just pause polling
+        // (don't destroy the session — user may come back)
+        if (wasTermTab && !isTermTab) {
+            this._pauseTerminalPolling();
+        }
+
+        // When switching between different terminal types (shell→ai), destroy old
+        if (wasTermTab && isTermTab && tab !== this.state.activeContentTab) {
             this._cleanupTerminal();
         }
 
         this.state.activeContentTab = tab;
 
-        // Load data for the new tab
         if (tab === 'history') {
             await this._loadHistory();
         } else if (tab === 'backups') {
             await this._loadBackups();
-        } else if (termTabs.includes(tab)) {
-            // Wait for DOM to render, then init terminal ONCE
-            setTimeout(async () => {
-                if (this.state.activeContentTab === tab && !this._termInitializing) {
-                    const sessionType = tab === 'ai' ? 'claude' : tab === 'shell' ? 'shell' : 'logs';
-                    await this._initTerminal(sessionType);
-                }
-            }, 200);
+        } else if (isTermTab) {
+            const sessionType = tab === 'ai' ? 'claude' : tab === 'shell' ? 'shell' : 'logs';
+            // If same session type is still alive, just resume polling
+            if (this._termConnected && this._terminalType === sessionType && this._term) {
+                this._resumeTerminalPolling();
+                // Re-fit terminal after DOM re-renders
+                setTimeout(() => { if (this._fitAddon) this._fitAddon.fit(); }, 100);
+            } else {
+                // New session needed
+                setTimeout(async () => {
+                    if (this.state.activeContentTab === tab && !this._termInitializing) {
+                        await this._initTerminal(sessionType);
+                    }
+                }, 200);
+            }
         }
     }
 
@@ -626,6 +645,20 @@ class PmbDevopsApp extends Component {
         if (this._termConnected) {
             const delay = this._termIdleCount > 3 ? 2000 : 250;
             this._termPollTimeout = setTimeout(() => this._pollTerminalLoop(), delay);
+        }
+    }
+
+    _pauseTerminalPolling() {
+        if (this._termPollTimeout) {
+            clearTimeout(this._termPollTimeout);
+            this._termPollTimeout = null;
+        }
+    }
+
+    _resumeTerminalPolling() {
+        if (this._termConnected && !this._termPollTimeout) {
+            this._termIdleCount = 0;
+            this._pollTerminalLoop();
         }
     }
 
