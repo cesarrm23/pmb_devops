@@ -92,12 +92,18 @@ class DevopsInstanceInfra(models.Model):
         rec = self.browse(instance_id)
         project = rec.project_id
 
-        # Determine clone source DB
+        # Determine clone source DB and filestore
         source_db = ''
+        source_filestore = ''
+        source_instance = None
         if rec.cloned_from_id and rec.cloned_from_id.database_name:
-            source_db = rec.cloned_from_id.database_name
+            source_instance = rec.cloned_from_id
         elif project.production_instance_id and project.production_instance_id.database_name:
-            source_db = project.production_instance_id.database_name
+            source_instance = project.production_instance_id
+
+        if source_instance:
+            source_db = source_instance.database_name
+            source_filestore = f"{source_instance.instance_path}/.local/share/Odoo/filestore/{source_instance.database_name}"
         elif project.database_name:
             source_db = project.database_name
 
@@ -124,6 +130,14 @@ STEP "Clonando base de datos ({source_db})..."
 if [ -n "{source_db}" ]; then
     createdb -O odooal "{rec.database_name}" || FAIL "createdb failed"
     pg_dump "{source_db}" | psql -q "{rec.database_name}" || FAIL "pg_dump failed"
+fi
+
+# Step 1b: Copy filestore
+if [ -n "{source_filestore}" ] && [ -d "{source_filestore}" ]; then
+    STEP "Copiando filestore..."
+    sudo mkdir -p "{rec.instance_path}/.local/share/Odoo/filestore/{rec.database_name}"
+    sudo cp -a "{source_filestore}/." "{rec.instance_path}/.local/share/Odoo/filestore/{rec.database_name}/" || echo "WARNING: filestore copy failed"
+    sudo chown -R odooal:odooal "{rec.instance_path}/.local/share/Odoo"
 fi
 
 # Step 2: Create directory
