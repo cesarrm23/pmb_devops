@@ -149,7 +149,10 @@ class DevopsTerminalController(http.Controller):
         if instance_id:
             instance = request.env['devops.instance'].browse(instance_id)
             if instance.exists():
-                if instance.instance_path:
+                # For production, always use repo_path (odooal may not own instance_path)
+                if instance.instance_type == 'production' and instance.project_id.repo_path:
+                    cwd = instance.project_id.repo_path
+                elif instance.instance_path and os.path.isdir(instance.instance_path):
                     cwd = instance.instance_path
                 elif instance.project_id.repo_path:
                     cwd = instance.project_id.repo_path
