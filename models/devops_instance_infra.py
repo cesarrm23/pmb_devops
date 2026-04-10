@@ -664,6 +664,13 @@ fi
                     self.instance_path, e,
                 )
 
+        # 6. Delete associated branch
+        if self.branch_id:
+            try:
+                self.branch_id.unlink()
+            except Exception as e:
+                errors.append(f"Branch: {e}")
+
         # Log before deleting the record
         instance_name = self.name
         project = self.project_id
