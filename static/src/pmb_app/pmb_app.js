@@ -42,6 +42,12 @@ class PmbDevopsApp extends Component {
 
             // Loading
             loadingMessage: '',
+
+            // History
+            commits: [],
+
+            // Backups
+            backups: [],
         });
 
         this.terminalAIRef = useRef("terminalAI");
@@ -63,6 +69,7 @@ class PmbDevopsApp extends Component {
                 clearInterval(this._pollTimer);
                 this._pollTimer = null;
             }
+            this._cleanupTerminal();
         });
     }
 
@@ -186,6 +193,9 @@ class PmbDevopsApp extends Component {
         } else {
             this.state.selectedBranch = null;
         }
+
+        // Load history for the newly selected instance
+        this._loadHistory();
     }
 
     _selectBranch(branch) {
@@ -277,8 +287,25 @@ class PmbDevopsApp extends Component {
         this.state.activeNavTab = tab;
     }
 
-    _onContentTabChange(tab) {
+    async _onContentTabChange(tab) {
+        // Cleanup terminal when leaving terminal tabs
+        if (['ai', 'shell', 'logs'].includes(this.state.activeContentTab) && !['ai', 'shell', 'logs'].includes(tab)) {
+            this._cleanupTerminal();
+        }
+
         this.state.activeContentTab = tab;
+
+        // Load data for the new tab
+        if (tab === 'history') {
+            await this._loadHistory();
+        } else if (tab === 'backups') {
+            await this._loadBackups();
+        } else if (['ai', 'shell', 'logs'].includes(tab)) {
+            // Wait for DOM to render the ref, then init terminal
+            await new Promise(r => setTimeout(r, 100));
+            const sessionType = tab === 'ai' ? 'claude' : tab === 'shell' ? 'shell' : 'logs';
+            await this._initTerminal(sessionType);
+        }
     }
 
     // ------------------------------------------------------------------
@@ -442,6 +469,209 @@ class PmbDevopsApp extends Component {
             default:
                 break;
         }
+    }
+
+    // ------------------------------------------------------------------
+    // History
+    // ------------------------------------------------------------------
+
+    async _loadHistory() {
+        if (!this.state.selectedInstance || !this.state.currentProjectId) return;
+        const branchName = this.state.selectedInstance.branch_name || this.state.selectedInstance.name;
+        try {
+            const result = await rpc('/devops/branch/history', {
+                project_id: this.state.currentProjectId,
+                branch_name: branchName,
+                limit: 30,
+            });
+            this.state.commits = result.commits || [];
+        } catch (e) {
+            this.state.commits = [];
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Terminal (xterm.js)
+    // ------------------------------------------------------------------
+
+    async _initTerminal(sessionType) {
+        // Clean previous terminal
+        this._cleanupTerminal();
+
+        // Load xterm.js from CDN if not loaded
+        if (!window.Terminal) {
+            await this._loadScript('https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js');
+            await this._loadCSS('https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css');
+            await this._loadScript('https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js');
+        }
+
+        const container = this._getTerminalContainer();
+        if (!container) return;
+
+        this._term = new window.Terminal({
+            cursorBlink: true,
+            fontSize: 14,
+            fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+            theme: {
+                background: '#1e1e2e',
+                foreground: '#cdd6f4',
+                cursor: '#f5e0dc',
+                selectionBackground: '#45475a',
+                black: '#45475a', red: '#f38ba8', green: '#a6e3a1',
+                yellow: '#f9e2af', blue: '#89b4fa', magenta: '#cba6f7',
+                cyan: '#94e2d5', white: '#bac2de',
+            },
+            allowProposedApi: true,
+        });
+
+        this._fitAddon = new window.FitAddon.FitAddon();
+        this._term.loadAddon(this._fitAddon);
+        this._term.open(container);
+        this._fitAddon.fit();
+
+        // Start session
+        const instanceId = this.state.selectedInstance ? this.state.selectedInstance.id : null;
+        const projectId = this.state.currentProjectId;
+        try {
+            await rpc('/devops/terminal/start', {
+                session_type: sessionType,
+                project_id: projectId,
+                instance_id: instanceId,
+            });
+            this.state.terminalConnected = true;
+
+            // Handle input
+            this._term.onData((data) => {
+                rpc('/devops/terminal/write', {
+                    session_type: sessionType,
+                    data: data,
+                    instance_id: instanceId,
+                });
+            });
+
+            // Start polling output
+            this._terminalType = sessionType;
+            this._termPollInterval = setInterval(() => this._pollTerminal(), 100);
+
+        } catch (e) {
+            this._term.writeln('\x1b[31mError starting session: ' + e.message + '\x1b[0m');
+        }
+    }
+
+    async _pollTerminal() {
+        if (!this.state.terminalConnected) return;
+        try {
+            const result = await rpc('/devops/terminal/read', {
+                session_type: this._terminalType,
+                instance_id: this.state.selectedInstance ? this.state.selectedInstance.id : null,
+            });
+            if (result.output && this._term) {
+                this._term.write(result.output);
+            }
+            if (!result.alive) {
+                this.state.terminalConnected = false;
+                clearInterval(this._termPollInterval);
+                if (this._term) this._term.writeln('\r\n\x1b[31m[Session ended]\x1b[0m');
+            }
+        } catch (e) { /* ignore polling errors */ }
+    }
+
+    _cleanupTerminal() {
+        if (this._termPollInterval) {
+            clearInterval(this._termPollInterval);
+            this._termPollInterval = null;
+        }
+        if (this._term) {
+            this._term.dispose();
+            this._term = null;
+        }
+        this._fitAddon = null;
+        this.state.terminalConnected = false;
+        // Stop server session
+        if (this._terminalType) {
+            rpc('/devops/terminal/stop', { session_type: this._terminalType }).catch(() => {});
+            this._terminalType = null;
+        }
+    }
+
+    _getTerminalContainer() {
+        // Return the DOM element for the current terminal tab
+        const ref = this.state.activeContentTab === 'ai' ? 'terminalAI'
+                  : this.state.activeContentTab === 'shell' ? 'terminalShell'
+                  : 'terminalLogs';
+        return this.__owl__.refs[ref] || null;
+    }
+
+    _loadScript(url) {
+        return new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = url;
+            script.onload = resolve;
+            script.onerror = reject;
+            document.head.appendChild(script);
+        });
+    }
+
+    _loadCSS(url) {
+        return new Promise((resolve) => {
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = url;
+            link.onload = resolve;
+            document.head.appendChild(link);
+        });
+    }
+
+    // ------------------------------------------------------------------
+    // Backups
+    // ------------------------------------------------------------------
+
+    async _loadBackups() {
+        if (!this.state.selectedInstance) { this.state.backups = []; return; }
+        try {
+            const result = await rpc('/web/dataset/call_kw', {
+                model: 'devops.backup', method: 'search_read',
+                args: [[['instance_id', '=', this.state.selectedInstance.id]]],
+                kwargs: { fields: ['name', 'state', 'backup_type', 'file_size', 'create_date'], limit: 20, order: 'create_date desc' },
+            });
+            this.state.backups = result;
+        } catch (e) { this.state.backups = []; }
+    }
+
+    async _createBackup() {
+        if (!this.state.selectedInstance) return;
+        try {
+            await rpc('/web/dataset/call_kw', {
+                model: 'devops.backup', method: 'action_create_backup',
+                args: [this.state.selectedInstance.id], kwargs: {},
+            });
+            await this._loadBackups();
+        } catch (e) {
+            alert('Error creating backup: ' + e.message);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Instance management (Upgrade tab)
+    // ------------------------------------------------------------------
+
+    async _startInstance() {
+        if (!this.state.selectedInstance) return;
+        await rpc('/devops/instance/start', { instance_id: this.state.selectedInstance.id });
+        await this._loadProjectData();
+    }
+
+    async _stopInstance() {
+        if (!this.state.selectedInstance) return;
+        if (!confirm('Stop this instance?')) return;
+        await rpc('/devops/instance/stop', { instance_id: this.state.selectedInstance.id });
+        await this._loadProjectData();
+    }
+
+    async _restartInstance() {
+        if (!this.state.selectedInstance) return;
+        await rpc('/devops/instance/restart', { instance_id: this.state.selectedInstance.id });
+        await this._loadProjectData();
     }
 }
 

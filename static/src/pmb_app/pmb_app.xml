@@ -235,55 +235,120 @@
                         <div class="flex-grow-1 p-4" style="overflow-y: auto;">
                             <!-- HISTORY tab -->
                             <div t-if="state.activeContentTab === 'history'" style="color: #cdd6f4;">
-                                <div t-if="state.selectedBranch and state.selectedBranch.last_commit_hash" class="mb-3">
-                                    <div class="d-flex align-items-center gap-2 mb-2">
-                                        <span style="color: #89b4fa; font-family: monospace; font-size: 13px;">
-                                            <t t-esc="(state.selectedBranch.last_commit_hash || '').substring(0, 8)"/>
-                                        </span>
-                                        <span style="color: #cdd6f4; font-size: 13px;">
-                                            <t t-esc="state.selectedBranch.last_commit_message"/>
-                                        </span>
+                                <t t-if="state.commits.length === 0">
+                                    <p style="color: #6c7086;">No commit history available. Sync branches from project settings.</p>
+                                </t>
+                                <t t-foreach="state.commits" t-as="commit" t-key="commit.short_hash">
+                                    <div class="d-flex align-items-start py-2" style="border-bottom: 1px solid #313244;">
+                                        <div class="me-3" style="min-width: 70px;">
+                                            <code style="color: #89b4fa; font-size: 12px;"><t t-esc="commit.short_hash"/></code>
+                                        </div>
+                                        <div class="flex-grow-1">
+                                            <div style="font-size: 13px;"><t t-esc="commit.message"/></div>
+                                            <div style="color: #6c7086; font-size: 11px;">
+                                                <t t-esc="commit.author"/> · <t t-esc="commit.date"/>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div style="color: #6c7086; font-size: 12px;">
-                                        by <t t-esc="state.selectedBranch.last_commit_author"/>
-                                    </div>
-                                </div>
-                                <p t-if="!state.selectedBranch or !state.selectedBranch.last_commit_hash" style="color: #6c7086;">
-                                    No commit history available. Sync branches from the project settings.
-                                </p>
+                                </t>
                             </div>
 
                             <!-- AI tab -->
-                            <div t-if="state.activeContentTab === 'ai'" class="flex-grow-1" style="min-height: 500px;">
-                                <div t-ref="terminalAI" style="height: 100%;"/>
-                                <p style="color: #6c7086; font-size: 13px;">AI terminal will be connected here (Task 10).</p>
+                            <div t-if="state.activeContentTab === 'ai'" style="height: 500px;">
+                                <div t-ref="terminalAI" style="height: 100%; width: 100%;"/>
                             </div>
 
                             <!-- SHELL tab -->
-                            <div t-if="state.activeContentTab === 'shell'" class="flex-grow-1" style="min-height: 500px;">
-                                <div t-ref="terminalShell" style="height: 100%;"/>
-                                <p style="color: #6c7086; font-size: 13px;">Shell terminal will be connected here (Task 10).</p>
+                            <div t-if="state.activeContentTab === 'shell'" style="height: 500px;">
+                                <div t-ref="terminalShell" style="height: 100%; width: 100%;"/>
                             </div>
 
                             <!-- LOGS tab -->
-                            <div t-if="state.activeContentTab === 'logs'" class="flex-grow-1" style="min-height: 500px;">
-                                <div t-ref="terminalLogs" style="height: 100%;"/>
-                                <p style="color: #6c7086; font-size: 13px;">Logs terminal will be connected here (Task 10).</p>
+                            <div t-if="state.activeContentTab === 'logs'" style="height: 500px;">
+                                <div t-ref="terminalLogs" style="height: 100%; width: 100%;"/>
                             </div>
 
                             <!-- BACKUPS tab -->
                             <div t-if="state.activeContentTab === 'backups'" style="color: #cdd6f4;">
-                                <p style="color: #6c7086;">Backups management will load here...</p>
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <h5 class="m-0">Backups</h5>
+                                    <button class="btn btn-sm" style="background: #89b4fa; color: #1e1e2e; font-weight: 600;"
+                                            t-on-click="_createBackup">Create Backup</button>
+                                </div>
+                                <t t-if="state.backups.length === 0">
+                                    <p style="color: #6c7086;">No backups yet.</p>
+                                </t>
+                                <table t-if="state.backups.length > 0" class="table table-sm" style="color: #cdd6f4;">
+                                    <thead style="border-color: #313244;">
+                                        <tr>
+                                            <th style="color: #a6adc8;">Name</th>
+                                            <th style="color: #a6adc8;">State</th>
+                                            <th style="color: #a6adc8;">Size (MB)</th>
+                                            <th style="color: #a6adc8;">Date</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <t t-foreach="state.backups" t-as="backup" t-key="backup.id">
+                                            <tr style="border-color: #313244;">
+                                                <td><t t-esc="backup.name"/></td>
+                                                <td>
+                                                    <span t-att-style="'padding: 2px 8px; border-radius: 4px; font-size: 11px; background:' + (backup.state === 'done' ? '#a6e3a1' : backup.state === 'failed' ? '#f38ba8' : '#f9e2af') + '; color: #1e1e2e;'">
+                                                        <t t-esc="backup.state"/>
+                                                    </span>
+                                                </td>
+                                                <td><t t-esc="backup.file_size || '-'"/></td>
+                                                <td style="color: #6c7086;"><t t-esc="backup.create_date"/></td>
+                                            </tr>
+                                        </t>
+                                    </tbody>
+                                </table>
                             </div>
 
                             <!-- UPGRADE tab -->
                             <div t-if="state.activeContentTab === 'upgrade'" style="color: #cdd6f4;">
-                                <p style="color: #6c7086;">Deploy/Upgrade pipeline will load here...</p>
+                                <h5 class="mb-3">Instance Management</h5>
+                                <div class="d-flex gap-2 mb-4">
+                                    <button class="btn btn-sm btn-success" t-on-click="_startInstance"
+                                            t-if="state.selectedInstance and state.selectedInstance.state === 'stopped'">
+                                        <i class="fa fa-play me-1"/> Start
+                                    </button>
+                                    <button class="btn btn-sm btn-warning" t-on-click="_stopInstance"
+                                            t-if="state.selectedInstance and state.selectedInstance.state === 'running' and state.selectedInstance.instance_type !== 'production'">
+                                        <i class="fa fa-stop me-1"/> Stop
+                                    </button>
+                                    <button class="btn btn-sm btn-primary" t-on-click="_restartInstance"
+                                            t-if="state.selectedInstance and state.selectedInstance.state === 'running'">
+                                        <i class="fa fa-refresh me-1"/> Restart
+                                    </button>
+                                </div>
+                                <div class="mb-3" style="color: #6c7086;">
+                                    <div>Service: <code style="color: #89b4fa;"><t t-esc="state.selectedInstance and state.selectedInstance.service_name || '-'"/></code></div>
+                                    <div>Database: <code style="color: #89b4fa;"><t t-esc="state.selectedInstance and state.selectedInstance.database_name || '-'"/></code></div>
+                                    <div>Port: <code style="color: #89b4fa;"><t t-esc="state.selectedInstance and state.selectedInstance.port || '-'"/></code></div>
+                                    <div>URL: <a t-att-href="state.selectedInstance and state.selectedInstance.url || '#'" target="_blank" style="color: #89b4fa;">
+                                        <t t-esc="state.selectedInstance and state.selectedInstance.url || '-'"/>
+                                    </a></div>
+                                </div>
                             </div>
 
                             <!-- TOOLS tab -->
                             <div t-if="state.activeContentTab === 'tools'" style="color: #cdd6f4;">
-                                <p style="color: #6c7086;">DevOps tools will load here...</p>
+                                <h5 class="mb-3">Instance Info</h5>
+                                <div class="row">
+                                    <div class="col-6">
+                                        <table class="table table-sm" style="color: #cdd6f4;">
+                                            <tbody>
+                                                <tr style="border-color: #313244;"><td style="color: #6c7086;">Name</td><td><t t-esc="state.selectedInstance and state.selectedInstance.name"/></td></tr>
+                                                <tr style="border-color: #313244;"><td style="color: #6c7086;">Type</td><td><t t-esc="state.selectedInstance and state.selectedInstance.instance_type"/></td></tr>
+                                                <tr style="border-color: #313244;"><td style="color: #6c7086;">State</td><td><t t-esc="state.selectedInstance and state.selectedInstance.state"/></td></tr>
+                                                <tr style="border-color: #313244;"><td style="color: #6c7086;">Domain</td><td><t t-esc="state.selectedInstance and state.selectedInstance.full_domain"/></td></tr>
+                                                <tr style="border-color: #313244;"><td style="color: #6c7086;">Port</td><td><t t-esc="state.selectedInstance and state.selectedInstance.port"/></td></tr>
+                                                <tr style="border-color: #313244;"><td style="color: #6c7086;">Database</td><td><t t-esc="state.selectedInstance and state.selectedInstance.database_name"/></td></tr>
+                                                <tr style="border-color: #313244;"><td style="color: #6c7086;">Service</td><td><t t-esc="state.selectedInstance and state.selectedInstance.service_name"/></td></tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </t>
