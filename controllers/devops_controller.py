@@ -52,12 +52,25 @@ class DevopsController(http.Controller):
         if not project.exists():
             return {'error': 'Proyecto no encontrado'}
 
-        # Create branch record
-        branch = request.env['devops.branch'].create({
-            'project_id': project_id,
-            'name': name,
-            'branch_type': instance_type,
-        })
+        # Check if instance with same name already exists
+        existing = request.env['devops.instance'].search([
+            ('project_id', '=', project_id),
+            ('name', '=', name),
+        ], limit=1)
+        if existing:
+            return {'error': f'Ya existe una instancia "{name}" en este proyecto.'}
+
+        # Find or create branch record
+        branch = request.env['devops.branch'].search([
+            ('project_id', '=', project_id),
+            ('name', '=', name),
+        ], limit=1)
+        if not branch:
+            branch = request.env['devops.branch'].create({
+                'project_id': project_id,
+                'name': name,
+                'branch_type': instance_type,
+            })
 
         # Determine clone source
         clone_from = False
