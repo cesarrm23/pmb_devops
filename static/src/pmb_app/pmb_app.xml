@@ -138,7 +138,7 @@
 
                 <!-- MAIN CONTENT -->
                 <div class="pmb-main flex-grow-1 d-flex flex-column" style="background: #181825; overflow-y: auto;">
-                    <t t-if="state.selectedInstance">
+                    <t t-if="state.activeNavTab === 'branches' and state.selectedInstance">
                         <!-- Back button (mobile, when sidebar collapsed) -->
                         <div t-if="state.sidebarCollapsed" class="px-3 pt-2">
                             <button class="btn btn-sm" style="background: #313244; color: #cdd6f4; font-size: 12px;"
@@ -617,8 +617,94 @@
                         </div>
                     </t>
 
+                    <!-- BUILDS nav tab -->
+                    <div t-if="state.activeNavTab === 'builds'" class="p-4" style="color: #cdd6f4;">
+                        <h4 class="mb-3">Builds</h4>
+                        <t t-if="state.allBuilds.length === 0">
+                            <p style="color: #6c7086;">No builds yet.</p>
+                        </t>
+                        <table t-if="state.allBuilds.length > 0" class="table table-sm" style="color: #cdd6f4;">
+                            <thead style="border-color: #313244;">
+                                <tr>
+                                    <th style="color: #a6adc8;">Name</th>
+                                    <th style="color: #a6adc8;">State</th>
+                                    <th style="color: #a6adc8;">Type</th>
+                                    <th style="color: #a6adc8;">Commit</th>
+                                    <th style="color: #a6adc8;">Date</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <t t-foreach="state.allBuilds" t-as="build" t-key="build.id">
+                                    <tr style="border-color: #313244;">
+                                        <td><t t-esc="build.name"/></td>
+                                        <td>
+                                            <span t-att-style="'padding: 2px 8px; border-radius: 4px; font-size: 11px; background:' + (build.state === 'success' ? '#a6e3a1' : build.state === 'failed' ? '#f38ba8' : '#f9e2af') + '; color: #1e1e2e;'">
+                                                <t t-esc="build.state"/>
+                                            </span>
+                                        </td>
+                                        <td><t t-esc="build.build_type"/></td>
+                                        <td><code style="color: #89b4fa; font-size: 11px;"><t t-esc="build.commit_hash"/></code></td>
+                                        <td style="color: #6c7086;"><t t-esc="build.create_date"/></td>
+                                    </tr>
+                                </t>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- STATUS nav tab -->
+                    <div t-if="state.activeNavTab === 'status'" class="p-4" style="color: #cdd6f4;">
+                        <h4 class="mb-3">Instance Status</h4>
+                        <div class="row g-3">
+                            <t t-foreach="state.instances" t-as="inst" t-key="inst.id">
+                                <div class="col-md-4 col-sm-6">
+                                    <div style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
+                                        <div class="d-flex align-items-center mb-2">
+                                            <span class="me-2" t-att-style="'width:10px; height:10px; border-radius:50%; display:inline-block; background:' + this._getStatusColor(inst)"/>
+                                            <strong><t t-esc="inst.name"/></strong>
+                                        </div>
+                                        <div style="font-size: 12px; color: #6c7086;">
+                                            <div>Type: <t t-esc="inst.instance_type"/></div>
+                                            <div>Port: <t t-esc="inst.port"/></div>
+                                            <div t-if="inst.url">URL: <a t-att-href="inst.url" target="_blank" style="color: #89b4fa;"><t t-esc="inst.url"/></a></div>
+                                            <div>State: <t t-esc="inst.state"/></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </t>
+                        </div>
+                    </div>
+
+                    <!-- LOGS nav tab -->
+                    <div t-if="state.activeNavTab === 'logs'" class="p-4" style="color: #cdd6f4;">
+                        <h4 class="mb-3">System Logs</h4>
+                        <p style="color: #6c7086;">Select an instance from the Branches tab to view its logs.</p>
+                    </div>
+
+                    <!-- SETTINGS nav tab -->
+                    <div t-if="state.activeNavTab === 'settings'" class="p-4" style="color: #cdd6f4;">
+                        <h4 class="mb-3">Project Settings</h4>
+                        <t t-if="state.currentProject">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <table class="table table-sm" style="color: #cdd6f4;">
+                                        <tbody>
+                                            <tr style="border-color: #313244;"><td style="color: #6c7086;">Project</td><td><t t-esc="state.currentProject.name"/></td></tr>
+                                            <tr style="border-color: #313244;"><td style="color: #6c7086;">Domain</td><td><t t-esc="state.currentProject.domain"/></td></tr>
+                                            <tr style="border-color: #313244;"><td style="color: #6c7086;">Repo Path</td><td><code style="color: #89b4fa;"><t t-esc="state.currentProject.repo_path"/></code></td></tr>
+                                            <tr style="border-color: #313244;"><td style="color: #6c7086;">Max Staging</td><td><t t-esc="state.currentProject.max_staging"/></td></tr>
+                                            <tr style="border-color: #313244;"><td style="color: #6c7086;">Max Development</td><td><t t-esc="state.currentProject.max_development"/></td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <a href="/odoo/action-781" target="_blank" class="btn btn-sm" style="background: #313244; color: #cdd6f4;">
+                                Open Odoo Settings
+                            </a>
+                        </t>
+                    </div>
+
                     <!-- No instance selected -->
-                    <t t-if="!state.selectedInstance">
+                    <t t-if="state.activeNavTab === 'branches' and !state.selectedInstance">
                         <div class="d-flex align-items-center justify-content-center flex-grow-1" style="color: #6c7086;">
                             <div class="text-center">
                                 <div style="font-size: 48px; margin-bottom: 16px; color: #89b4fa;">&#9889;</div>

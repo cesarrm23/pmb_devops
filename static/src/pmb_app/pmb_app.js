@@ -47,6 +47,9 @@ class PmbDevopsApp extends Component {
             // History
             commits: [],
 
+            // All builds (for Builds nav tab)
+            allBuilds: [],
+
             // Backups
             backups: [],
 
@@ -108,6 +111,7 @@ class PmbDevopsApp extends Component {
                         "name",
                         "domain",
                         "repo_path",
+                        "repo_url",
                         "max_staging",
                         "max_development",
                     ],
@@ -317,8 +321,23 @@ class PmbDevopsApp extends Component {
     // Navigation
     // ------------------------------------------------------------------
 
-    _onNavTabChange(tab) {
+    async _onNavTabChange(tab) {
         this.state.activeNavTab = tab;
+        if (tab === 'builds') {
+            await this._loadAllBuilds();
+        }
+    }
+
+    async _loadAllBuilds() {
+        if (!this.state.currentProjectId) return;
+        try {
+            const result = await rpc('/web/dataset/call_kw', {
+                model: 'devops.build', method: 'search_read',
+                args: [[['project_id', '=', this.state.currentProjectId]]],
+                kwargs: { fields: ['name', 'state', 'branch_id', 'build_type', 'commit_hash', 'triggered_by', 'duration', 'create_date'], limit: 50, order: 'create_date desc' },
+            });
+            this.state.allBuilds = result;
+        } catch (e) { this.state.allBuilds = []; }
     }
 
     async _onContentTabChange(tab) {
@@ -495,40 +514,54 @@ class PmbDevopsApp extends Component {
 
     _onAction(action) {
         const inst = this.state.selectedInstance;
-        if (!inst) {
-            return;
-        }
-
+        if (!inst) return;
         const project = this.state.currentProject;
-        const repoPath = project ? project.repo_path || "" : "";
-        const domain = project ? project.domain || "" : "";
 
         switch (action) {
-            case "Clone":
-                alert(
-                    `git clone ${domain ? "git@" + domain + ":" : ""}${repoPath}`
-                );
+            case 'Clone': {
+                const url = project ? project.repo_url || project.repo_path : '';
+                alert(`git clone ${url}`);
                 break;
-            case "Fork":
-                alert(
-                    `Fork functionality: create new branch from ${inst.branch_name || inst.name}`
-                );
+            }
+            case 'SSH': {
+                const host = project ? project.domain : 'server';
+                alert(`ssh odooal@${host}`);
                 break;
-            case "Merge":
-                alert(
-                    `Merge ${inst.branch_name || inst.name} into production`
-                );
+            }
+            case 'SQL': {
+                alert(`psql -h localhost -U odooal ${inst.database_name || ''}`);
                 break;
-            case "SSH":
-                alert(
-                    `ssh ${project && project.domain ? project.domain : "server"} -p ${inst.port || 22}`
-                );
+            }
+            case 'Fork': {
+                this._showCreateDialog(inst.instance_type === 'production' ? 'staging' : 'development');
                 break;
-            case "SQL":
-                alert(`psql -d ${inst.database_name || "odoo"}`);
+            }
+            case 'Merge': {
+                if (confirm(`Merge ${inst.git_branch || inst.name} into production?`)) {
+                    this._mergeBranch();
+                }
                 break;
-            default:
-                break;
+            }
+        }
+    }
+
+    async _mergeBranch() {
+        if (!this.state.selectedInstance || !this.state.currentProjectId) return;
+        const source = this.state.selectedInstance.git_branch || this.state.selectedInstance.name;
+        try {
+            const result = await rpc('/devops/branch/merge', {
+                project_id: this.state.currentProjectId,
+                source_branch: source,
+                target_branch: 'main',
+            });
+            if (result.error) {
+                alert('Merge error: ' + result.error);
+            } else {
+                alert('Merge successful');
+                await this._loadProjectData();
+            }
+        } catch (e) {
+            alert('Error: ' + e.message);
         }
     }
 

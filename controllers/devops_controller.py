@@ -1,6 +1,7 @@
 """API endpoints for the PMB DevOps SPA."""
 import json
 import logging
+import os
 
 from odoo import http
 from odoo.http import request
@@ -256,9 +257,14 @@ class DevopsController(http.Controller):
                     base_dir = '/opt/odooAL/odoo'
                 elif repo == 'enterprise':
                     base_dir = project.enterprise_path or '/opt/odoo19/enterprise'
+                    # If path doesn't exist, try common locations
+                    if not os.path.isdir(base_dir):
+                        for path_candidate in ['/opt/odoo19/enterprise', '/opt/odooAL/enterprise']:
+                            if os.path.isdir(path_candidate):
+                                base_dir = path_candidate
+                                break
 
         from ..utils import ssh_utils
-        import os
 
         full_path = os.path.normpath(os.path.join(base_dir, path))
         # Security: prevent directory traversal
@@ -314,9 +320,14 @@ class DevopsController(http.Controller):
                     base_dir = '/opt/odooAL/odoo'
                 elif repo == 'enterprise':
                     base_dir = project.enterprise_path or '/opt/odoo19/enterprise'
+                    # If path doesn't exist, try common locations
+                    if not os.path.isdir(base_dir):
+                        for path_candidate in ['/opt/odoo19/enterprise', '/opt/odooAL/enterprise']:
+                            if os.path.isdir(path_candidate):
+                                base_dir = path_candidate
+                                break
 
         from ..utils import ssh_utils
-        import os
 
         full_path = os.path.normpath(os.path.join(base_dir, path))
         if not full_path.startswith(base_dir):
