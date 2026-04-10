@@ -232,6 +232,90 @@ class DevopsController(http.Controller):
 
         return {'diff': result.stdout if result.returncode == 0 else 'No diff available'}
 
+    @http.route('/devops/files/list', type='json', auth='user')
+    def files_list(self, project_id, instance_id=None, path=''):
+        """List files and directories at given path in the instance/project repo."""
+        project = request.env['devops.project'].browse(project_id)
+        if not project.exists():
+            return {'error': 'Proyecto no encontrado'}
+
+        # Determine base directory
+        base_dir = project.repo_path
+        if instance_id:
+            inst = request.env['devops.instance'].browse(instance_id)
+            if inst.exists():
+                if inst.instance_type == 'production':
+                    base_dir = project.repo_path
+                elif inst.instance_path:
+                    base_dir = f"{inst.instance_path}/cremara_addons"
+
+        from ..utils import ssh_utils
+        import os
+
+        full_path = os.path.normpath(os.path.join(base_dir, path))
+        # Security: prevent directory traversal
+        if not full_path.startswith(base_dir):
+            return {'error': 'Acceso denegado'}
+
+        result = ssh_utils.execute_command(project, [
+            'find', full_path, '-maxdepth', '1', '-printf', '%y|||%f|||%s|||%T@\n',
+        ], cwd=base_dir, timeout=10)
+
+        if result.returncode != 0:
+            return {'error': result.stderr or 'Error listando archivos'}
+
+        items = []
+        for line in result.stdout.strip().split('\n'):
+            if not line.strip():
+                continue
+            parts = line.split('|||')
+            if len(parts) >= 4:
+                name = parts[1]
+                if not name or name == '.':
+                    continue
+                items.append({
+                    'type': 'dir' if parts[0] == 'd' else 'file',
+                    'name': name,
+                    'size': int(parts[2]) if parts[2].isdigit() else 0,
+                    'path': os.path.join(path, name) if path else name,
+                })
+
+        # Sort: dirs first, then files, alphabetical
+        items.sort(key=lambda x: (0 if x['type'] == 'dir' else 1, x['name'].lower()))
+        return {'items': items, 'current_path': path, 'base_dir': base_dir}
+
+    @http.route('/devops/files/read', type='json', auth='user')
+    def files_read(self, project_id, instance_id=None, path=''):
+        """Read file content."""
+        project = request.env['devops.project'].browse(project_id)
+        if not project.exists():
+            return {'error': 'Proyecto no encontrado'}
+
+        base_dir = project.repo_path
+        if instance_id:
+            inst = request.env['devops.instance'].browse(instance_id)
+            if inst.exists():
+                if inst.instance_type == 'production':
+                    base_dir = project.repo_path
+                elif inst.instance_path:
+                    base_dir = f"{inst.instance_path}/cremara_addons"
+
+        from ..utils import ssh_utils
+        import os
+
+        full_path = os.path.normpath(os.path.join(base_dir, path))
+        if not full_path.startswith(base_dir):
+            return {'error': 'Acceso denegado'}
+
+        result = ssh_utils.execute_command(project, [
+            'head', '-c', '500000', full_path,
+        ], cwd=base_dir, timeout=10)
+
+        if result.returncode != 0:
+            return {'error': result.stderr or 'Error leyendo archivo'}
+
+        return {'content': result.stdout, 'path': path, 'name': os.path.basename(path)}
+
     @http.route('/devops/branch/merge', type='json', auth='user')
     def branch_merge(self, project_id, source_branch, target_branch):
         """Merge source branch into target."""

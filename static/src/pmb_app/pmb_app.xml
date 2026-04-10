@@ -222,6 +222,11 @@
                                 LOGS
                             </span>
                             <span class="px-3 py-2 cursor-pointer"
+                                  t-att-style="state.activeContentTab === 'editor' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
+                                  t-on-click="() => this._onContentTabChange('editor')">
+                                EDITOR
+                            </span>
+                            <span class="px-3 py-2 cursor-pointer"
                                   t-att-style="state.activeContentTab === 'backups' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
                                   t-on-click="() => this._onContentTabChange('backups')">
                                 BACKUPS
@@ -350,6 +355,78 @@
                                 </div>
                                 <div class="pmb-terminal-container" style="height: 470px;">
                                     <div t-ref="terminalLogs" style="height: 100%; width: 100%;"/>
+                                </div>
+                            </div>
+
+                            <!-- EDITOR tab — file browser tree -->
+                            <div t-if="state.activeContentTab === 'editor'" style="color: #cdd6f4;">
+                                <!-- Breadcrumb path -->
+                                <div class="d-flex align-items-center gap-1 mb-3" style="font-size: 12px;">
+                                    <span class="cursor-pointer" style="color: #89b4fa;"
+                                          t-on-click="() => this._browseDir('')">root</span>
+                                    <t t-foreach="(state.editorPath || '').split('/').filter(p => p)" t-as="part" t-key="part_index">
+                                        <span style="color: #45475a;">/</span>
+                                        <span class="cursor-pointer" style="color: #89b4fa;"
+                                              t-on-click="() => this._browseDir((state.editorPath || '').split('/').slice(0, part_index + 1).join('/'))">
+                                            <t t-esc="part"/>
+                                        </span>
+                                    </t>
+                                </div>
+                                <div class="d-flex" style="gap: 12px;">
+                                    <!-- File tree (left) -->
+                                    <div style="min-width: 280px; max-width: 350px; overflow-y: auto; max-height: 500px; border-right: 1px solid #313244; padding-right: 12px;">
+                                        <t t-if="state.editorLoading">
+                                            <div style="color: #6c7086;">Cargando...</div>
+                                        </t>
+                                        <t t-foreach="state.editorFiles" t-as="item" t-key="item.name">
+                                            <div class="d-flex align-items-center py-1 px-1 rounded cursor-pointer"
+                                                 t-att-style="state.editorSelectedFile === item.path ? 'background: #313244;' : ''"
+                                                 t-on-click="() => item.type === 'dir' ? this._browseDir(item.path) : this._openFile(item)">
+                                                <span class="me-2" style="font-size: 13px; width: 18px; text-align: center;">
+                                                    <t t-if="item.type === 'dir'" style="color: #89b4fa;">📁</t>
+                                                    <t t-else="">
+                                                        <span t-att-style="'color:' + (item.name.endsWith('.py') ? '#f9e2af' : item.name.endsWith('.xml') ? '#fab387' : item.name.endsWith('.js') ? '#a6e3a1' : item.name.endsWith('.scss') || item.name.endsWith('.css') ? '#cba6f7' : '#6c7086')">📄</span>
+                                                    </t>
+                                                </span>
+                                                <span style="font-size: 12px;" t-att-style="item.type === 'dir' ? 'color: #89b4fa; font-weight: 600;' : 'color: #cdd6f4;'">
+                                                    <t t-esc="item.name"/>
+                                                </span>
+                                                <span t-if="item.type === 'file' and item.size > 0" class="ms-auto" style="color: #45475a; font-size: 10px;">
+                                                    <t t-esc="item.size > 1024 ? Math.round(item.size / 1024) + 'KB' : item.size + 'B'"/>
+                                                </span>
+                                            </div>
+                                        </t>
+                                        <div t-if="state.editorFiles.length === 0 and !state.editorLoading" style="color: #6c7086; font-size: 12px;">
+                                            Directorio vacío
+                                        </div>
+                                    </div>
+                                    <!-- File content (right) -->
+                                    <div class="flex-grow-1" style="overflow: auto; max-height: 500px;">
+                                        <t t-if="state.editorFileContent">
+                                            <div class="mb-2 d-flex align-items-center justify-content-between">
+                                                <code style="color: #89b4fa; font-size: 12px;"><t t-esc="state.editorFileName"/></code>
+                                            </div>
+                                            <div style="background: #11111b; border-radius: 6px; border: 1px solid #313244; overflow-x: auto;">
+                                                <table style="width: 100%; border-collapse: collapse; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12px; line-height: 1.4;">
+                                                    <t t-foreach="state.editorFileContent.split('\n')" t-as="line" t-key="line_index">
+                                                        <tr>
+                                                            <td style="padding: 0 8px; text-align: right; user-select: none; min-width: 40px; color: #45475a; border-right: 1px solid #313244;">
+                                                                <t t-esc="line_index + 1"/>
+                                                            </td>
+                                                            <td style="padding: 0 12px; white-space: pre; color: #cdd6f4;">
+                                                                <t t-esc="line"/>
+                                                            </td>
+                                                        </tr>
+                                                    </t>
+                                                </table>
+                                            </div>
+                                        </t>
+                                        <t t-if="!state.editorFileContent and !state.editorSelectedFile">
+                                            <div class="d-flex align-items-center justify-content-center h-100" style="color: #6c7086; min-height: 200px;">
+                                                Selecciona un archivo para ver su contenido
+                                            </div>
+                                        </t>
+                                    </div>
                                 </div>
                             </div>
 

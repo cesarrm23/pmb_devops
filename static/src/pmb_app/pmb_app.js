@@ -52,6 +52,14 @@ class PmbDevopsApp extends Component {
 
             // Logs
             logType: 'service',  // 'service' (journalctl) or 'odoo' (logfile)
+
+            // Editor / file browser
+            editorPath: '',
+            editorFiles: [],
+            editorLoading: false,
+            editorSelectedFile: '',
+            editorFileContent: '',
+            editorFileName: '',
         });
 
         this.terminalAIRef = useRef("terminalAI");
@@ -328,6 +336,8 @@ class PmbDevopsApp extends Component {
 
         if (tab === 'history') {
             await this._loadHistory();
+        } else if (tab === 'editor') {
+            await this._browseDir('');
         } else if (tab === 'backups') {
             await this._loadBackups();
         } else if (isTermTab) {
@@ -811,6 +821,58 @@ class PmbDevopsApp extends Component {
 
     // ------------------------------------------------------------------
     // Instance management (Upgrade tab)
+    // ------------------------------------------------------------------
+
+    // ------------------------------------------------------------------
+    // Editor / File browser
+    // ------------------------------------------------------------------
+
+    async _browseDir(path) {
+        this.state.editorPath = path;
+        this.state.editorLoading = true;
+        this.state.editorFileContent = '';
+        this.state.editorSelectedFile = '';
+        this.state.editorFileName = '';
+        try {
+            const result = await rpc('/devops/files/list', {
+                project_id: this.state.currentProjectId,
+                instance_id: this.state.selectedInstance ? this.state.selectedInstance.id : null,
+                path: path,
+            });
+            if (result.error) {
+                this.state.editorFiles = [];
+                alert(result.error);
+            } else {
+                this.state.editorFiles = result.items || [];
+            }
+        } catch (e) {
+            this.state.editorFiles = [];
+        }
+        this.state.editorLoading = false;
+    }
+
+    async _openFile(item) {
+        this.state.editorSelectedFile = item.path;
+        this.state.editorFileName = item.name;
+        this.state.editorFileContent = '';
+        try {
+            const result = await rpc('/devops/files/read', {
+                project_id: this.state.currentProjectId,
+                instance_id: this.state.selectedInstance ? this.state.selectedInstance.id : null,
+                path: item.path,
+            });
+            if (result.error) {
+                this.state.editorFileContent = '// Error: ' + result.error;
+            } else {
+                this.state.editorFileContent = result.content || '';
+            }
+        } catch (e) {
+            this.state.editorFileContent = '// Error loading file';
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Log type switching
     // ------------------------------------------------------------------
 
     async _switchLogType(type) {
