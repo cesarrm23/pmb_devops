@@ -659,7 +659,7 @@ class PmbDevopsApp extends Component {
 
             this._termConnected = true;  // non-reactive flag
 
-            // Handle input
+            // Handle input — reset idle on every keystroke for fast echo
             this._term.onData((data) => {
                 if (!this._termConnected) return;
                 rpc('/devops/terminal/write', {
@@ -667,6 +667,13 @@ class PmbDevopsApp extends Component {
                     data: data,
                     instance_id: instanceId,
                 });
+                // User is typing — force fast polling
+                this._termIdleCount = 0;
+                if (this._termPollTimeout) {
+                    clearTimeout(this._termPollTimeout);
+                    this._termPollTimeout = null;
+                    this._pollTerminalLoop();
+                }
             });
 
             // Start polling output
@@ -725,9 +732,9 @@ class PmbDevopsApp extends Component {
             }
         } catch (e) { /* ignore */ }
 
-        // Schedule next poll: 250ms if active, 2000ms if idle (>3 empty reads)
+        // Schedule next poll: 150ms if active, 2000ms if idle (>10 reads with no substantial output)
         if (this._termConnected) {
-            const delay = this._termIdleCount > 3 ? 2000 : 250;
+            const delay = this._termIdleCount > 10 ? 2000 : 150;
             this._termPollTimeout = setTimeout(() => this._pollTerminalLoop(), delay);
         }
     }
