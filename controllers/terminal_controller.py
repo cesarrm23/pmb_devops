@@ -193,6 +193,10 @@ class DevopsTerminalController(http.Controller):
         try:
             pw = pwd.getpwuid(os.getuid())
             env['HOME'] = pw.pw_dir
+            # Include ~/.local/bin for native claude installer
+            local_bin = os.path.join(pw.pw_dir, '.local', 'bin')
+            if os.path.isdir(local_bin):
+                env['PATH'] = local_bin + ':' + env.get('PATH', '')
         except KeyError:
             env['HOME'] = '/opt/odooAL'
 
