@@ -188,6 +188,14 @@ class DevopsTerminalController(http.Controller):
         env = dict(os.environ)
         env['SESSION_DIR'] = session_dir
 
+        # Set HOME so claude can find its credentials in ~/.claude/
+        import pwd
+        try:
+            pw = pwd.getpwuid(os.getuid())
+            env['HOME'] = pw.pw_dir
+        except KeyError:
+            env['HOME'] = '/opt/odooAL'
+
         # For claude sessions, set API key from config
         if session_type == 'claude':
             api_key = request.env['ir.config_parameter'].sudo().get_param(
