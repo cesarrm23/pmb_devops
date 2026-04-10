@@ -599,6 +599,7 @@ class PmbDevopsApp extends Component {
             // Start polling output
             this._terminalType = sessionType;
             this._termIdleCount = 0;
+            this._termReadPos = 0;  // track read position
             this._startTerminalPolling();
 
         } catch (e) {
@@ -622,7 +623,11 @@ class PmbDevopsApp extends Component {
             const result = await rpc('/devops/terminal/read', {
                 session_type: this._terminalType,
                 instance_id: this.state.selectedInstance ? this.state.selectedInstance.id : null,
+                pos: this._termReadPos || 0,
             });
+            if (result.pos !== undefined) {
+                this._termReadPos = result.pos;
+            }
             if (result.output && this._term) {
                 this._term.write(result.output);
                 // Only count as "active" if substantial output (>20 bytes)
