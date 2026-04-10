@@ -22,6 +22,12 @@ class DevopsInstance(models.Model):
         ('development', 'Development'),
     ], string='Tipo', required=True)
 
+    # ---- Git branch ----
+    git_branch = fields.Char(
+        string='Branch Git',
+        help='Nombre del branch git real (ej: main, staging, dev-feature)',
+    )
+
     # ---- Infrastructure (auto-generated) ----
     subdomain = fields.Char(string='Subdominio')
     full_domain = fields.Char(

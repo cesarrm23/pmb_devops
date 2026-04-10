@@ -128,6 +128,7 @@ class PmbDevopsApp extends Component {
                         "branch_id",
                         "subdomain",
                         "last_activity",
+                        "git_branch",
                     ],
                     limit: 200,
                 },
@@ -513,7 +514,7 @@ class PmbDevopsApp extends Component {
 
     async _loadHistory() {
         if (!this.state.selectedInstance || !this.state.currentProjectId) return;
-        const branchName = this.state.selectedInstance.branch_name || this.state.selectedInstance.name;
+        const branchName = this.state.selectedInstance.git_branch || this.state.selectedInstance.branch_name || 'HEAD';
         try {
             const result = await rpc('/devops/branch/history', {
                 project_id: this.state.currentProjectId,

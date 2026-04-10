@@ -127,21 +127,6 @@ class DevopsTerminalController(http.Controller):
         # Create session directory
         os.makedirs(session_dir, exist_ok=True)
 
-        # Determine command based on session type
-        if session_type == 'claude':
-            cmd = ['claude']
-        elif session_type == 'shell':
-            cmd = ['/bin/bash', '-i']
-        elif session_type == 'logs':
-            if not service:
-                return {'error': 'Service name required for logs session'}
-            cmd = [
-                'journalctl', '-u', f'{service}.service',
-                '-f', '-n', '200', '--no-pager', '--output=short-iso',
-            ]
-        else:
-            return {'error': f'Unknown session type: {session_type}'}
-
         # Determine working directory
         cwd = os.path.expanduser('~')
 
@@ -157,16 +142,27 @@ class DevopsTerminalController(http.Controller):
                 elif instance.project_id.repo_path:
                     cwd = instance.project_id.repo_path
 
-                # For logs, use instance service
+                # For logs, get service name from instance
                 if session_type == 'logs' and instance.service_name:
                     service = instance.service_name
-                    cmd = [
-                        'journalctl', '-u', f'{service}.service',
-                        '-f', '-n', '200', '--no-pager', '--output=short-iso',
-                    ]
 
                 # Update activity
                 instance._update_activity()
+
+        # Determine command based on session type
+        if session_type == 'claude':
+            cmd = ['claude']
+        elif session_type == 'shell':
+            cmd = ['/bin/bash', '-i']
+        elif session_type == 'logs':
+            if not service:
+                return {'error': 'Service name required for logs session'}
+            cmd = [
+                'journalctl', '-u', f'{service}.service',
+                '-f', '-n', '200', '--no-pager', '--output=short-iso',
+            ]
+        else:
+            return {'error': f'Unknown session type: {session_type}'}
 
         # Write bridge script
         bridge_path = _write_bridge_script()

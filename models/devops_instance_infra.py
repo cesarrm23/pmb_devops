@@ -61,6 +61,13 @@ class DevopsInstanceInfra(models.Model):
             )
         nginx_path = f"/etc/nginx/sites-enabled/{full_domain}"
 
+        # Determine git branch name
+        git_branch = safe_name  # default: instance name as branch
+        if self.instance_type == 'staging':
+            git_branch = 'staging' if safe_name == 'staging-1' else safe_name
+        elif self.instance_type == 'production':
+            git_branch = project.production_branch or 'main'
+
         # Write names to record
         self.write({
             'port': port,
@@ -71,6 +78,7 @@ class DevopsInstanceInfra(models.Model):
             'odoo_config_path': config_path,
             'instance_path': instance_path,
             'nginx_config_path': nginx_path,
+            'git_branch': git_branch,
             'state': 'creating',
             'creation_step': 'Iniciando...',
         })
