@@ -60,6 +60,7 @@ class PmbDevopsApp extends Component {
             gitOutgoing: [],
 
             // Editor / file browser
+            editorRepo: 'addons',  // 'addons', 'odoo', 'enterprise'
             editorPath: '',
             editorFiles: [],
             editorLoading: false,
@@ -857,6 +858,12 @@ class PmbDevopsApp extends Component {
     // Editor / File browser
     // ------------------------------------------------------------------
 
+    async _switchRepo(repo) {
+        if (repo === this.state.editorRepo) return;
+        this.state.editorRepo = repo;
+        await this._browseDir('');
+    }
+
     async _browseDir(path) {
         this.state.editorPath = path;
         this.state.editorLoading = true;
@@ -868,6 +875,7 @@ class PmbDevopsApp extends Component {
                 project_id: this.state.currentProjectId,
                 instance_id: this.state.selectedInstance ? this.state.selectedInstance.id : null,
                 path: path,
+                repo: this.state.editorRepo,
             });
             if (result.error) {
                 this.state.editorFiles = [];
@@ -890,6 +898,7 @@ class PmbDevopsApp extends Component {
                 project_id: this.state.currentProjectId,
                 instance_id: this.state.selectedInstance ? this.state.selectedInstance.id : null,
                 path: item.path,
+                repo: this.state.editorRepo,
             });
             if (result.error) {
                 this.state.editorFileContent = '// Error: ' + result.error;

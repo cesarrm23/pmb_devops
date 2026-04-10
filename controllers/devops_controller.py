@@ -233,21 +233,29 @@ class DevopsController(http.Controller):
         return {'diff': result.stdout if result.returncode == 0 else 'No diff available'}
 
     @http.route('/devops/files/list', type='json', auth='user')
-    def files_list(self, project_id, instance_id=None, path=''):
-        """List files and directories at given path in the instance/project repo."""
+    def files_list(self, project_id, instance_id=None, path='', repo='addons'):
+        """List files and directories. repo: 'addons', 'odoo', 'enterprise'."""
         project = request.env['devops.project'].browse(project_id)
         if not project.exists():
             return {'error': 'Proyecto no encontrado'}
 
-        # Determine base directory
-        base_dir = project.repo_path
+        # Determine base directory based on repo type and instance
+        base_dir = project.repo_path  # default: addons
         if instance_id:
             inst = request.env['devops.instance'].browse(instance_id)
-            if inst.exists():
-                if inst.instance_type == 'production':
-                    base_dir = project.repo_path
-                elif inst.instance_path:
+            if inst.exists() and inst.instance_path and inst.instance_type != 'production':
+                if repo == 'addons':
                     base_dir = f"{inst.instance_path}/cremara_addons"
+                elif repo == 'odoo':
+                    base_dir = f"{inst.instance_path}/odoo"
+                elif repo == 'enterprise':
+                    base_dir = f"{inst.instance_path}/enterprise"
+            else:
+                # Production
+                if repo == 'odoo':
+                    base_dir = '/opt/odooAL/odoo'
+                elif repo == 'enterprise':
+                    base_dir = project.enterprise_path or '/opt/odoo19/enterprise'
 
         from ..utils import ssh_utils
         import os
@@ -285,7 +293,7 @@ class DevopsController(http.Controller):
         return {'items': items, 'current_path': path, 'base_dir': base_dir}
 
     @http.route('/devops/files/read', type='json', auth='user')
-    def files_read(self, project_id, instance_id=None, path=''):
+    def files_read(self, project_id, instance_id=None, path='', repo='addons'):
         """Read file content."""
         project = request.env['devops.project'].browse(project_id)
         if not project.exists():
@@ -294,11 +302,18 @@ class DevopsController(http.Controller):
         base_dir = project.repo_path
         if instance_id:
             inst = request.env['devops.instance'].browse(instance_id)
-            if inst.exists():
-                if inst.instance_type == 'production':
-                    base_dir = project.repo_path
-                elif inst.instance_path:
+            if inst.exists() and inst.instance_path and inst.instance_type != 'production':
+                if repo == 'addons':
                     base_dir = f"{inst.instance_path}/cremara_addons"
+                elif repo == 'odoo':
+                    base_dir = f"{inst.instance_path}/odoo"
+                elif repo == 'enterprise':
+                    base_dir = f"{inst.instance_path}/enterprise"
+            else:
+                if repo == 'odoo':
+                    base_dir = '/opt/odooAL/odoo'
+                elif repo == 'enterprise':
+                    base_dir = project.enterprise_path or '/opt/odoo19/enterprise'
 
         from ..utils import ssh_utils
         import os
