@@ -57,7 +57,7 @@
                 <!-- SIDEBAR -->
                 <div class="pmb-sidebar d-flex flex-column"
                      style="width: 260px; background: #1e1e2e; border-right: 1px solid #313244; overflow-y: auto;"
-                     t-if="state.activeNavTab === 'branches'">
+                     t-if="state.activeNavTab === 'branches' and !state.sidebarCollapsed">
 
                     <!-- Filter -->
                     <div class="p-2">
@@ -139,6 +139,13 @@
                 <!-- MAIN CONTENT -->
                 <div class="pmb-main flex-grow-1 d-flex flex-column" style="background: #181825; overflow-y: auto;">
                     <t t-if="state.selectedInstance">
+                        <!-- Back button (mobile, when sidebar collapsed) -->
+                        <div t-if="state.sidebarCollapsed" class="px-3 pt-2">
+                            <button class="btn btn-sm" style="background: #313244; color: #cdd6f4; font-size: 12px;"
+                                    t-on-click="() => { this.state.sidebarCollapsed = false; }">
+                                ← Branches
+                            </button>
+                        </div>
                         <!-- Branch header -->
                         <div class="px-4 pt-3">
                             <h2 style="color: #cdd6f4; font-weight: 300;">

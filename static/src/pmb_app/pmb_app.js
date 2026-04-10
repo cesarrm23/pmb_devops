@@ -28,6 +28,7 @@ class PmbDevopsApp extends Component {
 
             // Sidebar
             sidebarFilter: "",
+            sidebarCollapsed: false,  // collapsed on mobile after selecting instance
 
             // UI
             loading: false,
@@ -187,6 +188,10 @@ class PmbDevopsApp extends Component {
         }
         this.state.selectedInstance = instance;
         this.state.activeContentTab = "history";
+        // Collapse sidebar on mobile
+        if (window.innerWidth <= 768) {
+            this.state.sidebarCollapsed = true;
+        }
 
         // Find matching branch
         if (instance.branch_id) {
