@@ -76,8 +76,7 @@ class PmbDevopsApp extends Component {
         this.terminalShellRef = useRef("terminalShell");
         this.terminalLogsRef = useRef("terminalLogs");
         this._pollTimer = null;
-        this.busService = this.env.services.bus_service;
-        this._currentUserId = this.env.services.user?.userId || 0;
+        this._termPollTimeout = null;
 
         onMounted(async () => {
             await this._loadProjects();
@@ -349,6 +348,13 @@ class PmbDevopsApp extends Component {
         const wasTermTab = termTabs.includes(this.state.activeContentTab);
         const isTermTab = termTabs.includes(tab);
 
+        // When leaving terminal tab for non-terminal, pause polling (keep session alive)
+        if (wasTermTab && !isTermTab) {
+            if (this._termPollTimeout) {
+                clearTimeout(this._termPollTimeout);
+                this._termPollTimeout = null;
+            }
+        }
         // When switching between different terminal types (shell->ai), destroy old
         if (wasTermTab && isTermTab && tab !== this.state.activeContentTab) {
             this._cleanupTerminal();
@@ -368,9 +374,9 @@ class PmbDevopsApp extends Component {
                 this._refreshGitStatus();
             }
             const sessionType = tab === 'ai' ? 'claude' : tab === 'shell' ? 'shell' : (this.state.logType === 'odoo' ? 'odoo_log' : 'logs');
-            // If same session type is still alive, just make sure bus is subscribed
+            // If same session type is still alive, resume polling
             if (this._termConnected && this._terminalType === sessionType && this._term) {
-                // Re-fit terminal after DOM re-renders
+                if (!this._termPollTimeout) this._pollTerminal();
                 setTimeout(() => { if (this._fitAddon) this._fitAddon.fit(); }, 100);
             } else {
                 // New session needed
@@ -688,7 +694,7 @@ class PmbDevopsApp extends Component {
             this._termConnected = true;  // non-reactive flag
             this._terminalType = sessionType;
 
-            // Handle input
+            // Handle input — reset idle on keystroke
             this._term.onData((data) => {
                 if (!this._termConnected) return;
                 rpc('/devops/terminal/write', {
@@ -696,16 +702,15 @@ class PmbDevopsApp extends Component {
                     data: data,
                     instance_id: instanceId,
                 });
+                this._termHasInput = true;
             });
 
-            // Subscribe to bus for terminal output (push, no polling)
-            const channel = `terminal_${this._currentUserId}_${sessionType}`;
-            this._termBusChannel = channel;
-
-            if (this.busService) {
-                this.busService.addChannel(channel);
-                this.busService.addEventListener('notification', this._onBusNotification.bind(this));
-            }
+            // Start output polling (lightweight, adaptive)
+            this._termReadPos = 0;
+            this._termHasInput = false;
+            this._terminalType = sessionType;
+            this._termInstanceId = instanceId;
+            this._pollTerminal();
 
         } catch (e) {
             if (this._term) {
@@ -716,17 +721,37 @@ class PmbDevopsApp extends Component {
         }
     }
 
-    _onBusNotification({ detail: notifications }) {
-        for (const { payload, type } of notifications) {
-            if (type === 'terminal_output' && this._termConnected && this._term) {
-                if (payload.output) {
-                    this._term.write(payload.output);
-                }
-                if (!payload.alive) {
-                    this._termConnected = false;
-                    this._term.writeln('\r\n\x1b[31m[Session ended]\x1b[0m');
-                }
+    async _pollTerminal() {
+        if (!this._termConnected) return;
+        try {
+            const result = await rpc('/devops/terminal/read', {
+                session_type: this._terminalType,
+                instance_id: this._termInstanceId,
+                pos: this._termReadPos || 0,
+            });
+            if (result.pos !== undefined) {
+                this._termReadPos = result.pos;
             }
+            if (result.output && this._term) {
+                this._term.write(result.output);
+            }
+            if (!result.alive) {
+                this._termDeadCount = (this._termDeadCount || 0) + 1;
+                if (this._termDeadCount > 3) {
+                    this._termConnected = false;
+                    if (this._term) this._term.writeln('\r\n\x1b[31m[Session ended]\x1b[0m');
+                    return;
+                }
+            } else {
+                this._termDeadCount = 0;
+            }
+        } catch (e) { /* ignore */ }
+
+        if (this._termConnected) {
+            // Fast (200ms) right after user input, slow (1.5s) when idle
+            const delay = this._termHasInput ? 200 : 1500;
+            this._termHasInput = false;
+            this._termPollTimeout = setTimeout(() => this._pollTerminal(), delay);
         }
     }
 
@@ -736,10 +761,9 @@ class PmbDevopsApp extends Component {
 
     _doCleanupTerminal() {
         // Internal cleanup — does NOT touch reactive state to avoid re-render loops
-        // Unsubscribe from bus
-        if (this._termBusChannel && this.busService) {
-            this.busService.deleteChannel(this._termBusChannel);
-            this._termBusChannel = null;
+        if (this._termPollTimeout) {
+            clearTimeout(this._termPollTimeout);
+            this._termPollTimeout = null;
         }
         if (this._term) {
             this._term.dispose();

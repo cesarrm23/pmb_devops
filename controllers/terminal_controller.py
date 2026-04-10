@@ -210,8 +210,8 @@ class DevopsTerminalController(http.Controller):
             with open(bridge_pid_file, 'w') as f:
                 f.write(str(process.pid))
 
-            # Start output watcher thread that pushes to bus
-            self._start_output_watcher(uid, session_type, session_dir)
+            # Note: output is read via polling from /devops/terminal/read
+            # (bus.bus watcher threads don't work with gevent workers)
 
             _logger.info(
                 "Terminal session started: type=%s, uid=%s, bridge_pid=%s",
