@@ -603,7 +603,7 @@ echo "done" > {status_file}
             except Exception:
                 pass
             shallow = os.path.exists(os.path.join(git_path, '.git', 'shallow'))
-            # Pending merge: commits ahead of target branch
+            # Promote: commits ahead of target branch (dev→staging, staging→main)
             merge_target = ''
             merge_pending = 0
             merge_pending_commits = []
@@ -628,12 +628,33 @@ echo "done" > {status_file}
                             })
                 except Exception:
                     pass
+            # Sync: commits in main not yet in this branch (main→staging, main→dev)
+            sync_pending = 0
+            sync_pending_commits = []
+            if branch in ('staging', 'development'):
+                try:
+                    r6 = subprocess.run(
+                        ['git', 'log', '--oneline', f'{branch}..origin/main'],
+                        capture_output=True, text=True, timeout=5, cwd=git_path,
+                    )
+                    if r6.returncode == 0 and r6.stdout.strip():
+                        lines = [l for l in r6.stdout.strip().split('\n') if l.strip()]
+                        sync_pending = len(lines)
+                        for l in lines[:10]:
+                            parts = l.split(' ', 1)
+                            sync_pending_commits.append({
+                                'hash': parts[0],
+                                'message': parts[1] if len(parts) > 1 else '',
+                            })
+                except Exception:
+                    pass
             repos.append({
                 'path': git_path, 'name': os.path.basename(git_path),
                 'branch': branch, 'ahead': ahead, 'behind': behind,
                 'remote': remote, 'dirty': dirty, 'shallow': shallow,
                 'merge_target': merge_target, 'merge_pending': merge_pending,
                 'merge_pending_commits': merge_pending_commits,
+                'sync_pending': sync_pending, 'sync_pending_commits': sync_pending_commits,
             })
 
         # For non-production instances, only show repos inside the instance's own path
@@ -1094,18 +1115,20 @@ echo "done" > {status_file}
         if not repo_path or not os.path.isdir(repo_path):
             return {'error': 'Repo path not found'}
 
-        # Validate merge direction: development → staging → main only
-        # Admin required for staging → main
+        # Validate merge direction
+        # Promote: development → staging → main (admin required for → main)
+        # Sync:    main → staging, main → development (admin only)
         is_admin = request.env.user.has_group('pmb_devops.group_devops_admin')
         allowed_merges = {
             'development': ['staging'],
         }
         if is_admin:
             allowed_merges['staging'] = ['main']
+            allowed_merges.setdefault('main', [])
+            allowed_merges['main'].extend(['staging', 'development'])
         allowed_targets = allowed_merges.get(source_branch, [])
         if target_branch not in allowed_targets:
-            return {'error': f'No se permite merge de {source_branch} → {target_branch}. '
-                    f'Flujo correcto: development → staging → main'}
+            return {'error': f'No se permite merge de {source_branch} → {target_branch}.'}
 
         from ..utils import ssh_utils
         # Ensure git user configured

@@ -588,72 +588,105 @@
                                                 </div>
                                             </t>
 
-                                            <!-- Merge: development → staging → main -->
+                                            <!-- Merge section -->
                                             <t t-set="selectedRepo" t-value="state.historyRepos.find(r => r.path === state.gitSelectedRepo)"/>
-                                            <t t-if="selectedRepo and selectedRepo.merge_target">
+                                            <t t-if="selectedRepo and (selectedRepo.merge_target or selectedRepo.sync_pending > 0)">
                                                 <div class="mt-3 pt-2" style="border-top: 1px solid #313244;">
-                                                    <div class="d-flex align-items-center justify-content-between mb-1">
-                                                        <span style="color: #cba6f7; font-size: 11px; font-weight: 600;">
-                                                            &#8693; Merge
-                                                        </span>
-                                                        <t t-if="selectedRepo.merge_pending > 0">
-                                                            <span style="background: #fab387; color: #1e1e2e; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 8px;">
-                                                                <t t-esc="selectedRepo.merge_pending"/> pendiente(s)
-                                                            </span>
-                                                        </t>
-                                                    </div>
 
-                                                    <!-- Pending merge commits list -->
-                                                    <t t-if="selectedRepo.merge_pending_commits and selectedRepo.merge_pending_commits.length > 0">
-                                                        <div class="mb-2" style="max-height: 120px; overflow-y: auto;">
-                                                            <t t-foreach="selectedRepo.merge_pending_commits" t-as="c" t-key="c.hash">
-                                                                <div class="py-1" style="font-size: 10px; color: #a6adc8;">
-                                                                    <code style="color: #cba6f7; font-size: 9px;"><t t-esc="c.hash"/></code>
-                                                                    <span class="ms-1"><t t-esc="c.message"/></span>
-                                                                </div>
+                                                    <!-- Promote: dev→staging, staging→main -->
+                                                    <t t-if="selectedRepo.merge_target">
+                                                        <div class="d-flex align-items-center justify-content-between mb-1">
+                                                            <span style="color: #cba6f7; font-size: 11px; font-weight: 600;">
+                                                                &#8593; Promover
+                                                            </span>
+                                                            <t t-if="selectedRepo.merge_pending > 0">
+                                                                <span style="background: #fab387; color: #1e1e2e; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 8px;">
+                                                                    <t t-esc="selectedRepo.merge_pending"/> pendiente(s)
+                                                                </span>
                                                             </t>
                                                         </div>
+                                                        <t t-if="selectedRepo.merge_pending_commits and selectedRepo.merge_pending_commits.length > 0">
+                                                            <div class="mb-2" style="max-height: 80px; overflow-y: auto;">
+                                                                <t t-foreach="selectedRepo.merge_pending_commits" t-as="c" t-key="c.hash">
+                                                                    <div class="py-1" style="font-size: 10px; color: #a6adc8;">
+                                                                        <code style="color: #cba6f7; font-size: 9px;"><t t-esc="c.hash"/></code>
+                                                                        <span class="ms-1"><t t-esc="c.message"/></span>
+                                                                    </div>
+                                                                </t>
+                                                            </div>
+                                                        </t>
+                                                        <t t-if="selectedRepo.branch === 'development'">
+                                                            <button class="btn btn-sm w-100 mb-1"
+                                                                    style="background: #313244; color: #fab387; font-size: 11px;"
+                                                                    t-att-disabled="state.gitPushing or selectedRepo.merge_pending === 0"
+                                                                    t-on-click="() => this._gitMerge('development', 'staging')">
+                                                                development &#8594; staging
+                                                            </button>
+                                                        </t>
+                                                        <t t-if="selectedRepo.branch === 'staging' and state.isAdmin">
+                                                            <button class="btn btn-sm w-100 mb-1"
+                                                                    style="background: #313244; color: #f38ba8; font-size: 11px;"
+                                                                    t-att-disabled="state.gitPushing or selectedRepo.merge_pending === 0"
+                                                                    t-on-click="() => this._gitMerge('staging', 'main')">
+                                                                staging &#8594; main
+                                                            </button>
+                                                        </t>
+                                                        <t t-if="selectedRepo.branch === 'staging' and !state.isAdmin">
+                                                            <div style="color: #6c7086; font-size: 10px;">
+                                                                Solo administradores pueden enviar a main
+                                                            </div>
+                                                        </t>
+                                                        <t t-if="selectedRepo.merge_pending === 0">
+                                                            <div style="color: #a6e3a1; font-size: 10px;">
+                                                                &#10003; Al día con <t t-esc="selectedRepo.merge_target"/>
+                                                            </div>
+                                                        </t>
                                                     </t>
 
-                                                    <t t-if="selectedRepo.branch === 'development'">
-                                                        <button class="btn btn-sm w-100 mb-1"
-                                                                style="background: #313244; color: #fab387; font-size: 11px;"
-                                                                t-att-disabled="state.gitPushing or selectedRepo.merge_pending === 0"
-                                                                t-on-click="() => this._gitMerge('development', 'staging')">
-                                                            development &#8594; staging
-                                                        </button>
-                                                    </t>
-                                                    <t t-if="selectedRepo.branch === 'staging' and state.isAdmin">
-                                                        <button class="btn btn-sm w-100 mb-1"
-                                                                style="background: #313244; color: #f38ba8; font-size: 11px;"
-                                                                t-att-disabled="state.gitPushing or selectedRepo.merge_pending === 0"
-                                                                t-on-click="() => this._gitMerge('staging', 'main')">
-                                                            staging &#8594; main
-                                                        </button>
-                                                    </t>
-                                                    <t t-if="selectedRepo.branch === 'staging' and !state.isAdmin">
-                                                        <div style="color: #6c7086; font-size: 10px;">
-                                                            Solo administradores pueden enviar a main
+                                                    <!-- Sync: main→staging, main→dev -->
+                                                    <t t-if="selectedRepo.sync_pending > 0 and state.isAdmin">
+                                                        <div class="d-flex align-items-center justify-content-between mb-1"
+                                                             t-att-class="selectedRepo.merge_target ? 'mt-3 pt-2' : ''"
+                                                             t-att-style="selectedRepo.merge_target ? 'border-top: 1px solid #313244;' : ''">
+                                                            <span style="color: #89b4fa; font-size: 11px; font-weight: 600;">
+                                                                &#8595; Sync desde main
+                                                            </span>
+                                                            <span style="background: #89b4fa; color: #1e1e2e; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 8px;">
+                                                                <t t-esc="selectedRepo.sync_pending"/> nuevo(s)
+                                                            </span>
                                                         </div>
+                                                        <t t-if="selectedRepo.sync_pending_commits and selectedRepo.sync_pending_commits.length > 0">
+                                                            <div class="mb-2" style="max-height: 80px; overflow-y: auto;">
+                                                                <t t-foreach="selectedRepo.sync_pending_commits" t-as="c" t-key="c.hash">
+                                                                    <div class="py-1" style="font-size: 10px; color: #a6adc8;">
+                                                                        <code style="color: #89b4fa; font-size: 9px;"><t t-esc="c.hash"/></code>
+                                                                        <span class="ms-1"><t t-esc="c.message"/></span>
+                                                                    </div>
+                                                                </t>
+                                                            </div>
+                                                        </t>
+                                                        <button class="btn btn-sm w-100 mb-1"
+                                                                style="background: #313244; color: #89b4fa; font-size: 11px;"
+                                                                t-att-disabled="state.gitPushing"
+                                                                t-on-click="() => this._gitMerge('main', selectedRepo.branch)">
+                                                            main &#8594; <t t-esc="selectedRepo.branch"/>
+                                                        </button>
                                                     </t>
-
-                                                    <t t-if="selectedRepo.merge_pending === 0">
-                                                        <div style="color: #a6e3a1; font-size: 10px;">
-                                                            &#10003; Sin cambios pendientes para <t t-esc="selectedRepo.merge_target"/>
+                                                    <t t-if="selectedRepo.sync_pending === 0 and (selectedRepo.branch === 'staging' or selectedRepo.branch === 'development')">
+                                                        <div t-att-class="selectedRepo.merge_target ? 'mt-2' : ''"
+                                                             style="color: #a6e3a1; font-size: 10px;">
+                                                            &#10003; Sincronizado con main
                                                         </div>
                                                     </t>
                                                 </div>
                                             </t>
-                                            <t t-if="selectedRepo and !selectedRepo.merge_target">
+                                            <t t-if="selectedRepo and !selectedRepo.merge_target and !(selectedRepo.sync_pending > 0)">
                                                 <div class="mt-3 pt-2" style="border-top: 1px solid #313244;">
                                                     <div style="color: #cba6f7; font-size: 11px; font-weight: 600;" class="mb-1">
                                                         &#8693; Merge
                                                     </div>
-                                                    <div style="color: #6c7086; font-size: 10px;">
-                                                        Rama actual: <t t-esc="selectedRepo.branch"/>
-                                                    </div>
-                                                    <div style="color: #6c7086; font-size: 10px;">
-                                                        Solo se permite: dev &#8594; staging &#8594; main
+                                                    <div style="color: #a6e3a1; font-size: 10px;">
+                                                        &#10003; Rama <t t-esc="selectedRepo.branch"/> — sin merges disponibles
                                                     </div>
                                                 </div>
                                             </t>
