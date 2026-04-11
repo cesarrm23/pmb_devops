@@ -474,6 +474,107 @@ echo "done" > {status_file}
         except Exception as e:
             return {'status': 'error', 'error': str(e)}
 
+    @http.route('/devops/instance/diagnose', type='json', auth='user')
+    def instance_diagnose(self, instance_id):
+        """Diagnose an instance's health: check paths, service, config."""
+        import subprocess
+        instance = request.env['devops.instance'].browse(instance_id)
+        if not instance.exists():
+            return {'error': 'Instancia no encontrada'}
+
+        issues = []
+        info = []
+
+        # Check instance_path
+        if instance.instance_path:
+            if os.path.isdir(instance.instance_path):
+                info.append({'type': 'ok', 'msg': f'Directorio {instance.instance_path} existe'})
+            else:
+                issues.append({'type': 'error', 'msg': f'Directorio {instance.instance_path} NO existe', 'fix': 'create_dir'})
+
+        # Check repo_path
+        repo = instance.project_id.repo_path
+        if repo:
+            if os.path.isdir(repo):
+                info.append({'type': 'ok', 'msg': f'Repo {repo} existe'})
+            else:
+                issues.append({'type': 'warning', 'msg': f'Repo {repo} NO existe'})
+
+        # Check service
+        if instance.service_name:
+            try:
+                r = subprocess.run(['systemctl', 'is-active', f'{instance.service_name}.service'],
+                                   capture_output=True, text=True, timeout=5)
+                status = r.stdout.strip()
+                if status == 'active':
+                    info.append({'type': 'ok', 'msg': f'Servicio {instance.service_name} activo'})
+                else:
+                    issues.append({'type': 'error', 'msg': f'Servicio {instance.service_name}: {status}', 'fix': 'start_service'})
+            except Exception:
+                issues.append({'type': 'error', 'msg': f'No se puede verificar servicio {instance.service_name}'})
+
+            # Check if enabled
+            try:
+                r = subprocess.run(['systemctl', 'is-enabled', f'{instance.service_name}.service'],
+                                   capture_output=True, text=True, timeout=5)
+                if r.stdout.strip() != 'enabled':
+                    issues.append({'type': 'warning', 'msg': f'Servicio {instance.service_name} no está habilitado (disabled)', 'fix': 'enable_service'})
+            except Exception:
+                pass
+
+            # Check service config exists
+            try:
+                r = subprocess.run(['systemctl', 'show', f'{instance.service_name}.service', '--property=ExecStart'],
+                                   capture_output=True, text=True, timeout=5)
+                if r.stdout.strip():
+                    import re
+                    m = re.search(r'-c\s+(\S+)', r.stdout)
+                    if m:
+                        conf = m.group(1)
+                        if os.path.isfile(conf):
+                            info.append({'type': 'ok', 'msg': f'Config {conf} existe'})
+                        else:
+                            issues.append({'type': 'error', 'msg': f'Config {conf} NO existe'})
+            except Exception:
+                pass
+        else:
+            issues.append({'type': 'error', 'msg': 'No hay servicio systemd configurado'})
+
+        return {'issues': issues, 'info': info, 'total_issues': len(issues)}
+
+    @http.route('/devops/instance/fix', type='json', auth='user')
+    def instance_fix(self, instance_id, fix_type=''):
+        """Attempt to fix a diagnosed issue."""
+        import subprocess
+        instance = request.env['devops.instance'].browse(instance_id)
+        if not instance.exists():
+            return {'error': 'Instancia no encontrada'}
+        if not request.env.user.has_group('pmb_devops.group_devops_admin'):
+            return {'error': 'Solo administradores pueden reparar'}
+
+        if fix_type == 'create_dir' and instance.instance_path:
+            try:
+                os.makedirs(instance.instance_path, exist_ok=True)
+                return {'status': 'ok', 'msg': f'Directorio {instance.instance_path} creado'}
+            except Exception as e:
+                return {'error': str(e)}
+        elif fix_type == 'start_service' and instance.service_name:
+            try:
+                subprocess.run(['sudo', '-n', 'systemctl', 'start', f'{instance.service_name}.service'],
+                               capture_output=True, timeout=15)
+                instance._check_service_status()
+                return {'status': 'ok', 'msg': f'Servicio {instance.service_name} iniciado', 'state': instance.state}
+            except Exception as e:
+                return {'error': str(e)}
+        elif fix_type == 'enable_service' and instance.service_name:
+            try:
+                subprocess.run(['sudo', '-n', 'systemctl', 'enable', f'{instance.service_name}.service'],
+                               capture_output=True, timeout=10)
+                return {'status': 'ok', 'msg': f'Servicio {instance.service_name} habilitado'}
+            except Exception as e:
+                return {'error': str(e)}
+        return {'error': f'Fix type desconocido: {fix_type}'}
+
     @http.route('/devops/instance/start', type='json', auth='user')
     def instance_start(self, instance_id):
         """Start an instance."""

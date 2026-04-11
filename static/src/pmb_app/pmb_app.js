@@ -74,6 +74,8 @@ class PmbDevopsApp extends Component {
             gitDiffFile: '',            // file currently showing diff
             gitDiffContent: '',         // diff content
             gitDiffStaged: false,       // is the diff for a staged file
+            diagnoseResult: null,       // diagnostics output
+            fixResult: null,            // fix result
             gitPanelWidth: 280,         // resizable panel width (px)
             gitResizing: false,         // drag in progress
             claudeSessions: [],         // list of claude sessions
@@ -1546,6 +1548,29 @@ class PmbDevopsApp extends Component {
         } catch (e) {
             setTimeout(() => this._pollDeploy(deployId), 3000);
         }
+    }
+
+    async _runDiagnose() {
+        if (!this.state.selectedInstance) return;
+        this.state.fixResult = null;
+        try {
+            this.state.diagnoseResult = await rpc('/devops/instance/diagnose', {
+                instance_id: this.state.selectedInstance.id,
+            });
+        } catch (e) { this.state.diagnoseResult = { issues: [{ type: 'error', msg: 'Error: ' + e.message }], info: [], total_issues: 1 }; }
+    }
+
+    async _runFix(ev) {
+        if (!this.state.selectedInstance) return;
+        const fixType = ev.currentTarget.dataset.fix;
+        try {
+            this.state.fixResult = await rpc('/devops/instance/fix', {
+                instance_id: this.state.selectedInstance.id,
+                fix_type: fixType,
+            });
+            await this._runDiagnose();
+            await this._loadProjectData();
+        } catch (e) { this.state.fixResult = { error: e.message }; }
     }
 
     async _restartInstance() {

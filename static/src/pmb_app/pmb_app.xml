@@ -1181,7 +1181,7 @@
                             <div t-if="state.activeContentTab === 'tools'" class="p-4" style="color: #cdd6f4; overflow-y: auto; flex: 1 1 0; min-height: 0;">
                                 <h5 class="mb-3">Instance Info</h5>
                                 <div class="row">
-                                    <div class="col-6">
+                                    <div class="col-md-6">
                                         <table class="table table-sm" style="color: #cdd6f4;">
                                             <tbody>
                                                 <tr style="border-color: #313244;"><td style="color: #6c7086;">Name</td><td><t t-esc="state.selectedInstance and state.selectedInstance.name"/></td></tr>
@@ -1193,6 +1193,39 @@
                                                 <tr style="border-color: #313244;"><td style="color: #6c7086;">Service</td><td><t t-esc="state.selectedInstance and state.selectedInstance.service_name"/></td></tr>
                                             </tbody>
                                         </table>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <!-- Diagnostics -->
+                                        <h6 style="color: #89b4fa;">Diagnostico</h6>
+                                        <button class="btn btn-sm mb-2" style="background: #313244; color: #89b4fa; font-size: 11px;"
+                                                t-on-click="_runDiagnose">Ejecutar diagnostico</button>
+                                        <t t-if="state.diagnoseResult">
+                                            <t t-foreach="state.diagnoseResult.issues || []" t-as="issue" t-key="issue_index">
+                                                <div class="d-flex align-items-center gap-2 mb-1" style="font-size: 11px;">
+                                                    <span t-if="issue.type === 'error'" style="color: #f38ba8;">&#10008;</span>
+                                                    <span t-elif="issue.type === 'warning'" style="color: #f9e2af;">&#9888;</span>
+                                                    <span style="color: #cdd6f4;" class="flex-grow-1"><t t-esc="issue.msg"/></span>
+                                                    <button t-if="issue.fix and state.isAdmin" class="btn btn-sm py-0 px-2"
+                                                            style="background: #a6e3a1; color: #1e1e2e; font-size: 10px;"
+                                                            t-att-data-fix="issue.fix"
+                                                            t-on-click="_runFix">Reparar</button>
+                                                </div>
+                                            </t>
+                                            <t t-foreach="state.diagnoseResult.info || []" t-as="item" t-key="item_index">
+                                                <div class="mb-1" style="font-size: 11px;">
+                                                    <span style="color: #a6e3a1;">&#10004;</span>
+                                                    <span style="color: #6c7086; margin-left: 4px;"><t t-esc="item.msg"/></span>
+                                                </div>
+                                            </t>
+                                            <div t-if="state.diagnoseResult.total_issues === 0" style="color: #a6e3a1; font-size: 11px; margin-top: 4px;">
+                                                Todo en orden
+                                            </div>
+                                        </t>
+                                        <t t-if="state.fixResult">
+                                            <div class="mt-1" t-att-style="'font-size: 11px; color:' + (state.fixResult.status === 'ok' ? '#a6e3a1' : '#f38ba8')">
+                                                <t t-esc="state.fixResult.msg || state.fixResult.error"/>
+                                            </div>
+                                        </t>
                                     </div>
                                 </div>
                             </div>
