@@ -850,11 +850,24 @@ echo "done" > {status_file}
         return {'diff': result.stdout if result.returncode == 0 else 'No diff available'}
 
     def _get_editor_allowed_paths(self, project, instance_id=None):
-        """Return list of allowed base directories from the instance's addons_path config."""
+        """Return the instance root + any external addons paths."""
         import subprocess, re
+
+        # Determine instance root path
+        inst_root = ''
+        if instance_id:
+            inst = project.env['devops.instance'].browse(instance_id)
+            if inst.exists() and inst.instance_path:
+                inst_root = inst.instance_path
+        if not inst_root:
+            if project.production_instance_id and project.production_instance_id.instance_path:
+                inst_root = project.production_instance_id.instance_path
+            elif project.repo_path:
+                inst_root = os.path.dirname(project.repo_path)
+
+        # Parse addons_path from service config to find external paths
         config_path = ''
         service_name = ''
-
         if instance_id:
             inst = project.env['devops.instance'].browse(instance_id)
             if inst.exists() and inst.service_name:
@@ -887,37 +900,17 @@ echo "done" > {status_file}
             except Exception:
                 pass
 
-        # Collapse paths that share a parent into their common parent
-        # e.g. odoo/odoo/addons + odoo/addons → odoo/
-        collapsed = []
+        # Build allowed paths: instance root + external addons paths
+        allowed = []
+        if inst_root and os.path.isdir(inst_root):
+            allowed.append(inst_root)
+        # Add addons paths that are OUTSIDE the instance root (shared paths)
         for p in addons_paths:
-            # Skip if already covered by an existing root
-            if any(p.startswith(e + '/') for e in collapsed):
-                continue
-            # Check if this path shares a parent with an existing entry
-            parent = os.path.dirname(p)
-            merged = False
-            for i, existing in enumerate(collapsed):
-                if os.path.dirname(existing) == parent:
-                    # Same parent dir → replace both with parent
-                    collapsed[i] = parent
-                    merged = True
-                    break
-                # Check if existing is a child of this path's parent
-                if existing.startswith(parent + '/'):
-                    collapsed[i] = parent
-                    merged = True
-                    break
-            if not merged:
-                collapsed.append(p)
-        # Remove duplicates and non-existing, preserve order
-        seen = set()
-        roots = []
-        for p in collapsed:
-            if p not in seen and os.path.isdir(p):
-                roots.append(p)
-                seen.add(p)
-        return roots
+            if inst_root and p.startswith(inst_root + '/'):
+                continue  # inside instance root, already browsable
+            if p not in allowed and os.path.isdir(p):
+                allowed.append(p)
+        return allowed
 
     @http.route('/devops/files/list', type='json', auth='user')
     def files_list(self, project_id, instance_id=None, path='', repo='addons'):
@@ -930,19 +923,25 @@ echo "done" > {status_file}
 
         from ..utils import ssh_utils
 
-        # Root listing: show each addons_path entry as a top-level folder
+        # Root listing: if single allowed path (instance root), list its contents directly
+        # If multiple (instance root + external shared paths), show them as top-level
         if not path:
-            items = []
-            for ap in allowed_paths:
-                items.append({
-                    'type': 'dir',
-                    'name': os.path.basename(ap) or ap,
-                    'size': 0,
-                    'path': ap,  # absolute path as key
-                    'absolute': True,
-                })
-            items.sort(key=lambda x: x['name'].lower())
-            return {'items': items, 'current_path': '', 'allowed_paths': [os.path.basename(p) for p in allowed_paths]}
+            if len(allowed_paths) == 1:
+                # Single root: list its contents directly
+                path = allowed_paths[0]
+            else:
+                # Multiple roots: show each as a top-level folder
+                items = []
+                for ap in allowed_paths:
+                    items.append({
+                        'type': 'dir',
+                        'name': os.path.basename(ap) or ap,
+                        'size': 0,
+                        'path': ap,
+                        'absolute': True,
+                    })
+                items.sort(key=lambda x: x['name'].lower())
+                return {'items': items, 'current_path': '', 'allowed_paths': [os.path.basename(p) for p in allowed_paths]}
 
         # Sub-directory: path is absolute (from root click) or relative within a base
         full_path = path
