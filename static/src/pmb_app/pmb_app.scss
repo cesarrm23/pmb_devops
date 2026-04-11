@@ -184,6 +184,10 @@
                     overflow: hidden;
                 }
             }
+
+            .pmb-resize-handle {
+                display: none !important;
+            }
         }
 
         // Hide instance header details to save vertical space

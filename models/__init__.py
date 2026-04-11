@@ -10,3 +10,4 @@ from . import devops_ai_assistant
 from . import devops_deploy_ai
 from . import devops_plugin
 from . import res_config_settings
+from . import res_users

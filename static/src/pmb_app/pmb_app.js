@@ -73,6 +73,8 @@ class PmbDevopsApp extends Component {
             gitDiffFile: '',            // file currently showing diff
             gitDiffContent: '',         // diff content
             gitDiffStaged: false,       // is the diff for a staged file
+            gitPanelWidth: 280,         // resizable panel width (px)
+            gitResizing: false,         // drag in progress
             gitAuthenticated: false,    // git auth confirmed this session
             gitAuthIsAdmin: false,      // current user is admin (no auth needed)
             gitAuthLogin: '',
@@ -460,6 +462,7 @@ class PmbDevopsApp extends Component {
             await this._loadHistory();
         } else if (tab === 'ai') {
             this.state.gitPanelCollapsed = false;
+            await this._loadGitPanelWidth();
             await this._checkGitAuth();
             await this._refreshGitStatus();
             setTimeout(() => this._initAiTerminal(), 200);
@@ -1151,6 +1154,46 @@ class PmbDevopsApp extends Component {
         } catch (e) {
             this.state.gitDiffContent = 'Error cargando diff';
         }
+    }
+
+    async _loadGitPanelWidth() {
+        try {
+            const result = await rpc('/devops/user/prefs');
+            if (result.git_panel_width) {
+                this.state.gitPanelWidth = result.git_panel_width;
+            }
+        } catch (e) { /* ignore */ }
+    }
+
+    _saveGitPanelWidth() {
+        rpc('/devops/user/prefs/save', { git_panel_width: this.state.gitPanelWidth }).catch(() => {});
+    }
+
+    _onResizeStart(ev) {
+        ev.preventDefault();
+        this.state.gitResizing = true;
+        const startX = ev.type === 'touchstart' ? ev.touches[0].clientX : ev.clientX;
+        const startWidth = this.state.gitPanelWidth;
+
+        const onMove = (e) => {
+            const clientX = e.type === 'touchmove' ? e.touches[0].clientX : e.clientX;
+            const delta = clientX - startX;
+            this.state.gitPanelWidth = Math.max(150, Math.min(600, startWidth + delta));
+        };
+
+        const onEnd = () => {
+            this.state.gitResizing = false;
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onEnd);
+            document.removeEventListener('touchmove', onMove);
+            document.removeEventListener('touchend', onEnd);
+            this._saveGitPanelWidth();
+        };
+
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onEnd);
+        document.addEventListener('touchmove', onMove, { passive: false });
+        document.addEventListener('touchend', onEnd);
     }
 
     async _checkGitAuth() {

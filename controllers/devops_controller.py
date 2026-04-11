@@ -1141,6 +1141,19 @@ echo "done" > {status_file}
         except Exception:
             return {'error': 'Contraseña incorrecta'}
 
+    @http.route('/devops/user/prefs', type='json', auth='user')
+    def user_prefs_get(self):
+        """Get user UI preferences."""
+        user = request.env.user
+        return {'git_panel_width': user.devops_git_panel_width or 280}
+
+    @http.route('/devops/user/prefs/save', type='json', auth='user')
+    def user_prefs_save(self, git_panel_width=280):
+        """Save user UI preferences."""
+        width = max(150, min(600, int(git_panel_width)))
+        request.env.user.sudo().write({'devops_git_panel_width': width})
+        return {'status': 'ok'}
+
     @http.route('/devops/git/stage', type='json', auth='user')
     def git_stage(self, project_id, repo_path=''):
         """Stage all changes (git add -A)."""
