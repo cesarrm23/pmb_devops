@@ -887,22 +887,36 @@ echo "done" > {status_file}
             except Exception:
                 pass
 
-        # Deduplicate: keep only top-level paths (remove children of other paths)
-        # e.g. /opt/odooAL/odoo/odoo/addons and /opt/odooAL/odoo/addons -> keep /opt/odooAL/odoo
-        roots = []
-        seen_roots = set()
+        # Collapse paths that share a parent into their common parent
+        # e.g. odoo/odoo/addons + odoo/addons → odoo/
+        collapsed = []
         for p in addons_paths:
-            # Walk up to find a meaningful project-level directory
-            root = p
-            # If path is inside a known parent already in roots, skip
-            is_child = False
-            for existing in roots:
-                if root.startswith(existing + '/'):
-                    is_child = True
+            # Skip if already covered by an existing root
+            if any(p.startswith(e + '/') for e in collapsed):
+                continue
+            # Check if this path shares a parent with an existing entry
+            parent = os.path.dirname(p)
+            merged = False
+            for i, existing in enumerate(collapsed):
+                if os.path.dirname(existing) == parent:
+                    # Same parent dir → replace both with parent
+                    collapsed[i] = parent
+                    merged = True
                     break
-            if not is_child and root not in seen_roots:
-                roots.append(root)
-                seen_roots.add(root)
+                # Check if existing is a child of this path's parent
+                if existing.startswith(parent + '/'):
+                    collapsed[i] = parent
+                    merged = True
+                    break
+            if not merged:
+                collapsed.append(p)
+        # Remove duplicates and non-existing, preserve order
+        seen = set()
+        roots = []
+        for p in collapsed:
+            if p not in seen and os.path.isdir(p):
+                roots.append(p)
+                seen.add(p)
         return roots
 
     @http.route('/devops/files/list', type='json', auth='user')
