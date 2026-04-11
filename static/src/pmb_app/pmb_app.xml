@@ -849,8 +849,18 @@
 
                                     <!-- AI Terminal via WebSocket (right) -->
                                     <div class="flex-grow-1 d-flex flex-column pmb-terminal-container" style="min-height: 300px;">
-                                        <!-- Terminal key buttons (special keys for mobile/tablet) -->
-                                        <div class="pmb-term-keys d-flex flex-wrap gap-1 px-2 py-1" style="background: #181825; border-bottom: 1px solid #313244; flex-shrink: 0;">
+
+                                        <!-- Sessions toggle + key buttons bar -->
+                                        <div class="d-flex align-items-center px-2 py-1" style="background: #181825; border-bottom: 1px solid #313244; flex-shrink: 0; gap: 4px;">
+                                            <!-- Sessions toggle button -->
+                                            <button class="btn btn-sm pmb-key-btn"
+                                                    t-att-style="state.claudeSessionsVisible ? 'background: #89b4fa !important; color: #1e1e2e !important;' : ''"
+                                                    t-on-click="_toggleClaudeSessions"
+                                                    title="Sessions">
+                                                &#128203;
+                                            </button>
+                                            <div style="width: 1px; height: 16px; background: #313244; margin: 0 2px;"/>
+                                            <!-- Terminal key buttons -->
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\x03')" title="Ctrl+C">Ctrl+C</button>
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\x1a')" title="Ctrl+Z">Ctrl+Z</button>
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\x04')" title="Ctrl+D">Ctrl+D</button>
@@ -862,6 +872,54 @@
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('y\\n')" title="Yes + Enter">Y⏎</button>
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\n')" title="Enter">⏎</button>
                                         </div>
+
+                                        <!-- Claude Sessions panel (toggle) -->
+                                        <t t-if="state.claudeSessionsVisible">
+                                            <div style="background: #11111b; border-bottom: 1px solid #313244; max-height: 280px; overflow-y: auto; flex-shrink: 0;">
+                                                <div class="p-2">
+                                                    <div class="d-flex align-items-center gap-2 mb-2">
+                                                        <input type="text" class="form-control form-control-sm flex-grow-1"
+                                                               placeholder="Buscar sesion..."
+                                                               style="background: #1e1e2e; border-color: #313244; color: #cdd6f4; font-size: 11px;"
+                                                               t-att-value="state.claudeSessionSearch"
+                                                               t-on-input="_onClaudeSessionSearch"/>
+                                                        <span style="color: #6c7086; font-size: 10px; white-space: nowrap;">
+                                                            <t t-esc="state.claudeSessions.length"/> sesiones
+                                                        </span>
+                                                    </div>
+                                                    <t t-if="state.claudeSessions.length === 0">
+                                                        <div style="color: #6c7086; font-size: 11px; text-align: center; padding: 8px;">
+                                                            Sin sesiones
+                                                        </div>
+                                                    </t>
+                                                    <t t-foreach="state.claudeSessions" t-as="s" t-key="s.id">
+                                                        <div class="d-flex align-items-start gap-2 py-1 px-1 rounded mb-1"
+                                                             style="font-size: 11px;">
+                                                            <div class="flex-grow-1 cursor-pointer" style="min-width: 0;"
+                                                                 t-att-data-sid="s.id"
+                                                                 t-on-click="_onResumeSession">
+                                                                <div style="color: #cdd6f4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                                                    <t t-esc="s.summary || '(sin titulo)'"/>
+                                                                </div>
+                                                                <div style="color: #6c7086; font-size: 9px;">
+                                                                    <t t-esc="s.timestamp"/>
+                                                                    <span class="ms-2" style="color: #45475a;">
+                                                                        <t t-esc="Math.round(s.size / 1024)"/>KB
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                            <button class="btn btn-sm p-0" style="color: #f38ba8; font-size: 10px; flex-shrink: 0;"
+                                                                    t-att-data-sid="s.id"
+                                                                    t-on-click="_onDeleteSession"
+                                                                    title="Eliminar sesion">
+                                                                &#10005;
+                                                            </button>
+                                                        </div>
+                                                    </t>
+                                                </div>
+                                            </div>
+                                        </t>
+
                                         <div t-ref="terminalAI" style="flex: 1 1 0; min-height: 0; width: 100%;"/>
                                     </div>
                                 </div>

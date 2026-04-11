@@ -76,6 +76,9 @@ class PmbDevopsApp extends Component {
             gitDiffStaged: false,       // is the diff for a staged file
             gitPanelWidth: 280,         // resizable panel width (px)
             gitResizing: false,         // drag in progress
+            claudeSessions: [],         // list of claude sessions
+            claudeSessionSearch: '',    // search filter
+            claudeSessionsVisible: false, // toggle sessions panel
             gitAuthenticated: false,    // git auth confirmed this session
             gitAuthIsAdmin: false,      // current user is admin (no auth needed)
             gitAuthLogin: '',
@@ -466,6 +469,7 @@ class PmbDevopsApp extends Component {
             await this._loadGitPanelWidth();
             await this._checkGitAuth();
             await this._refreshGitStatus();
+            this._loadClaudeSessions();
             setTimeout(() => this._initAiTerminal(), 200);
         } else if (tab === 'editor') {
             await this._browseDir('');
@@ -1951,6 +1955,58 @@ class PmbDevopsApp extends Component {
         } else {
             this._aiTerm.write(event.data);
         }
+    }
+
+    async _loadClaudeSessions() {
+        if (!this.state.selectedInstance) return;
+        try {
+            const result = await rpc('/devops/claude/sessions', {
+                instance_id: this.state.selectedInstance.id,
+                search: this.state.claudeSessionSearch,
+            });
+            this.state.claudeSessions = result.sessions || [];
+        } catch (e) { this.state.claudeSessions = []; }
+    }
+
+    _onClaudeSessionSearch(ev) {
+        this.state.claudeSessionSearch = ev.target.value;
+        this._loadClaudeSessions();
+    }
+
+    async _deleteClaudeSession(sessionId) {
+        if (!this.state.selectedInstance) return;
+        try {
+            await rpc('/devops/claude/sessions/delete', {
+                instance_id: this.state.selectedInstance.id,
+                session_id: sessionId,
+            });
+            await this._loadClaudeSessions();
+        } catch (e) { /* ignore */ }
+    }
+
+    _toggleClaudeSessions() {
+        this.state.claudeSessionsVisible = !this.state.claudeSessionsVisible;
+        if (this.state.claudeSessionsVisible) this._loadClaudeSessions();
+    }
+
+    _onResumeSession(ev) {
+        const sid = ev.currentTarget.dataset.sid;
+        if (sid) this._resumeClaudeSession(sid);
+    }
+
+    _onDeleteSession(ev) {
+        const sid = ev.currentTarget.dataset.sid;
+        if (sid) this._deleteClaudeSession(sid);
+    }
+
+    _resumeClaudeSession(sessionId) {
+        // Send "claude --resume <id>" command to the terminal
+        const cmd = `claude --resume ${sessionId}\n`;
+        if (this._aiWs && this._aiWs.readyState === WebSocket.OPEN) {
+            this._aiWs.send(JSON.stringify({ type: 'input', data: cmd }));
+        }
+        this.state.claudeSessionsVisible = false;
+        if (this._aiTerm) this._aiTerm.focus();
     }
 
     _sendTermKey(data) {

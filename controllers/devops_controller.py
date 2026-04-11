@@ -1141,6 +1141,80 @@ echo "done" > {status_file}
         except Exception:
             return {'error': 'Contraseña incorrecta'}
 
+    # ---- Claude sessions ----
+
+    def _get_claude_project_dir(self, instance_id=None):
+        """Get the Claude project directory for an instance."""
+        home = os.path.expanduser('~')
+        if instance_id:
+            inst = request.env['devops.instance'].browse(instance_id)
+            if inst.exists() and inst.instance_path:
+                # Claude uses path with / replaced by - and leading -
+                slug = inst.instance_path.replace('/', '-')
+                return os.path.join(home, '.claude', 'projects', slug)
+        return ''
+
+    @http.route('/devops/claude/sessions', type='json', auth='user')
+    def claude_sessions(self, instance_id=None, search=''):
+        """List Claude Code sessions for an instance."""
+        import glob
+        project_dir = self._get_claude_project_dir(instance_id)
+        if not project_dir or not os.path.isdir(project_dir):
+            return {'sessions': []}
+
+        sessions = []
+        for f in sorted(glob.glob(os.path.join(project_dir, '*.jsonl')), key=os.path.getmtime, reverse=True):
+            sid = os.path.basename(f).replace('.jsonl', '')
+            try:
+                summary = ''
+                ts = ''
+                with open(f, 'r') as fh:
+                    for line in fh:
+                        d = __import__('json').loads(line)
+                        if not ts and 'timestamp' in d:
+                            ts = d['timestamp']
+                        if d.get('type') == 'summary':
+                            summary = (d.get('summary') or '')[:120]
+                        if not summary and d.get('type') == 'user':
+                            content = d.get('message', {}).get('content', '')
+                            if isinstance(content, list):
+                                for c in content:
+                                    if isinstance(c, dict) and c.get('type') == 'text':
+                                        summary = c['text'][:120]
+                                        break
+                            elif isinstance(content, str):
+                                summary = content[:120]
+                size = os.path.getsize(f)
+                if search and search.lower() not in summary.lower() and search.lower() not in sid.lower():
+                    continue
+                sessions.append({
+                    'id': sid,
+                    'timestamp': ts,
+                    'summary': summary,
+                    'size': size,
+                })
+            except Exception:
+                continue
+
+        return {'sessions': sessions[:50]}
+
+    @http.route('/devops/claude/sessions/delete', type='json', auth='user')
+    def claude_session_delete(self, instance_id=None, session_id=''):
+        """Delete a Claude Code session file."""
+        if not session_id:
+            return {'error': 'Session ID required'}
+        project_dir = self._get_claude_project_dir(instance_id)
+        if not project_dir:
+            return {'error': 'Project dir not found'}
+        filepath = os.path.join(project_dir, f'{session_id}.jsonl')
+        if not os.path.isfile(filepath):
+            return {'error': 'Session not found'}
+        # Security: ensure path is inside .claude/projects/
+        if '.claude/projects/' not in filepath:
+            return {'error': 'Invalid path'}
+        os.remove(filepath)
+        return {'status': 'ok'}
+
     @http.route('/devops/user/prefs', type='json', auth='user')
     def user_prefs_get(self):
         """Get user UI preferences."""
