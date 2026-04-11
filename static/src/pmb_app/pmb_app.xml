@@ -480,7 +480,7 @@
                                                            placeholder="Contraseña"
                                                            t-att-value="state.gitAuthPassword"
                                                            t-on-input="_onGitAuthPasswordInput"
-                                                           t-on-keyup="(ev) => { if (ev.key === 'Enter') this._gitLogin(); }"/>
+                                                           t-on-keyup="_onGitAuthKeyup"/>
                                                     <div t-if="state.gitAuthError" style="color: #f38ba8; font-size: 10px; margin-bottom: 4px;">
                                                         <t t-esc="state.gitAuthError"/>
                                                     </div>

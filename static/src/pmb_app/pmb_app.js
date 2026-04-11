@@ -1163,6 +1163,7 @@ class PmbDevopsApp extends Component {
 
     _onGitAuthLoginInput(ev) { this.state.gitAuthLogin = ev.target.value; }
     _onGitAuthPasswordInput(ev) { this.state.gitAuthPassword = ev.target.value; }
+    _onGitAuthKeyup(ev) { if (ev.key === 'Enter') this._gitLogin(); }
 
     async _gitLogin() {
         if (!this.state.gitAuthLogin || !this.state.gitAuthPassword) return;
