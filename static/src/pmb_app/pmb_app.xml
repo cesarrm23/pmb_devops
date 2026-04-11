@@ -440,11 +440,21 @@
                                             <div class="d-flex align-items-center justify-content-between mb-2">
                                                 <span style="color: #cdd6f4; font-size: 12px; font-weight: 600; cursor: pointer;"
                                                       t-on-click="_toggleGitPanel">
-                                                    <t t-if="state.gitPanelCollapsed">&#9654;</t>
-                                                    <t t-else="">&#9660;</t>
-                                                    Git Changes
+                                                    <t t-if="state.gitPanelCollapsed">
+                                                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="vertical-align: middle;">
+                                                            <path d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z" fill="none"/>
+                                                            <circle cx="8" cy="3" r="1.5" fill="#a6e3a1"/>
+                                                            <circle cx="8" cy="13" r="1.5" fill="#89b4fa"/>
+                                                            <circle cx="12" cy="8" r="1.5" fill="#f9e2af"/>
+                                                            <line x1="8" y1="4.5" x2="8" y2="11.5" stroke="#cdd6f4" stroke-width="1"/>
+                                                            <line x1="8" y1="8" x2="10.5" y2="8" stroke="#cdd6f4" stroke-width="1"/>
+                                                        </svg>
+                                                    </t>
+                                                    <t t-else="">
+                                                        &#9660; Git Changes
+                                                    </t>
                                                 </span>
-                                                <div class="d-flex gap-1">
+                                                <div t-if="!state.gitPanelCollapsed" class="d-flex gap-1">
                                                     <button class="btn btn-sm p-0" style="color: #89b4fa; font-size: 12px;"
                                                             t-on-click="_gitPull" title="Pull">&#8595;</button>
                                                     <button class="btn btn-sm p-0" style="color: #89b4fa; font-size: 12px;"
@@ -453,6 +463,37 @@
                                             </div>
 
                                             <t t-if="!state.gitPanelCollapsed">
+
+                                            <!-- Git auth login (non-admin) -->
+                                            <t t-if="!state.gitAuthenticated and !state.gitAuthIsAdmin">
+                                                <div class="mb-3 p-2" style="border: 1px solid #313244; border-radius: 6px; background: #1e1e2e;">
+                                                    <div style="color: #f9e2af; font-size: 11px; font-weight: 600; margin-bottom: 6px;">
+                                                        &#128274; Autenticación para commit/push
+                                                    </div>
+                                                    <input type="text" class="form-control form-control-sm mb-2"
+                                                           style="background: #11111b; border-color: #313244; color: #cdd6f4; font-size: 11px;"
+                                                           placeholder="Usuario (login)"
+                                                           t-att-value="state.gitAuthLogin"
+                                                           t-on-input="_onGitAuthLoginInput"/>
+                                                    <input type="password" class="form-control form-control-sm mb-2"
+                                                           style="background: #11111b; border-color: #313244; color: #cdd6f4; font-size: 11px;"
+                                                           placeholder="Contraseña"
+                                                           t-att-value="state.gitAuthPassword"
+                                                           t-on-input="_onGitAuthPasswordInput"
+                                                           t-on-keyup="(ev) => { if (ev.key === 'Enter') this._gitLogin(); }"/>
+                                                    <div t-if="state.gitAuthError" style="color: #f38ba8; font-size: 10px; margin-bottom: 4px;">
+                                                        <t t-esc="state.gitAuthError"/>
+                                                    </div>
+                                                    <button class="btn btn-sm w-100"
+                                                            style="background: #89b4fa; color: #1e1e2e; font-size: 11px; font-weight: 600;"
+                                                            t-att-disabled="state.gitAuthLoading"
+                                                            t-on-click="_gitLogin">
+                                                        <t t-if="state.gitAuthLoading">Verificando...</t>
+                                                        <t t-else="">Iniciar sesión</t>
+                                                    </button>
+                                                </div>
+                                            </t>
+
                                             <!-- Repo selector -->
                                             <select t-if="state.historyRepos.length > 1"
                                                     class="form-select form-select-sm mb-2"
@@ -598,8 +639,8 @@
                                                 No hay cambios pendientes
                                             </div>
 
-                                            <!-- Commit / Push actions -->
-                                            <t t-if="state.gitStaged.length > 0 or state.gitUnstaged.length > 0 or state.gitUntracked.length > 0">
+                                            <!-- Commit / Push actions (auth required for non-admin) -->
+                                            <t t-if="(state.gitStaged.length > 0 or state.gitUnstaged.length > 0 or state.gitUntracked.length > 0) and (state.gitAuthenticated or state.gitAuthIsAdmin)">
                                                 <div class="mt-3 pt-2" style="border-top: 1px solid #313244;">
                                                     <input type="text" class="form-control form-control-sm mb-2"
                                                            style="background: #1e1e2e; border-color: #313244; color: #cdd6f4; font-size: 11px;"
@@ -625,8 +666,8 @@
                                                 </div>
                                             </t>
 
-                                            <!-- Push only (outgoing commits, no local changes) -->
-                                            <t t-if="state.gitOutgoing.length > 0 and state.gitStaged.length === 0 and state.gitUnstaged.length === 0 and state.gitUntracked.length === 0">
+                                            <!-- Push only (auth required) -->
+                                            <t t-if="state.gitOutgoing.length > 0 and state.gitStaged.length === 0 and state.gitUnstaged.length === 0 and state.gitUntracked.length === 0 and (state.gitAuthenticated or state.gitAuthIsAdmin)">
                                                 <div class="mt-3 pt-2" style="border-top: 1px solid #313244;">
                                                     <button class="btn btn-sm w-100"
                                                             style="background: #a6e3a1; color: #1e1e2e; font-size: 11px; font-weight: 600;"

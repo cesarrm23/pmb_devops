@@ -73,6 +73,12 @@ class PmbDevopsApp extends Component {
             gitDiffFile: '',            // file currently showing diff
             gitDiffContent: '',         // diff content
             gitDiffStaged: false,       // is the diff for a staged file
+            gitAuthenticated: false,    // git auth confirmed this session
+            gitAuthIsAdmin: false,      // current user is admin (no auth needed)
+            gitAuthLogin: '',
+            gitAuthPassword: '',
+            gitAuthError: '',
+            gitAuthLoading: false,
 
             // Editor / file browser
             editorRepo: 'addons',  // 'addons', 'odoo', 'enterprise'
@@ -453,9 +459,9 @@ class PmbDevopsApp extends Component {
             await this._loadHistoryRepos();
             await this._loadHistory();
         } else if (tab === 'ai') {
-            this.state.gitPanelCollapsed = false;  // Always expand git panel when entering AI tab
+            this.state.gitPanelCollapsed = false;
+            await this._checkGitAuth();
             await this._refreshGitStatus();
-            // Always init — t-if destroys the DOM when leaving, so xterm needs re-attaching
             setTimeout(() => this._initAiTerminal(), 200);
         } else if (tab === 'editor') {
             await this._browseDir('');
@@ -1147,6 +1153,39 @@ class PmbDevopsApp extends Component {
         }
     }
 
+    async _checkGitAuth() {
+        try {
+            const result = await rpc('/devops/git/auth/check');
+            this.state.gitAuthIsAdmin = result.is_admin || false;
+            this.state.gitAuthenticated = result.authenticated || false;
+        } catch (e) { /* ignore */ }
+    }
+
+    _onGitAuthLoginInput(ev) { this.state.gitAuthLogin = ev.target.value; }
+    _onGitAuthPasswordInput(ev) { this.state.gitAuthPassword = ev.target.value; }
+
+    async _gitLogin() {
+        if (!this.state.gitAuthLogin || !this.state.gitAuthPassword) return;
+        this.state.gitAuthLoading = true;
+        this.state.gitAuthError = '';
+        try {
+            const result = await rpc('/devops/git/auth', {
+                login: this.state.gitAuthLogin,
+                password: this.state.gitAuthPassword,
+            });
+            if (result.error) {
+                this.state.gitAuthError = result.error;
+            } else {
+                this.state.gitAuthenticated = true;
+                this.state.gitAuthPassword = '';
+                this.state.gitAuthError = '';
+            }
+        } catch (e) {
+            this.state.gitAuthError = 'Error de conexión';
+        }
+        this.state.gitAuthLoading = false;
+    }
+
     async _gitStageAll() {
         if (!this.state.gitSelectedRepo || !this.state.currentProjectId) return;
         try {
@@ -1168,6 +1207,10 @@ class PmbDevopsApp extends Component {
                 repo_path: this.state.gitSelectedRepo,
                 message: msg,
             });
+            if (result.auth_required) {
+                this.state.gitAuthenticated = false;
+                return;
+            }
             if (result.error) {
                 alert('Error: ' + result.error);
             } else {
@@ -1188,6 +1231,11 @@ class PmbDevopsApp extends Component {
                 project_id: this.state.currentProjectId,
                 repo_path: this.state.gitSelectedRepo,
             });
+            if (result.auth_required) {
+                this.state.gitAuthenticated = false;
+                this.state.gitPushing = false;
+                return;
+            }
             if (result.error) {
                 alert('Error: ' + result.error);
             }

@@ -1103,6 +1103,44 @@ echo "done" > {status_file}
             return {'error': result.stderr or 'diff failed'}
         return {'diff': result.stdout, 'file': file_path, 'staged': staged}
 
+    # ---- Git Auth helpers ----
+
+    def _is_git_authed(self):
+        """Check if current user is admin or has git-authed this session."""
+        if request.env.user.has_group('pmb_devops.group_devops_admin'):
+            return True
+        return request.session.get('pmb_git_authed') == request.env.uid
+
+    @http.route('/devops/git/auth/check', type='json', auth='user')
+    def git_auth_check(self):
+        """Check if current user needs git auth."""
+        is_admin = request.env.user.has_group('pmb_devops.group_devops_admin')
+        return {
+            'is_admin': is_admin,
+            'authenticated': is_admin or request.session.get('pmb_git_authed') == request.env.uid,
+            'user_name': request.env.user.name,
+            'user_email': request.env.user.email or request.env.user.login,
+        }
+
+    @http.route('/devops/git/auth', type='json', auth='user')
+    def git_auth(self, login='', password=''):
+        """Authenticate user with Odoo credentials for git operations."""
+        if not login or not password:
+            return {'error': 'Login y contraseña requeridos'}
+        user = request.env['res.users'].sudo().search([('login', '=', login)], limit=1)
+        if not user:
+            return {'error': 'Usuario no encontrado'}
+        try:
+            user._check_credentials({'type': 'password', 'password': password}, {'interactive': True})
+            request.session['pmb_git_authed'] = request.env.uid
+            return {
+                'status': 'ok',
+                'user_name': user.name,
+                'user_email': user.email or user.login,
+            }
+        except Exception:
+            return {'error': 'Contraseña incorrecta'}
+
     @http.route('/devops/git/stage', type='json', auth='user')
     def git_stage(self, project_id, repo_path=''):
         """Stage all changes (git add -A)."""
@@ -1120,6 +1158,8 @@ echo "done" > {status_file}
     @http.route('/devops/git/commit', type='json', auth='user')
     def git_commit(self, project_id, repo_path='', message=''):
         """Stage all and commit with the given message."""
+        if not self._is_git_authed():
+            return {'error': 'Autenticación requerida', 'auth_required': True}
         project = request.env['devops.project'].browse(project_id)
         if not project.exists():
             return {'error': 'Proyecto no encontrado'}
@@ -1148,6 +1188,8 @@ echo "done" > {status_file}
     @http.route('/devops/git/push', type='json', auth='user')
     def git_push(self, project_id, repo_path=''):
         """Push current branch to origin."""
+        if not self._is_git_authed():
+            return {'error': 'Autenticación requerida', 'auth_required': True}
         project = request.env['devops.project'].browse(project_id)
         if not project.exists():
             return {'error': 'Proyecto no encontrado'}
@@ -1171,6 +1213,8 @@ echo "done" > {status_file}
     @http.route('/devops/git/pull', type='json', auth='user')
     def git_pull(self, project_id, repo_path='', branch=''):
         """Pull latest changes from origin for a branch."""
+        if not self._is_git_authed():
+            return {'error': 'Autenticación requerida', 'auth_required': True}
         project = request.env['devops.project'].browse(project_id)
         if not project.exists():
             return {'error': 'Proyecto no encontrado'}
