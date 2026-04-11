@@ -1355,9 +1355,8 @@ class PmbDevopsApp extends Component {
                 project_id: this.state.currentProjectId,
                 instance_id: this.state.selectedInstance.id,
             });
-            const SYSTEM_REPOS = ['odoo', 'enterprise'];
             this.state.upgradeRepos = (result.repos || []).filter(
-                r => !SYSTEM_REPOS.includes(r.name)
+                r => r.repo_type === 'custom'
             );
         } catch (e) {
             this.state.upgradeRepos = [];

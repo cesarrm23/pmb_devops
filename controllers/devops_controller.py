@@ -696,14 +696,27 @@ echo "done" > {status_file}
             repos = [r for r in repos
                      if r['path'].startswith(inst_path)
                      or not r['path'].startswith(instances_base + '/')]
-        # Mark repos as owned (inside instance path) or shared
+        # Classify each repo dynamically: 'odoo', 'enterprise', or 'custom'
+        enterprise_path = project.enterprise_path or ''
         for r in repos:
             r['owned'] = r['path'].startswith(inst_path) if inst_path else True
+            # Detect Odoo source: contains odoo-bin
+            if os.path.isfile(os.path.join(r['path'], 'odoo-bin')):
+                r['repo_type'] = 'odoo'
+            # Detect Enterprise: matches project enterprise_path or parent of it
+            elif enterprise_path and (
+                r['path'] == enterprise_path
+                or enterprise_path.startswith(r['path'] + '/')
+                or r['path'].endswith('/enterprise')
+            ):
+                r['repo_type'] = 'enterprise'
+            else:
+                r['repo_type'] = 'custom'
 
         # Fallback: project.repo_path (only if not already found)
         if not repos and project.repo_path and project.repo_path not in seen:
             if os.path.isdir(os.path.join(project.repo_path, '.git')):
-                repos.append({'path': project.repo_path, 'name': os.path.basename(project.repo_path), 'branch': 'HEAD', 'owned': True})
+                repos.append({'path': project.repo_path, 'name': os.path.basename(project.repo_path), 'branch': 'HEAD', 'owned': True, 'repo_type': 'custom'})
 
         # Enforce .gitignore on all discovered repos (idempotent)
         from ..utils.git_utils import ensure_gitignore
