@@ -804,12 +804,12 @@
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\x1a')" title="Ctrl+Z">Ctrl+Z</button>
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\x04')" title="Ctrl+D">Ctrl+D</button>
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\x0c')" title="Ctrl+L (clear)">Ctrl+L</button>
-                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\x1b')" title="Escape">Esc</button>
-                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\t')" title="Tab">Tab</button>
+                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\x1b')" title="Escape">⎋</button>
+                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\t')" title="Tab">⇥</button>
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\x1b[A')" title="Up arrow">↑</button>
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\x1b[B')" title="Down arrow">↓</button>
-                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('y\\n')" title="Yes + Enter">Y</button>
-                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\n')" title="Enter">Enter</button>
+                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('y\\n')" title="Yes + Enter">Y⏎</button>
+                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\n')" title="Enter">⏎</button>
                                         </div>
                                         <div t-ref="terminalAI" style="flex: 1 1 0; min-height: 0; width: 100%;"/>
                                     </div>
@@ -824,8 +824,8 @@
                                     <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\x1a')" title="Ctrl+Z">Ctrl+Z</button>
                                     <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\x04')" title="Ctrl+D">Ctrl+D</button>
                                     <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\x0c')" title="Ctrl+L">Ctrl+L</button>
-                                    <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\x1b')" title="Escape">Esc</button>
-                                    <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\t')" title="Tab">Tab</button>
+                                    <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\x1b')" title="Escape">⎋</button>
+                                    <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\t')" title="Tab">⇥</button>
                                     <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\x1b[A')" title="Up">↑</button>
                                     <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\x1b[B')" title="Down">↓</button>
                                 </div>
