@@ -54,17 +54,62 @@
             <!-- BODY: sidebar + main -->
             <div class="d-flex flex-grow-1" style="overflow: hidden;">
 
-                <!-- SIDEBAR -->
-                <div class="pmb-sidebar d-flex flex-column"
-                     style="width: 260px; background: #1e1e2e; border-right: 1px solid #313244; overflow-y: auto;"
-                     t-if="state.activeNavTab === 'branches' and !state.sidebarCollapsed">
+                <!-- SIDEBAR: icon-only when sidebarMinimized, full when not -->
+                <t t-if="state.activeNavTab === 'branches' and !state.sidebarCollapsed">
 
-                    <!-- Filter -->
-                    <div class="p-2">
-                        <input type="text" class="form-control form-control-sm"
+                <!-- Minimized sidebar (icons only) -->
+                <div t-if="state.sidebarMinimized" class="pmb-sidebar d-flex flex-column align-items-center py-2"
+                     style="width: 48px; min-width: 48px; background: #1e1e2e; border-right: 1px solid #313244; overflow-y: auto;">
+                    <!-- Expand toggle -->
+                    <div class="cursor-pointer mb-3 px-1" style="color: #6c7086; font-size: 14px;"
+                         t-on-click="() => { this.state.sidebarMinimized = false; }" title="Expandir sidebar">
+                        &#9654;
+                    </div>
+                    <!-- Production icons -->
+                    <t t-foreach="this._getFilteredInstances('production')" t-as="inst" t-key="inst.id">
+                        <div class="cursor-pointer rounded mb-1 d-flex align-items-center justify-content-center"
+                             t-att-style="'width:36px;height:36px;' + (state.selectedInstance and state.selectedInstance.id === inst.id ? 'background:#313244;' : '')"
+                             t-on-click="() => this._selectInstance(inst)" t-att-title="inst.name">
+                            <span style="font-size: 18px;">🏭</span>
+                            <span t-att-style="'position:absolute;width:6px;height:6px;border-radius:50%;margin-top:20px;margin-left:18px;background:' + this._getStatusColor(inst)"/>
+                        </div>
+                    </t>
+                    <div style="border-bottom: 1px solid #313244; width: 30px; margin: 4px 0;"/>
+                    <!-- Staging icons -->
+                    <t t-foreach="this._getFilteredInstances('staging')" t-as="inst" t-key="inst.id">
+                        <div class="cursor-pointer rounded mb-1 d-flex align-items-center justify-content-center"
+                             t-att-style="'width:36px;height:36px;' + (state.selectedInstance and state.selectedInstance.id === inst.id ? 'background:#313244;' : '')"
+                             t-on-click="() => this._selectInstance(inst)" t-att-title="inst.name">
+                            <span style="font-size: 18px;">🧪</span>
+                            <span t-att-style="'position:absolute;width:6px;height:6px;border-radius:50%;margin-top:20px;margin-left:18px;background:' + this._getStatusColor(inst)"/>
+                        </div>
+                    </t>
+                    <div style="border-bottom: 1px solid #313244; width: 30px; margin: 4px 0;"/>
+                    <!-- Development icons -->
+                    <t t-foreach="this._getFilteredInstances('development')" t-as="inst" t-key="inst.id">
+                        <div class="cursor-pointer rounded mb-1 d-flex align-items-center justify-content-center"
+                             t-att-style="'width:36px;height:36px;' + (state.selectedInstance and state.selectedInstance.id === inst.id ? 'background:#313244;' : '')"
+                             t-on-click="() => this._selectInstance(inst)" t-att-title="inst.name">
+                            <span style="font-size: 18px;">🛠</span>
+                            <span t-att-style="'position:absolute;width:6px;height:6px;border-radius:50%;margin-top:20px;margin-left:18px;background:' + this._getStatusColor(inst)"/>
+                        </div>
+                    </t>
+                </div>
+
+                <!-- Full sidebar -->
+                <div t-if="!state.sidebarMinimized" class="pmb-sidebar d-flex flex-column"
+                     style="width: 260px; background: #1e1e2e; border-right: 1px solid #313244; overflow-y: auto;">
+
+                    <!-- Filter + minimize toggle -->
+                    <div class="p-2 d-flex gap-1">
+                        <input type="text" class="form-control form-control-sm flex-grow-1"
                                placeholder="Filter branches..."
                                style="background: #313244; color: #cdd6f4; border-color: #45475a; font-size: 12px;"
                                t-model="state.sidebarFilter"/>
+                        <button class="btn btn-sm px-1" style="color: #6c7086; font-size: 12px;"
+                                t-on-click="() => { this.state.sidebarMinimized = true; }" title="Contraer sidebar">
+                            &#9664;
+                        </button>
                     </div>
 
                     <!-- Production -->
@@ -135,6 +180,7 @@
                         </t>
                     </div>
                 </div>
+                </t>
 
                 <!-- MAIN CONTENT -->
                 <div class="pmb-main flex-grow-1 d-flex flex-column" style="background: #181825; overflow-y: auto; min-height: 0;">

@@ -29,6 +29,7 @@ class PmbDevopsApp extends Component {
             // Sidebar
             sidebarFilter: "",
             sidebarCollapsed: false,  // collapsed on mobile after selecting instance
+            sidebarMinimized: false,  // icons-only mode (desktop)
 
             // UI
             loading: false,
