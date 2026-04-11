@@ -496,7 +496,10 @@
                                                         &#10003; Staged (<t t-esc="state.gitStaged.length"/>)
                                                     </div>
                                                     <t t-foreach="state.gitStaged" t-as="f" t-key="f.path">
-                                                        <div class="py-1 d-flex" style="font-size: 11px;">
+                                                        <div class="py-1 d-flex cursor-pointer rounded px-1"
+                                                             t-att-style="state.gitDiffFile === f.path and state.gitDiffStaged ? 'background: #313244;' : ''"
+                                                             style="font-size: 11px;"
+                                                             t-on-click="() => this._gitShowDiff(f.path, true)">
                                                             <span class="me-1" t-att-style="'font-weight:bold; width:12px; color:' + (f.status === 'A' ? '#a6e3a1' : f.status === 'D' ? '#f38ba8' : '#f9e2af')">
                                                                 <t t-esc="f.status"/>
                                                             </span>
@@ -518,7 +521,10 @@
                                                                 t-on-click="_gitStageAll">Stage all</button>
                                                     </div>
                                                     <t t-foreach="state.gitUnstaged" t-as="f" t-key="f.path">
-                                                        <div class="py-1 d-flex" style="font-size: 11px;">
+                                                        <div class="py-1 d-flex cursor-pointer rounded px-1"
+                                                             t-att-style="state.gitDiffFile === f.path and !state.gitDiffStaged ? 'background: #313244;' : ''"
+                                                             style="font-size: 11px;"
+                                                             t-on-click="() => this._gitShowDiff(f.path, false)">
                                                             <span class="me-1" style="font-weight:bold; width:12px; color:#f9e2af;">
                                                                 <t t-esc="f.status"/>
                                                             </span>
@@ -539,6 +545,23 @@
                                                             <t t-esc="f"/>
                                                         </div>
                                                     </t>
+                                                </div>
+                                            </t>
+
+                                            <!-- Inline diff viewer -->
+                                            <t t-if="state.gitDiffContent">
+                                                <div class="mt-2 pt-2" style="border-top: 1px solid #313244;">
+                                                    <div class="d-flex align-items-center justify-content-between mb-1">
+                                                        <code style="color: #89b4fa; font-size: 10px;"><t t-esc="state.gitDiffFile"/></code>
+                                                        <button class="btn btn-sm py-0 px-1" style="background: #313244; color: #6c7086; font-size: 9px;"
+                                                                t-on-click="() => { this.state.gitDiffFile = ''; this.state.gitDiffContent = ''; }">
+                                                            &#10005;
+                                                        </button>
+                                                    </div>
+                                                    <div style="background: #11111b; border: 1px solid #313244; border-radius: 4px; max-height: 300px; overflow: auto;">
+                                                        <pre style="margin: 0; padding: 8px; font-size: 10px; font-family: 'JetBrains Mono', monospace; white-space: pre-wrap;"><t t-foreach="(state.gitDiffContent || '').split('\n')" t-as="line" t-key="line_index"><span t-att-style="line.startsWith('+') ? 'color: #a6e3a1; background: rgba(166,227,161,0.1);' : line.startsWith('-') ? 'color: #f38ba8; background: rgba(243,139,168,0.1);' : line.startsWith('@@') ? 'color: #89b4fa;' : 'color: #6c7086;'"><t t-esc="line"/>
+</span></t></pre>
+                                                    </div>
                                                 </div>
                                             </t>
 

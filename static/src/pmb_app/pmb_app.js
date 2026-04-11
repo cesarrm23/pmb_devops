@@ -70,6 +70,9 @@ class PmbDevopsApp extends Component {
             gitCommitMessage: '',       // commit message input
             gitCommitting: false,       // commit in progress
             gitPushing: false,          // push in progress
+            gitDiffFile: '',            // file currently showing diff
+            gitDiffContent: '',         // diff content
+            gitDiffStaged: false,       // is the diff for a staged file
 
             // Editor / file browser
             editorRepo: 'addons',  // 'addons', 'odoo', 'enterprise'
@@ -1117,6 +1120,30 @@ class PmbDevopsApp extends Component {
                 this.state.gitOutgoing = result.outgoing || [];
             }
         } catch (e) { /* ignore */ }
+    }
+
+    async _gitShowDiff(filePath, staged = false) {
+        if (!this.state.gitSelectedRepo || !this.state.currentProjectId) return;
+        // Toggle off if clicking the same file
+        if (this.state.gitDiffFile === filePath && this.state.gitDiffStaged === staged) {
+            this.state.gitDiffFile = '';
+            this.state.gitDiffContent = '';
+            return;
+        }
+        this.state.gitDiffFile = filePath;
+        this.state.gitDiffStaged = staged;
+        this.state.gitDiffContent = 'Cargando...';
+        try {
+            const result = await rpc('/devops/git/diff', {
+                project_id: this.state.currentProjectId,
+                repo_path: this.state.gitSelectedRepo,
+                file_path: filePath,
+                staged: staged,
+            });
+            this.state.gitDiffContent = result.diff || result.error || 'Sin diferencias';
+        } catch (e) {
+            this.state.gitDiffContent = 'Error cargando diff';
+        }
     }
 
     async _gitStageAll() {

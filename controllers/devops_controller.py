@@ -1071,6 +1071,26 @@ echo "done" > {status_file}
             'outgoing': outgoing,
         }
 
+    @http.route('/devops/git/diff', type='json', auth='user')
+    def git_diff(self, project_id, repo_path='', file_path='', staged=False):
+        """Get diff for a specific file (staged or unstaged)."""
+        project = request.env['devops.project'].browse(project_id)
+        if not project.exists():
+            return {'error': 'Proyecto no encontrado'}
+        if not repo_path or not os.path.isdir(repo_path):
+            return {'error': 'Repo path not found'}
+        if not file_path:
+            return {'error': 'File path required'}
+        from ..utils import ssh_utils
+        cmd = ['git', 'diff']
+        if staged:
+            cmd.append('--cached')
+        cmd.extend(['--', file_path])
+        result = ssh_utils.execute_command(project, cmd, cwd=repo_path, timeout=10)
+        if result.returncode != 0:
+            return {'error': result.stderr or 'diff failed'}
+        return {'diff': result.stdout, 'file': file_path, 'staged': staged}
+
     @http.route('/devops/git/stage', type='json', auth='user')
     def git_stage(self, project_id, repo_path=''):
         """Stage all changes (git add -A)."""
