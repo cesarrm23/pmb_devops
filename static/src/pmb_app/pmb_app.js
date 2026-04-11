@@ -1176,6 +1176,47 @@ class PmbDevopsApp extends Component {
         }
     }
 
+    async _gitPull() {
+        if (!this.state.gitSelectedRepo || !this.state.currentProjectId) return;
+        this.state.gitPushing = true; // reuse for loading state
+        try {
+            const result = await rpc('/devops/git/pull', {
+                project_id: this.state.currentProjectId,
+                repo_path: this.state.gitSelectedRepo,
+            });
+            if (result.error) {
+                alert('Error: ' + result.error);
+            }
+            await this._refreshGitStatus();
+        } catch (e) {
+            alert('Error: ' + (e.message || e));
+        }
+        this.state.gitPushing = false;
+    }
+
+    async _gitMerge(source, target) {
+        if (!this.state.gitSelectedRepo || !this.state.currentProjectId) return;
+        if (!confirm(`¿Merge ${source} → ${target}?`)) return;
+        this.state.gitPushing = true;
+        try {
+            const result = await rpc('/devops/branch/merge', {
+                project_id: this.state.currentProjectId,
+                repo_path: this.state.gitSelectedRepo,
+                source_branch: source,
+                target_branch: target,
+            });
+            if (result.error) {
+                alert('Error: ' + result.error);
+            } else {
+                alert(result.output || 'Merge exitoso');
+            }
+            await this._refreshGitStatus();
+        } catch (e) {
+            alert('Error: ' + (e.message || e));
+        }
+        this.state.gitPushing = false;
+    }
+
     // ------------------------------------------------------------------
     // Editor / File browser
     // ------------------------------------------------------------------

@@ -604,6 +604,15 @@ echo "done" > {status_file}
                 'remote': remote, 'dirty': dirty, 'shallow': shallow,
             })
 
+        # For non-production instances, only show repos inside the instance's own path
+        inst_path = None
+        inst_type = 'production'
+        if instance_id:
+            inst = request.env['devops.instance'].browse(instance_id)
+            if inst.exists():
+                inst_path = inst.instance_path
+                inst_type = inst.instance_type or 'production'
+
         for path in addons_paths:
             # 1. Direct: path itself has .git
             if os.path.isdir(os.path.join(path, '.git')):
@@ -627,6 +636,10 @@ echo "done" > {status_file}
                             _add_repo(child_path)
                 except PermissionError:
                     pass
+
+        # For dev/staging: filter repos to only those inside the instance's path
+        if inst_path and inst_type != 'production':
+            repos = [r for r in repos if r['path'].startswith(inst_path)]
 
         # Fallback: project.repo_path (only if not already found)
         if not repos and project.repo_path and project.repo_path not in seen:
@@ -992,30 +1005,96 @@ echo "done" > {status_file}
             return {'error': err or 'git push failed'}
         return {'status': 'ok', 'output': result.stdout.strip() + '\n' + result.stderr.strip()}
 
-    @http.route('/devops/branch/merge', type='json', auth='user')
-    def branch_merge(self, project_id, source_branch, target_branch):
-        """Merge source branch into target."""
+    @http.route('/devops/git/pull', type='json', auth='user')
+    def git_pull(self, project_id, repo_path='', branch=''):
+        """Pull latest changes from origin for a branch."""
         project = request.env['devops.project'].browse(project_id)
         if not project.exists():
             return {'error': 'Proyecto no encontrado'}
+        if not repo_path or not os.path.isdir(repo_path):
+            return {'error': 'Repo path not found'}
+        from ..utils import ssh_utils
+        # Ensure git user configured
+        user = request.env.user
+        r = ssh_utils.execute_command(project, ['git', 'config', 'user.email'], cwd=repo_path, timeout=5)
+        if r.returncode != 0 or not r.stdout.strip():
+            ssh_utils.execute_command(project, ['git', 'config', 'user.email', user.email or user.login], cwd=repo_path, timeout=5)
+            ssh_utils.execute_command(project, ['git', 'config', 'user.name', user.name or user.login], cwd=repo_path, timeout=5)
+        # Fetch first
+        ssh_utils.execute_command(project, ['git', 'fetch', 'origin'], cwd=repo_path, timeout=60)
+        # Pull current branch
+        if not branch:
+            r = ssh_utils.execute_command(project, ['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=repo_path, timeout=5)
+            branch = r.stdout.strip() if r.returncode == 0 else 'HEAD'
+        result = ssh_utils.execute_command(project, ['git', 'pull', 'origin', branch], cwd=repo_path, timeout=60)
+        if result.returncode != 0:
+            err = result.stderr.strip() or result.stdout.strip()
+            return {'error': err or 'git pull failed'}
+        return {'status': 'ok', 'output': result.stdout.strip()}
+
+    @http.route('/devops/branch/merge', type='json', auth='user')
+    def branch_merge(self, project_id, repo_path='', source_branch='', target_branch=''):
+        """Merge source branch into target. Flow: development → staging → main."""
+        project = request.env['devops.project'].browse(project_id)
+        if not project.exists():
+            return {'error': 'Proyecto no encontrado'}
+        if not repo_path or not os.path.isdir(repo_path):
+            # Fallback to project repo_path
+            repo_path = project.repo_path
+        if not repo_path or not os.path.isdir(repo_path):
+            return {'error': 'Repo path not found'}
+
+        # Validate merge direction: development → staging → main only
+        allowed_merges = {
+            'development': ['staging'],
+            'staging': ['main'],
+        }
+        allowed_targets = allowed_merges.get(source_branch, [])
+        if target_branch not in allowed_targets:
+            return {'error': f'No se permite merge de {source_branch} → {target_branch}. '
+                    f'Flujo correcto: development → staging → main'}
 
         from ..utils import ssh_utils
+        # Ensure git user configured
+        user = request.env.user
+        r = ssh_utils.execute_command(project, ['git', 'config', 'user.email'], cwd=repo_path, timeout=5)
+        if r.returncode != 0 or not r.stdout.strip():
+            ssh_utils.execute_command(project, ['git', 'config', 'user.email', user.email or user.login], cwd=repo_path, timeout=5)
+            ssh_utils.execute_command(project, ['git', 'config', 'user.name', user.name or user.login], cwd=repo_path, timeout=5)
+
         try:
+            # Fetch latest
+            ssh_utils.execute_command(project, ['git', 'fetch', 'origin'], cwd=repo_path, timeout=60)
+            # Save current branch to return to it later
+            r = ssh_utils.execute_command(project, ['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=repo_path, timeout=5)
+            original_branch = r.stdout.strip() if r.returncode == 0 else ''
             # Checkout target
-            ssh_utils.execute_command(project, ['git', 'checkout', target_branch], cwd=project.repo_path)
-            # Merge source
-            result = ssh_utils.execute_command(
-                project,
-                ['git', 'merge', source_branch, '-m', f'Merge {source_branch} into {target_branch}'],
-                cwd=project.repo_path,
-            )
+            r = ssh_utils.execute_command(project, ['git', 'checkout', target_branch], cwd=repo_path, timeout=15)
+            if r.returncode != 0:
+                return {'error': f'Error al cambiar a {target_branch}: {r.stderr.strip()}'}
+            # Pull target to ensure it's up to date
+            ssh_utils.execute_command(project, ['git', 'pull', 'origin', target_branch], cwd=repo_path, timeout=60)
+            # Merge source into target
+            result = ssh_utils.execute_command(project, [
+                'git', 'merge', f'origin/{source_branch}',
+                '-m', f'Merge {source_branch} into {target_branch}',
+            ], cwd=repo_path, timeout=60)
             if result.returncode != 0:
-                return {'status': 'error', 'error': result.stderr}
+                # Abort merge on conflict
+                ssh_utils.execute_command(project, ['git', 'merge', '--abort'], cwd=repo_path, timeout=5)
+                if original_branch:
+                    ssh_utils.execute_command(project, ['git', 'checkout', original_branch], cwd=repo_path, timeout=15)
+                return {'error': f'Conflicto de merge: {result.stderr.strip() or result.stdout.strip()}'}
             # Push
-            ssh_utils.execute_command(project, ['git', 'push', 'origin', target_branch], cwd=project.repo_path)
-            return {'status': 'ok', 'output': result.stdout}
+            push_r = ssh_utils.execute_command(project, ['git', 'push', 'origin', target_branch], cwd=repo_path, timeout=60)
+            # Return to original branch
+            if original_branch and original_branch != target_branch:
+                ssh_utils.execute_command(project, ['git', 'checkout', original_branch], cwd=repo_path, timeout=15)
+            if push_r.returncode != 0:
+                return {'error': f'Merge exitoso pero push falló: {push_r.stderr.strip()}'}
+            return {'status': 'ok', 'output': f'Merge {source_branch} → {target_branch} exitoso y pusheado'}
         except Exception as e:
-            return {'status': 'error', 'error': str(e)}
+            return {'error': str(e)}
 
     @http.route('/devops/project/metrics', type='json', auth='user')
     def project_metrics(self, project_id, refresh=False):

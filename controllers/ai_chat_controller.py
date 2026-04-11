@@ -43,12 +43,24 @@ class DevopsAiChatController(http.Controller):
             except Exception:
                 pass
 
+        # Determine instance type for isolation
+        instance_type = 'production'
+        if instance_id:
+            try:
+                instance = request.env['devops.instance'].browse(instance_id)
+                if instance.exists():
+                    instance_type = instance.instance_type or 'production'
+            except Exception:
+                pass
+
         # Generate token
         token = secrets.token_urlsafe(32)
         token_data = {
             'uid': uid,
             'cmd': 'claude',
             'cwd': cwd,
+            'instance_type': instance_type,
+            'allowed_path': cwd,  # Claude can only modify files inside this path
             'created': time.time(),
         }
 
@@ -56,7 +68,7 @@ class DevopsAiChatController(http.Controller):
         with open(token_path, 'w') as f:
             json.dump(token_data, f)
 
-        _logger.info("AI token generated: uid=%s, cwd=%s", uid, cwd)
+        _logger.info("AI token generated: uid=%s, cwd=%s, type=%s", uid, cwd, instance_type)
 
         return {
             'token': token,

@@ -35,6 +35,53 @@ def session_key(uid, cmd_type, cwd):
     return f"{uid}:{cmd_type}:{cwd}"
 
 
+def _write_isolation_rules(cwd, instance_type, allowed_path):
+    """Write a CLAUDE.md with environment isolation rules."""
+    claude_md = os.path.join(cwd, 'CLAUDE.md')
+    # Don't overwrite if file already has custom content beyond our marker
+    marker = '# PMB DevOps Environment Rules'
+
+    if instance_type == 'production':
+        rules = f"""{marker}
+This is a PRODUCTION environment. Be extra careful with changes.
+- Working directory: {cwd}
+- You may read and modify files within this directory.
+- NEVER run destructive commands (rm -rf, DROP DATABASE, etc).
+- Always ask before making significant changes.
+"""
+    elif instance_type == 'staging':
+        rules = f"""{marker}
+This is a STAGING environment.
+- Working directory: {cwd}
+- You may ONLY modify files inside: {allowed_path}
+- NEVER modify files in /opt/odooAL/ (production) or other instance paths.
+- NEVER modify files in /opt/instances/ directories that are not this instance.
+- This environment is for testing before production.
+"""
+    else:  # development
+        rules = f"""{marker}
+This is a DEVELOPMENT environment.
+- Working directory: {cwd}
+- You may ONLY modify files inside: {allowed_path}
+- NEVER modify files in /opt/odooAL/ (production).
+- NEVER modify files in other /opt/instances/ directories that are not this instance.
+- NEVER switch git branches to main or staging.
+- Changes here should be committed to the development branch only.
+"""
+
+    try:
+        # Only write if file doesn't exist or was written by us
+        if os.path.exists(claude_md):
+            with open(claude_md, 'r') as f:
+                existing = f.read()
+            if marker not in existing:
+                return  # User has custom CLAUDE.md, don't overwrite
+        with open(claude_md, 'w') as f:
+            f.write(rules)
+    except Exception as e:
+        logger.warning("Could not write CLAUDE.md: %s", e)
+
+
 def validate_token(token):
     if not token:
         return None
@@ -214,6 +261,11 @@ async def terminal_handler(websocket):
             env['TERM'] = 'xterm-256color'
             env['CLAUDE_CODE_DISABLE_AUTOUPDATE'] = '1'
             env.pop('ANTHROPIC_API_KEY', None)
+
+            # Security: create CLAUDE.md with isolation rules per instance type
+            instance_type = token_data.get('instance_type', 'production')
+            allowed_path = token_data.get('allowed_path', cwd)
+            _write_isolation_rules(cwd, instance_type, allowed_path)
 
             master_fd, child_pid = spawn_pty(cmd, cwd, env)
 
