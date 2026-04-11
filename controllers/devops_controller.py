@@ -670,16 +670,22 @@ echo "done" > {status_file}
                     pass
 
         # For dev/staging: filter repos from other instances, keep shared repos
+        # Mark each repo as 'owned' (inside instance path) or shared
         if inst_path and inst_type != 'production':
             instances_base = os.path.dirname(inst_path)
             repos = [r for r in repos
                      if r['path'].startswith(inst_path)
                      or not r['path'].startswith(instances_base + '/')]
+            for r in repos:
+                r['owned'] = r['path'].startswith(inst_path) if inst_path else True
+        else:
+            for r in repos:
+                r['owned'] = True
 
         # Fallback: project.repo_path (only if not already found)
         if not repos and project.repo_path and project.repo_path not in seen:
             if os.path.isdir(os.path.join(project.repo_path, '.git')):
-                repos.append({'path': project.repo_path, 'name': os.path.basename(project.repo_path), 'branch': 'HEAD'})
+                repos.append({'path': project.repo_path, 'name': os.path.basename(project.repo_path), 'branch': 'HEAD', 'owned': True})
 
         # Enforce .gitignore on all discovered repos (idempotent)
         from ..utils.git_utils import ensure_gitignore
