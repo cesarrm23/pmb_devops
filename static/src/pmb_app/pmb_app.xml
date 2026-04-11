@@ -1199,8 +1199,8 @@
 
                             <!-- DOCS tab -->
                             <div t-if="state.activeContentTab === 'docs'" class="p-4" style="color: #cdd6f4; overflow-y: auto; flex: 1 1 0; min-height: 0;">
-                                <h5 class="mb-3" style="color: #89b4fa;">
-                                    📖 Documentacion PMB DevOps
+                                <h5 class="mb-4" style="color: #89b4fa;">
+                                    📖 PMB DevOps — Guia de Usuario
                                     <span style="font-size: 11px; color: #6c7086; margin-left: 8px;">
                                         Rol: <span t-if="state.isAdmin" style="color: #a6e3a1;">Administrator</span>
                                              <span t-elif="state.gitAuthenticated" style="color: #f9e2af;">Developer</span>
@@ -1208,12 +1208,23 @@
                                     </span>
                                 </h5>
 
-                                <!-- Sidebar -->
+                                <!-- 1. Overview -->
                                 <div class="mb-4" style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
-                                    <h6 style="color: #cba6f7;">Sidebar de Instancias</h6>
+                                    <h6 style="color: #cba6f7;">Vista General</h6>
+                                    <img src="/pmb_devops/static/src/docs/img/01_overview.jpg" class="mb-3" style="width:100%;border-radius:6px;border:1px solid #313244;" alt="Overview"/>
+                                    <div style="font-size:12px;color:#a6adc8;">
+                                        <div class="mb-1"><span style="background:#89b4fa;color:#1e1e2e;border-radius:50%;padding:1px 6px;font-size:10px;font-weight:600;">1</span> Sidebar de instancias (◀ contrae a iconos)</div>
+                                        <div class="mb-1"><span style="background:#89b4fa;color:#1e1e2e;border-radius:50%;padding:1px 6px;font-size:10px;font-weight:600;">2</span> Tabs de navegacion</div>
+                                        <div class="mb-1"><span style="background:#89b4fa;color:#1e1e2e;border-radius:50%;padding:1px 6px;font-size:10px;font-weight:600;">3</span> Selector de proyecto</div>
+                                    </div>
+                                </div>
+
+                                <!-- 2. Sidebar collapse -->
+                                <div class="mb-4" style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
+                                    <h6 style="color: #cba6f7;">Sidebar Contraible</h6>
                                     <div class="row mb-3">
                                         <div class="col-auto">
-                                            <img src="/pmb_devops/static/src/docs/img/06_sidebar_full.jpg" style="border-radius: 6px; border: 1px solid #313244; max-height: 250px;" alt="Sidebar"/>
+                                            <img src="/pmb_devops/static/src/docs/img/02_sidebar_mini.jpg" style="border-radius: 6px; border: 1px solid #313244; max-height: 250px;" alt="Sidebar"/>
                                         </div>
                                         <div class="col" style="font-size: 12px; color: #a6adc8;">
                                             <div class="mb-1"><span style="background:#89b4fa;color:#1e1e2e;border-radius:50%;padding:1px 6px;font-size:10px;font-weight:600;">1</span> Filtrar instancias por nombre</div>
@@ -1246,7 +1257,7 @@
                                 <!-- AI Tab screenshot -->
                                 <div class="mb-4" style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
                                     <h6 style="color: #f9e2af;">Tab AI — Terminal + Git Changes</h6>
-                                    <img src="/pmb_devops/static/src/docs/img/02_ai_tab.jpg" class="mb-3" style="width: 100%; border-radius: 6px; border: 1px solid #313244;" alt="AI Tab"/>
+                                    <img src="/pmb_devops/static/src/docs/img/04_ai.jpg" class="mb-3" style="width: 100%; border-radius: 6px; border: 1px solid #313244;" alt="AI Tab"/>
                                     <div style="font-size: 12px; color: #a6adc8;">
                                         <div class="mb-1"><span style="background:#89b4fa;color:#1e1e2e;border-radius:50%;padding:1px 6px;font-size:10px;font-weight:600;">1</span> Panel Git Changes: archivos staged/modified/untracked</div>
                                         <div class="mb-1"><span style="background:#89b4fa;color:#1e1e2e;border-radius:50%;padding:1px 6px;font-size:10px;font-weight:600;">2</span> Click en archivo para ver diff inline coloreado</div>
@@ -1254,6 +1265,17 @@
                                         <div class="mb-1"><span style="background:#89b4fa;color:#1e1e2e;border-radius:50%;padding:1px 6px;font-size:10px;font-weight:600;">4</span> Botones de teclas especiales (Ctrl+C, Esc, Tab, etc.)</div>
                                         <div class="mb-1"><span style="background:#89b4fa;color:#1e1e2e;border-radius:50%;padding:1px 6px;font-size:10px;font-weight:600;">5</span> Terminal Claude Code via WebSocket</div>
                                         <div class="mt-2" style="color: #6c7086;">Tip: Arrastra el borde entre el panel git y el terminal para ajustar el ancho</div>
+                                    </div>
+                                </div>
+
+                                <!-- 5. Sessions -->
+                                <div class="mb-4" style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
+                                    <h6 style="color: #94e2d5;">Gestor de Sesiones Claude</h6>
+                                    <img src="/pmb_devops/static/src/docs/img/05_sessions.jpg" class="mb-3" style="width:100%;border-radius:6px;border:1px solid #313244;" alt="Sessions"/>
+                                    <div style="font-size:12px;color:#a6adc8;">
+                                        <div class="mb-1"><span style="background:#89b4fa;color:#1e1e2e;border-radius:50%;padding:1px 6px;font-size:10px;font-weight:600;">1</span> Boton 📋 abre/cierra el panel de sesiones</div>
+                                        <div class="mb-1"><span style="background:#89b4fa;color:#1e1e2e;border-radius:50%;padding:1px 6px;font-size:10px;font-weight:600;">2</span> Buscar, click para resumir sesion, ✕ para eliminar</div>
+                                        <div class="mt-2" style="color:#6c7086;">Cada sesion muestra el primer mensaje, fecha y tamano. Click resume con <code>claude --resume</code>.</div>
                                     </div>
                                 </div>
 
@@ -1270,7 +1292,7 @@
                                             <code style="color: #cdd6f4;">main → staging</code> y <code style="color: #cdd6f4;">main → development</code>
                                             <span style="color: #6c7086;"> (solo admin)</span>
                                         </div>
-                                        <img src="/pmb_devops/static/src/docs/img/07_merge.jpg" class="mb-3" style="width: 100%; max-width: 500px; border-radius: 6px; border: 1px solid #313244;" alt="Merge"/>
+                                        <img src="/pmb_devops/static/src/docs/img/10_merge.jpg" class="mb-3" style="width: 100%; max-width: 500px; border-radius: 6px; border: 1px solid #313244;" alt="Merge"/>
                                         <div class="mb-2">
                                             <strong style="color: #cdd6f4;">Flujo de desarrollo:</strong>
                                         </div>
@@ -1285,34 +1307,37 @@
                                     </div>
                                 </div>
 
-                                <!-- History + Editor + Upgrade screenshots -->
+                                <!-- 7. Tabs secundarios -->
                                 <div class="mb-4" style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
-                                    <h6 style="color: #89b4fa;">Otras Pestanas</h6>
+                                    <h6 style="color: #89b4fa;">History, Editor, Upgrade</h6>
                                     <div class="row g-3">
                                         <div class="col-md-4">
                                             <div style="font-size: 11px; color: #cba6f7; font-weight: 600; margin-bottom: 4px;">HISTORY</div>
-                                            <img src="/pmb_devops/static/src/docs/img/01_history.jpg" style="width: 100%; border-radius: 6px; border: 1px solid #313244;" alt="History"/>
+                                            <img src="/pmb_devops/static/src/docs/img/03_history.jpg" style="width: 100%; border-radius: 6px; border: 1px solid #313244;" alt="History"/>
                                             <div style="font-size: 10px; color: #6c7086; margin-top: 4px;">Selector de repos, historial de commits, detalle con diff</div>
                                         </div>
                                         <div class="col-md-4">
                                             <div style="font-size: 11px; color: #cba6f7; font-weight: 600; margin-bottom: 4px;">EDITOR</div>
-                                            <img src="/pmb_devops/static/src/docs/img/04_editor.jpg" style="width: 100%; border-radius: 6px; border: 1px solid #313244;" alt="Editor"/>
+                                            <img src="/pmb_devops/static/src/docs/img/07_editor.jpg" style="width: 100%; border-radius: 6px; border: 1px solid #313244;" alt="Editor"/>
                                             <div style="font-size: 10px; color: #6c7086; margin-top: 4px;">Navegador de archivos con breadcrumb y visor de codigo</div>
                                         </div>
                                         <div class="col-md-4">
                                             <div style="font-size: 11px; color: #cba6f7; font-weight: 600; margin-bottom: 4px;">UPGRADE</div>
-                                            <img src="/pmb_devops/static/src/docs/img/05_upgrade.jpg" style="width: 100%; border-radius: 6px; border: 1px solid #313244;" alt="Upgrade"/>
+                                            <img src="/pmb_devops/static/src/docs/img/08_upgrade.jpg" style="width: 100%; border-radius: 6px; border: 1px solid #313244;" alt="Upgrade"/>
                                             <div style="font-size: 10px; color: #6c7086; margin-top: 4px;">Deploy: pull + detectar modulos + actualizar + reiniciar</div>
                                         </div>
                                     </div>
                                 </div>
 
-                                <!-- Mobile screenshot -->
+                                <!-- 8. Mobile -->
                                 <div class="mb-4" style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
                                     <h6 style="color: #94e2d5;">Vista Movil</h6>
                                     <div class="row">
                                         <div class="col-auto">
-                                            <img src="/pmb_devops/static/src/docs/img/09_mobile.jpg" style="max-height: 350px; border-radius: 6px; border: 1px solid #313244;" alt="Mobile"/>
+                                            <img src="/pmb_devops/static/src/docs/img/11_mobile.jpg" style="max-height: 300px; border-radius: 6px; border: 1px solid #313244;" alt="Mobile"/>
+                                        </div>
+                                        <div class="col-auto">
+                                            <img src="/pmb_devops/static/src/docs/img/12_mobile_sessions.jpg" style="max-height: 300px; border-radius: 6px; border: 1px solid #313244;" alt="Mobile sessions"/>
                                         </div>
                                         <div class="col" style="font-size: 12px; color: #a6adc8;">
                                             <div class="mb-1"><span style="background:#89b4fa;color:#1e1e2e;border-radius:50%;padding:1px 6px;font-size:10px;font-weight:600;">1</span> Git Changes se expande automaticamente</div>
@@ -1336,6 +1361,7 @@
                                             <tr style="border-color: #313244;"><td style="color: #89b4fa;">⇥ (Tab)</td><td>Autocompletar</td></tr>
                                             <tr style="border-color: #313244;"><td style="color: #89b4fa;">↑ / ↓</td><td>Navegar historial de comandos</td></tr>
                                             <tr style="border-color: #313244;"><td style="color: #89b4fa;">Y⏎</td><td>Confirmar (Yes + Enter)</td></tr>
+                                            <tr style="border-color: #313244;"><td style="color: #89b4fa;">📋</td><td>Abrir/cerrar gestor de sesiones Claude</td></tr>
                                         </tbody>
                                     </table>
                                 </div>
