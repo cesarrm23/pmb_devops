@@ -952,6 +952,12 @@ echo "done" > {status_file}
         if not message or not message.strip():
             return {'error': 'Commit message is required'}
         from ..utils import ssh_utils
+        # Ensure git user is configured (use the logged-in Odoo user)
+        user = request.env.user
+        r = ssh_utils.execute_command(project, ['git', 'config', 'user.email'], cwd=repo_path, timeout=5)
+        if r.returncode != 0 or not r.stdout.strip():
+            ssh_utils.execute_command(project, ['git', 'config', 'user.email', user.email or user.login], cwd=repo_path, timeout=5)
+            ssh_utils.execute_command(project, ['git', 'config', 'user.name', user.name or user.login], cwd=repo_path, timeout=5)
         # Stage all changes first
         ssh_utils.execute_command(project, ['git', 'add', '-A'], cwd=repo_path, timeout=15)
         # Commit
