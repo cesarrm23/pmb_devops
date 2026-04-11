@@ -730,17 +730,20 @@
                             <!-- EDITOR tab — file browser tree -->
                             <div t-if="state.activeContentTab === 'editor'" class="p-4" style="color: #cdd6f4; overflow-y: auto; flex: 1 1 0; min-height: 0;">
                                 <!-- Breadcrumb path -->
-                                <div class="d-flex align-items-center gap-1 mb-3" style="font-size: 12px;">
-                                    <span class="cursor-pointer" style="color: #89b4fa;"
+                                <div class="d-flex align-items-center gap-1 mb-3 flex-wrap" style="font-size: 12px;">
+                                    <span class="cursor-pointer" style="color: #89b4fa; font-weight: 600;"
                                           t-on-click="() => this._browseDir('')">
                                         <t t-esc="state.selectedInstance ? state.selectedInstance.name : (state.currentProject ? state.currentProject.name : 'root')"/>
                                     </span>
-                                    <t t-foreach="(state.editorPath || '').split('/').filter(p => p)" t-as="part" t-key="part_index">
-                                        <span style="color: #45475a;">/</span>
-                                        <span class="cursor-pointer" style="color: #89b4fa;"
-                                              t-on-click="() => this._browseDir((state.editorPath || '').split('/').slice(0, part_index + 1).join('/'))">
-                                            <t t-esc="part"/>
-                                        </span>
+                                    <t t-if="state.editorPath">
+                                        <t t-set="pathParts" t-value="state.editorPath.split('/').filter(p => p)"/>
+                                        <t t-foreach="pathParts" t-as="part" t-key="part_index">
+                                            <span style="color: #45475a;">/</span>
+                                            <span class="cursor-pointer" style="color: #89b4fa;"
+                                                  t-on-click="() => this._browseDir('/' + pathParts.slice(0, part_index + 1).join('/'))">
+                                                <t t-esc="part"/>
+                                            </span>
+                                        </t>
                                     </t>
                                 </div>
                                 <div class="d-flex" style="gap: 12px;">

@@ -1223,8 +1223,6 @@ class PmbDevopsApp extends Component {
     // Editor / File browser
     // ------------------------------------------------------------------
 
-    // _switchRepo removed: editor now browses full instance directory
-
     async _browseDir(path) {
         this.state.editorPath = path;
         this.state.editorLoading = true;
@@ -1236,14 +1234,12 @@ class PmbDevopsApp extends Component {
                 project_id: this.state.currentProjectId,
                 instance_id: this.state.selectedInstance ? this.state.selectedInstance.id : null,
                 path: path,
-                repo: this.state.editorRepo,
             });
             if (result.error) {
                 this.state.editorFiles = [];
                 alert(result.error);
             } else {
                 this.state.editorFiles = result.items || [];
-                this._editorBaseDir = result.base_dir || '';
             }
         } catch (e) {
             this.state.editorFiles = [];
@@ -1260,7 +1256,6 @@ class PmbDevopsApp extends Component {
                 project_id: this.state.currentProjectId,
                 instance_id: this.state.selectedInstance ? this.state.selectedInstance.id : null,
                 path: item.path,
-                repo: this.state.editorRepo,
             });
             if (result.error) {
                 this.state.editorFileContent = '// Error: ' + result.error;

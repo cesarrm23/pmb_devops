@@ -839,36 +839,100 @@ echo "done" > {status_file}
 
         return {'diff': result.stdout if result.returncode == 0 else 'No diff available'}
 
+    def _get_editor_allowed_paths(self, project, instance_id=None):
+        """Return list of allowed base directories from the instance's addons_path config."""
+        import subprocess, re
+        config_path = ''
+        service_name = ''
+
+        if instance_id:
+            inst = project.env['devops.instance'].browse(instance_id)
+            if inst.exists() and inst.service_name:
+                service_name = inst.service_name
+        if not service_name and project.odoo_service_name:
+            service_name = project.odoo_service_name
+
+        if service_name:
+            try:
+                proc = subprocess.run(
+                    ['systemctl', 'show', f'{service_name}.service', '--property=ExecStart'],
+                    capture_output=True, text=True, timeout=5,
+                )
+                m = re.search(r'-c\s+(\S+)', proc.stdout)
+                if m:
+                    config_path = m.group(1)
+            except Exception:
+                pass
+
+        addons_paths = []
+        if config_path and os.path.exists(config_path):
+            try:
+                with open(config_path, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith('addons_path'):
+                            _, _, val = line.partition('=')
+                            addons_paths = [p.strip() for p in val.strip().split(',') if p.strip() and os.path.isdir(p.strip())]
+                            break
+            except Exception:
+                pass
+
+        # Deduplicate: keep only top-level paths (remove children of other paths)
+        # e.g. /opt/odooAL/odoo/odoo/addons and /opt/odooAL/odoo/addons -> keep /opt/odooAL/odoo
+        roots = []
+        seen_roots = set()
+        for p in addons_paths:
+            # Walk up to find a meaningful project-level directory
+            root = p
+            # If path is inside a known parent already in roots, skip
+            is_child = False
+            for existing in roots:
+                if root.startswith(existing + '/'):
+                    is_child = True
+                    break
+            if not is_child and root not in seen_roots:
+                roots.append(root)
+                seen_roots.add(root)
+        return roots
+
     @http.route('/devops/files/list', type='json', auth='user')
     def files_list(self, project_id, instance_id=None, path='', repo='addons'):
-        """List files and directories from instance/project root."""
+        """List files and directories from addons_path entries."""
         project = request.env['devops.project'].browse(project_id)
         if not project.exists():
             return {'error': 'Proyecto no encontrado'}
 
-        # Base dir = instance path (staging/dev) or production path
-        base_dir = ''
-        if instance_id:
-            inst = request.env['devops.instance'].browse(instance_id)
-            if inst.exists() and inst.instance_path:
-                base_dir = inst.instance_path
-        if not base_dir:
-            # Production: use the parent of repo_path (e.g. /opt/odooAL)
-            if project.repo_path:
-                base_dir = os.path.dirname(project.repo_path)
-            elif project.production_instance_id and project.production_instance_id.instance_path:
-                base_dir = project.production_instance_id.instance_path
+        allowed_paths = self._get_editor_allowed_paths(project, instance_id)
 
         from ..utils import ssh_utils
 
-        full_path = os.path.normpath(os.path.join(base_dir, path))
-        # Security: prevent directory traversal
-        if not full_path.startswith(base_dir):
+        # Root listing: show each addons_path entry as a top-level folder
+        if not path:
+            items = []
+            for ap in allowed_paths:
+                items.append({
+                    'type': 'dir',
+                    'name': os.path.basename(ap) or ap,
+                    'size': 0,
+                    'path': ap,  # absolute path as key
+                    'absolute': True,
+                })
+            items.sort(key=lambda x: x['name'].lower())
+            return {'items': items, 'current_path': '', 'allowed_paths': [os.path.basename(p) for p in allowed_paths]}
+
+        # Sub-directory: path is absolute (from root click) or relative within a base
+        full_path = path
+        if not os.path.isabs(path):
+            return {'error': 'Ruta inválida'}
+
+        # Security: must be inside one of the allowed paths
+        full_path = os.path.normpath(full_path)
+        if not any(full_path == ap or full_path.startswith(ap + '/') for ap in allowed_paths):
             return {'error': 'Acceso denegado'}
 
         result = ssh_utils.execute_command(project, [
             'find', full_path, '-maxdepth', '1', '-mindepth', '1', '-printf', '%y|||%f|||%s|||%T@\n',
-        ], cwd=base_dir, timeout=10)
+        ], cwd=full_path, timeout=10)
 
         if result.returncode != 0:
             return {'error': result.stderr or 'Error listando archivos'}
@@ -886,12 +950,13 @@ echo "done" > {status_file}
                     'type': 'dir' if parts[0] == 'd' else 'file',
                     'name': name,
                     'size': int(parts[2]) if parts[2].isdigit() else 0,
-                    'path': os.path.join(path, name) if path else name,
+                    'path': os.path.join(full_path, name),
+                    'absolute': True,
                 })
 
         # Sort: dirs first, then files, alphabetical
         items.sort(key=lambda x: (0 if x['type'] == 'dir' else 1, x['name'].lower()))
-        return {'items': items, 'current_path': path, 'base_dir': base_dir}
+        return {'items': items, 'current_path': path}
 
     @http.route('/devops/files/read', type='json', auth='user')
     def files_read(self, project_id, instance_id=None, path='', repo='addons'):
@@ -900,21 +965,12 @@ echo "done" > {status_file}
         if not project.exists():
             return {'error': 'Proyecto no encontrado'}
 
-        base_dir = ''
-        if instance_id:
-            inst = request.env['devops.instance'].browse(instance_id)
-            if inst.exists() and inst.instance_path:
-                base_dir = inst.instance_path
-        if not base_dir:
-            if project.repo_path:
-                base_dir = os.path.dirname(project.repo_path)
-            elif project.production_instance_id and project.production_instance_id.instance_path:
-                base_dir = project.production_instance_id.instance_path
+        allowed_paths = self._get_editor_allowed_paths(project, instance_id)
 
         from ..utils import ssh_utils
 
-        full_path = os.path.normpath(os.path.join(base_dir, path))
-        if not full_path.startswith(base_dir):
+        full_path = os.path.normpath(path)
+        if not any(full_path == ap or full_path.startswith(ap + '/') for ap in allowed_paths):
             return {'error': 'Acceso denegado'}
 
         result = ssh_utils.execute_command(project, [
