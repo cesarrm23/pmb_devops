@@ -306,6 +306,11 @@
                                       t-on-click="() => this._onContentTabChange('tools')">
                                     🔧 TOOLS
                                 </span>
+                                <span class="px-3 py-2 cursor-pointer"
+                                      t-att-style="state.activeContentTab === 'docs' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
+                                      t-on-click="() => this._onContentTabChange('docs')">
+                                    📖 DOCS
+                                </span>
                             </t>
                         </div>
 
@@ -1130,6 +1135,120 @@
                                                 <tr style="border-color: #313244;"><td style="color: #6c7086;">Service</td><td><t t-esc="state.selectedInstance and state.selectedInstance.service_name"/></td></tr>
                                             </tbody>
                                         </table>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- DOCS tab -->
+                            <div t-if="state.activeContentTab === 'docs'" class="p-4" style="color: #cdd6f4; overflow-y: auto; flex: 1 1 0; min-height: 0;">
+                                <h5 class="mb-3" style="color: #89b4fa;">
+                                    📖 Documentacion PMB DevOps
+                                    <span style="font-size: 11px; color: #6c7086; margin-left: 8px;">
+                                        Rol: <span t-if="state.isAdmin" style="color: #a6e3a1;">Administrator</span>
+                                             <span t-elif="state.gitAuthenticated" style="color: #f9e2af;">Developer</span>
+                                             <span t-else="" style="color: #6c7086;">Viewer</span>
+                                    </span>
+                                </h5>
+
+                                <!-- Quick reference for all roles -->
+                                <div class="mb-4" style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
+                                    <h6 style="color: #cba6f7;">Navegacion</h6>
+                                    <table class="table table-sm mb-0" style="color: #a6adc8; font-size: 12px;">
+                                        <tbody>
+                                            <tr style="border-color: #313244;"><td style="color: #89b4fa; width: 150px;">Sidebar ◀/▶</td><td>Contraer/expandir el panel de instancias a solo iconos</td></tr>
+                                            <tr style="border-color: #313244;"><td style="color: #89b4fa;">HISTORY</td><td>Historial de commits por repositorio, selector de repos, detalle de commits con diff</td></tr>
+                                            <tr style="border-color: #313244;"><td style="color: #89b4fa;">AI</td><td>Terminal Claude Code + panel Git Changes (staged/unstaged/diff)</td></tr>
+                                            <tr style="border-color: #313244;"><td style="color: #89b4fa;">SHELL</td><td>Terminal Linux interactiva con acceso al servidor</td></tr>
+                                            <tr style="border-color: #313244;"><td style="color: #89b4fa;">LOGS</td><td>Logs del servicio (journalctl) y del log de Odoo en tiempo real</td></tr>
+                                            <tr style="border-color: #313244;"><td style="color: #89b4fa;">EDITOR</td><td>Navegador de archivos del proyecto (todos los paths del addons_path)</td></tr>
+                                            <tr style="border-color: #313244;"><td style="color: #89b4fa;">BACKUPS</td><td>Backups de base de datos con pg_dump, descarga y restauracion</td></tr>
+                                            <tr style="border-color: #313244;"><td style="color: #89b4fa;">UPGRADE</td><td>Desplegar cambios: git pull + detectar modulos + actualizar + reiniciar</td></tr>
+                                            <tr style="border-color: #313244;"><td style="color: #89b4fa;">TOOLS</td><td>Informacion tecnica de la instancia (servicio, BD, puerto, dominio)</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <!-- Git workflow -->
+                                <div class="mb-4" style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
+                                    <h6 style="color: #a6e3a1;">Flujo Git</h6>
+                                    <div style="font-size: 12px; color: #a6adc8;">
+                                        <div class="mb-2">
+                                            <strong style="color: #fab387;">Promover (hacia arriba):</strong>
+                                            <code style="color: #cdd6f4;">development → staging → main</code>
+                                        </div>
+                                        <div class="mb-2">
+                                            <strong style="color: #89b4fa;">Sincronizar (hacia abajo):</strong>
+                                            <code style="color: #cdd6f4;">main → staging</code> y <code style="color: #cdd6f4;">main → development</code>
+                                            <span style="color: #6c7086;"> (solo admin)</span>
+                                        </div>
+                                        <div class="mb-2">
+                                            <strong style="color: #cdd6f4;">Flujo de desarrollo:</strong>
+                                        </div>
+                                        <ol style="padding-left: 20px; margin: 0;">
+                                            <li>Desarrollar en instancia <span style="color: #a6e3a1;">development</span></li>
+                                            <li>Commit + Push desde el panel Git Changes (tab AI)</li>
+                                            <li>En <span style="color: #fab387;">staging</span>: Pull cambios (tab UPGRADE)</li>
+                                            <li>Verificar que funciona en staging</li>
+                                            <li>Merge <span style="color: #fab387;">staging → main</span> (solo admin, desde panel Merge)</li>
+                                            <li>En <span style="color: #f38ba8;">production</span>: Actualizar modulo (tab UPGRADE)</li>
+                                        </ol>
+                                    </div>
+                                </div>
+
+                                <!-- Terminal keys -->
+                                <div class="mb-4" style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
+                                    <h6 style="color: #f9e2af;">Teclas del Terminal (movil)</h6>
+                                    <table class="table table-sm mb-0" style="color: #a6adc8; font-size: 12px;">
+                                        <tbody>
+                                            <tr style="border-color: #313244;"><td style="color: #89b4fa; width: 100px;">Ctrl+C</td><td>Cancelar comando en ejecucion</td></tr>
+                                            <tr style="border-color: #313244;"><td style="color: #89b4fa;">Ctrl+Z</td><td>Suspender proceso (background)</td></tr>
+                                            <tr style="border-color: #313244;"><td style="color: #89b4fa;">Ctrl+D</td><td>Cerrar sesion / EOF</td></tr>
+                                            <tr style="border-color: #313244;"><td style="color: #89b4fa;">Ctrl+L</td><td>Limpiar pantalla</td></tr>
+                                            <tr style="border-color: #313244;"><td style="color: #89b4fa;">⎋ (Esc)</td><td>Cancelar / salir de modo</td></tr>
+                                            <tr style="border-color: #313244;"><td style="color: #89b4fa;">⇥ (Tab)</td><td>Autocompletar</td></tr>
+                                            <tr style="border-color: #313244;"><td style="color: #89b4fa;">↑ / ↓</td><td>Navegar historial de comandos</td></tr>
+                                            <tr style="border-color: #313244;"><td style="color: #89b4fa;">Y⏎</td><td>Confirmar (Yes + Enter)</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <!-- Role-specific sections -->
+                                <t t-if="state.isAdmin">
+                                    <div class="mb-4" style="background: #1e1e2e; border: 1px solid #a6e3a1; border-radius: 8px; padding: 16px;">
+                                        <h6 style="color: #a6e3a1;">Funciones de Administrador</h6>
+                                        <ul style="font-size: 12px; color: #a6adc8; padding-left: 20px; margin: 0;">
+                                            <li>Merge <strong>staging → main</strong> desde el panel Merge en el tab AI</li>
+                                            <li>Sync <strong>main → staging</strong> y <strong>main → development</strong></li>
+                                            <li>Commit y push <strong>sin autenticacion extra</strong></li>
+                                            <li>Crear y destruir instancias de staging y development</li>
+                                            <li>Configurar proyecto: Settings (max staging/dev, auto-destroy, enterprise path)</li>
+                                            <li>Acceso total a todos los proyectos e instancias</li>
+                                            <li>Hard Reset de assets: menu usuario → 🔄 Hard Reset</li>
+                                        </ul>
+                                    </div>
+                                </t>
+
+                                <t t-if="!state.isAdmin">
+                                    <div class="mb-4" style="background: #1e1e2e; border: 1px solid #f9e2af; border-radius: 8px; padding: 16px;">
+                                        <h6 style="color: #f9e2af;">Funciones de Developer / Viewer</h6>
+                                        <ul style="font-size: 12px; color: #a6adc8; padding-left: 20px; margin: 0;">
+                                            <li>Ver cambios git, diffs, historial de commits</li>
+                                            <li>Commit y push <strong>requiere autenticacion</strong> con credenciales de Odoo</li>
+                                            <li>Merge <strong>development → staging</strong> (Developer)</li>
+                                            <li>No puede hacer merge a main ni sync desde main</li>
+                                            <li>Ve solo proyectos donde es miembro</li>
+                                            <li>Instancias: ve las asignadas + produccion (lectura)</li>
+                                        </ul>
+                                    </div>
+                                </t>
+
+                                <!-- Instances lifecycle -->
+                                <div class="mb-4" style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
+                                    <h6 style="color: #f38ba8;">Ciclo de Vida de Instancias</h6>
+                                    <div style="font-size: 12px; color: #a6adc8;">
+                                        <div class="mb-2"><strong style="color: #f38ba8;">🏭 Production:</strong> Siempre activa. No se detiene ni destruye automaticamente.</div>
+                                        <div class="mb-2"><strong style="color: #fab387;">🧪 Staging:</strong> Se detiene automaticamente tras 1 hora de inactividad. No se destruye.</div>
+                                        <div><strong style="color: #a6e3a1;">🛠 Development:</strong> Se detiene tras 1 hora. Se destruye automaticamente tras N horas (configurable por proyecto, default 24h, 0 = nunca).</div>
                                     </div>
                                 </div>
                             </div>
