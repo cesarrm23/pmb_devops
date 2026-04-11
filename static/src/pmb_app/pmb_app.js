@@ -1366,7 +1366,7 @@ class PmbDevopsApp extends Component {
             });
             const SYSTEM_REPOS = ['odoo', 'enterprise'];
             this.state.upgradeRepos = (result.repos || []).filter(
-                r => r.owned !== false && !SYSTEM_REPOS.includes(r.name)
+                r => !SYSTEM_REPOS.includes(r.name)
             );
         } catch (e) {
             this.state.upgradeRepos = [];
