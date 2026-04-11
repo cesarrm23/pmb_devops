@@ -1,39 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
 <templates xml:space="preserve">
     <t t-name="pmb_devops.PmbDevopsApp">
-        <div class="pmb-app d-flex flex-column vh-100">
+        <div class="pmb-app d-flex flex-column">
             <!-- NAVBAR -->
             <div class="pmb-navbar d-flex align-items-center flex-wrap px-3"
                  style="height: 46px; background: #1e1e2e; border-bottom: 1px solid #313244;">
                 <span class="fw-bold me-4" style="color: #cdd6f4; font-size: 16px;">
-                    PMB DevOps
+                    ⚡ PMB DevOps
                 </span>
                 <!-- Nav tabs -->
                 <span class="px-3 py-2 cursor-pointer"
                       t-att-style="state.activeNavTab === 'branches' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
                       t-on-click="() => this._onNavTabChange('branches')">
-                    Branches
+                    🌿 Branches
                 </span>
                 <span class="px-3 py-2 cursor-pointer"
                       t-att-style="state.activeNavTab === 'builds' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
                       t-on-click="() => this._onNavTabChange('builds')">
-                    Builds
+                    🔨 Builds
                 </span>
                 <span class="px-3 py-2 cursor-pointer"
                       t-att-style="state.activeNavTab === 'status' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
                       t-on-click="() => this._onNavTabChange('status')">
-                    Status
+                    📊 Status
                 </span>
                 <span class="px-3 py-2 cursor-pointer"
                       t-att-style="state.activeNavTab === 'logs' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
                       t-on-click="() => this._onNavTabChange('logs')">
-                    Logs
+                    📜 Logs
                 </span>
                 <!-- Settings -->
                 <span class="px-3 py-2 cursor-pointer"
                       t-att-style="state.activeNavTab === 'settings' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
                       t-on-click="() => this._onNavTabChange('settings')">
-                    Settings
+                    ⚙ Settings
                 </span>
 
                 <!-- Spacer -->
@@ -69,7 +69,7 @@
 
                     <!-- Production -->
                     <div class="px-3 pt-2">
-                        <div class="fw-bold small mb-1" style="color: #f38ba8;">Production</div>
+                        <div class="fw-bold small mb-1" style="color: #f38ba8;">🏭 Production</div>
                         <t t-foreach="this._getFilteredInstances('production')" t-as="inst" t-key="inst.id">
                             <div class="d-flex align-items-center px-2 py-1 rounded cursor-pointer mb-1"
                                  t-att-style="state.selectedInstance and state.selectedInstance.id === inst.id ? 'background: #313244;' : ''"
@@ -78,7 +78,7 @@
                                 <span style="color: #cdd6f4; font-size: 13px;" class="text-truncate flex-grow-1">
                                     <t t-esc="inst.branch_name || inst.name"/>
                                 </span>
-                                <span style="color: #6c7086; font-size: 11px;" class="ms-1">19.0</span>
+                                <span style="color: #6c7086; font-size: 11px;" class="ms-1"><t t-esc="inst.git_branch || '—'"/></span>
                             </div>
                             <div t-if="inst.state === 'creating' and inst.creation_step"
                                  style="color: #f9e2af; font-size: 10px; padding-left: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
@@ -90,7 +90,7 @@
                     <!-- Staging -->
                     <div class="px-3 pt-3">
                         <div class="d-flex align-items-center mb-1">
-                            <span class="fw-bold small flex-grow-1" style="color: #fab387;">Staging</span>
+                            <span class="fw-bold small flex-grow-1" style="color: #fab387;">🧪 Staging</span>
                             <button class="btn btn-sm p-0" style="color: #fab387; font-size: 16px; line-height: 1;"
                                     t-on-click="() => this._showCreateDialog('staging')" title="Create staging">+</button>
                         </div>
@@ -102,7 +102,7 @@
                                 <span style="color: #cdd6f4; font-size: 13px;" class="text-truncate flex-grow-1">
                                     <t t-esc="inst.branch_name || inst.name"/>
                                 </span>
-                                <span style="color: #6c7086; font-size: 11px;" class="ms-1">19.0</span>
+                                <span style="color: #6c7086; font-size: 11px;" class="ms-1"><t t-esc="inst.git_branch || '—'"/></span>
                             </div>
                             <div t-if="inst.state === 'creating' and inst.creation_step"
                                  style="color: #f9e2af; font-size: 10px; padding-left: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
@@ -114,7 +114,7 @@
                     <!-- Development -->
                     <div class="px-3 pt-3">
                         <div class="d-flex align-items-center mb-1">
-                            <span class="fw-bold small flex-grow-1" style="color: #a6e3a1;">Development</span>
+                            <span class="fw-bold small flex-grow-1" style="color: #a6e3a1;">🛠 Development</span>
                             <button class="btn btn-sm p-0" style="color: #a6e3a1; font-size: 16px; line-height: 1;"
                                     t-on-click="() => this._showCreateDialog('development')" title="Create development">+</button>
                         </div>
@@ -126,7 +126,7 @@
                                 <span style="color: #cdd6f4; font-size: 13px;" class="text-truncate flex-grow-1">
                                     <t t-esc="inst.branch_name || inst.name"/>
                                 </span>
-                                <span style="color: #6c7086; font-size: 11px;" class="ms-1">19.0</span>
+                                <span style="color: #6c7086; font-size: 11px;" class="ms-1"><t t-esc="inst.git_branch || '—'"/></span>
                             </div>
                             <div t-if="inst.state === 'creating' and inst.creation_step"
                                  style="color: #f9e2af; font-size: 10px; padding-left: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
@@ -137,17 +137,17 @@
                 </div>
 
                 <!-- MAIN CONTENT -->
-                <div class="pmb-main flex-grow-1 d-flex flex-column" style="background: #181825; overflow-y: auto;">
+                <div class="pmb-main flex-grow-1 d-flex flex-column" style="background: #181825; overflow-y: auto; min-height: 0;">
                     <t t-if="state.activeNavTab === 'branches' and state.selectedInstance">
                         <!-- Back button (mobile, when sidebar collapsed) -->
-                        <div t-if="state.sidebarCollapsed" class="px-3 pt-2">
+                        <div t-if="state.sidebarCollapsed" class="px-3 pt-2 pmb-instance-header">
                             <button class="btn btn-sm" style="background: #313244; color: #cdd6f4; font-size: 12px;"
                                     t-on-click="() => { this.state.sidebarCollapsed = false; }">
                                 ← Branches
                             </button>
                         </div>
                         <!-- Branch header -->
-                        <div class="px-4 pt-3">
+                        <div class="px-4 pt-3 pmb-instance-header">
                             <h2 style="color: #cdd6f4; font-weight: 300;">
                                 <t t-esc="state.selectedInstance.branch_name || state.selectedInstance.name"/>
                             </h2>
@@ -165,7 +165,7 @@
                         </div>
 
                         <!-- Action bar -->
-                        <div class="pmb-actions px-4 pb-2 d-flex gap-1">
+                        <div class="pmb-actions pmb-instance-header px-4 pb-2 d-flex gap-1">
                             <button class="btn btn-sm"
                                     style="background: #313244; color: #cdd6f4; border: 1px solid #45475a; font-size: 12px;"
                                     t-on-click="() => this._onAction('Clone')">
@@ -200,55 +200,150 @@
                         </div>
 
                         <!-- Content tabs -->
+                        <t t-set="_creating" t-value="state.selectedInstance and state.selectedInstance.state === 'creating' or state.selectedInstance.state === 'error'"/>
                         <div class="pmb-content-tabs d-flex px-4 gap-0" style="border-bottom: 1px solid #313244;">
-                            <span class="px-3 py-2 cursor-pointer"
-                                  t-att-style="state.activeContentTab === 'history' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
-                                  t-on-click="() => this._onContentTabChange('history')">
-                                HISTORY
-                            </span>
-                            <span class="px-3 py-2 cursor-pointer"
-                                  t-att-style="state.activeContentTab === 'ai' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
-                                  t-on-click="() => this._onContentTabChange('ai')">
-                                AI
-                            </span>
-                            <span class="px-3 py-2 cursor-pointer"
-                                  t-att-style="state.activeContentTab === 'shell' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
-                                  t-on-click="() => this._onContentTabChange('shell')">
-                                SHELL
-                            </span>
-                            <span class="px-3 py-2 cursor-pointer"
-                                  t-att-style="state.activeContentTab === 'logs' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
-                                  t-on-click="() => this._onContentTabChange('logs')">
-                                LOGS
-                            </span>
-                            <span class="px-3 py-2 cursor-pointer"
-                                  t-att-style="state.activeContentTab === 'editor' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
-                                  t-on-click="() => this._onContentTabChange('editor')">
-                                EDITOR
-                            </span>
-                            <span class="px-3 py-2 cursor-pointer"
-                                  t-att-style="state.activeContentTab === 'backups' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
-                                  t-on-click="() => this._onContentTabChange('backups')">
-                                BACKUPS
-                            </span>
-                            <span class="px-3 py-2 cursor-pointer"
-                                  t-att-style="state.activeContentTab === 'upgrade' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
-                                  t-on-click="() => this._onContentTabChange('upgrade')">
-                                UPGRADE
-                            </span>
-                            <span class="px-3 py-2 cursor-pointer"
-                                  t-att-style="state.activeContentTab === 'tools' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
-                                  t-on-click="() => this._onContentTabChange('tools')">
-                                TOOLS
-                            </span>
+                            <t t-if="_creating">
+                                <span class="px-3 py-2 cursor-pointer"
+                                      t-att-style="state.activeContentTab === 'deploy' ? 'color: #1e1e2e; border-bottom: 2px solid #f9e2af; font-size: 13px; background: #f9e2af; border-radius: 4px 4px 0 0;' : 'color: #f9e2af; font-size: 13px;'"
+                                      t-on-click="() => this._onContentTabChange('deploy')">
+                                    🚀 DEPLOY
+                                </span>
+                                <span class="px-3 py-2 cursor-pointer"
+                                      t-att-style="state.activeContentTab === 'logs' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
+                                      t-on-click="() => this._onContentTabChange('logs')">
+                                    📜 LOGS
+                                </span>
+                                <span class="px-3 py-2 cursor-pointer"
+                                      t-att-style="state.activeContentTab === 'editor' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
+                                      t-on-click="() => this._onContentTabChange('editor')">
+                                    📝 EDITOR
+                                </span>
+                            </t>
+                            <t t-else="">
+                                <span class="px-3 py-2 cursor-pointer"
+                                      t-att-style="state.activeContentTab === 'history' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
+                                      t-on-click="() => this._onContentTabChange('history')">
+                                    📋 HISTORY
+                                </span>
+                                <span class="px-3 py-2 cursor-pointer"
+                                      t-att-style="state.activeContentTab === 'ai' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
+                                      t-on-click="() => this._onContentTabChange('ai')">
+                                    ✨ AI
+                                </span>
+                                <span class="px-3 py-2 cursor-pointer"
+                                      t-att-style="state.activeContentTab === 'shell' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
+                                      t-on-click="() => this._onContentTabChange('shell')">
+                                    💻 SHELL
+                                </span>
+                                <span class="px-3 py-2 cursor-pointer"
+                                      t-att-style="state.activeContentTab === 'logs' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
+                                      t-on-click="() => this._onContentTabChange('logs')">
+                                    📜 LOGS
+                                </span>
+                                <span class="px-3 py-2 cursor-pointer"
+                                      t-att-style="state.activeContentTab === 'editor' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
+                                      t-on-click="() => this._onContentTabChange('editor')">
+                                    📝 EDITOR
+                                </span>
+                                <span class="px-3 py-2 cursor-pointer"
+                                      t-att-style="state.activeContentTab === 'backups' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
+                                      t-on-click="() => this._onContentTabChange('backups')">
+                                    💾 BACKUPS
+                                </span>
+                                <span class="px-3 py-2 cursor-pointer"
+                                      t-att-style="state.activeContentTab === 'upgrade' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
+                                      t-on-click="() => this._onContentTabChange('upgrade')">
+                                    ⚙ UPGRADE
+                                </span>
+                                <span class="px-3 py-2 cursor-pointer"
+                                      t-att-style="state.activeContentTab === 'tools' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
+                                      t-on-click="() => this._onContentTabChange('tools')">
+                                    🔧 TOOLS
+                                </span>
+                            </t>
                         </div>
 
                         <!-- Tab content area -->
-                        <div class="flex-grow-1 p-4" style="overflow-y: auto;">
+                        <div class="flex-grow-1 d-flex flex-column" style="overflow: hidden; min-height: 0;">
+
+                            <!-- DEPLOY tab (only when creating) -->
+                            <div t-if="state.activeContentTab === 'deploy'"
+                                 class="flex-grow-1 d-flex flex-column p-3" style="min-height: 0;">
+                                <div class="d-flex align-items-center gap-2 mb-2">
+                                    <div t-if="state.selectedInstance.state === 'creating'"
+                                         style="width:8px; height:8px; border-radius:50%; background:#f9e2af; animation: pmb-typing 1.4s infinite;"></div>
+                                    <div t-if="state.selectedInstance.state === 'error'"
+                                         style="width:8px; height:8px; border-radius:50%; background:#f38ba8;"></div>
+                                    <span t-if="state.selectedInstance.state === 'creating'"
+                                          style="color: #f9e2af; font-size: 13px; font-weight: 600;">
+                                        Desplegando instancia...
+                                    </span>
+                                    <span t-if="state.selectedInstance.state === 'error'"
+                                          style="color: #f38ba8; font-size: 13px; font-weight: 600;">
+                                        Error en despliegue
+                                    </span>
+                                    <span style="color: #6c7086; font-size: 12px;">
+                                        <t t-esc="state.selectedInstance.creation_step"/>
+                                    </span>
+                                    <span t-if="state.creationPid" style="color: #45475a; font-size: 10px; margin-left: auto;">
+                                        PID <t t-esc="state.creationPid"/>
+                                    </span>
+                                </div>
+                                <div class="flex-grow-1" style="background: #11111b; border: 1px solid #313244; border-radius: 6px; overflow-y: auto; min-height: 0;">
+                                    <pre t-ref="creationLog" style="color: #a6adc8; font-size: 11px; font-family: 'JetBrains Mono', monospace; padding: 12px; margin: 0; white-space: pre-wrap; word-wrap: break-word;"><t t-esc="state.creationLog || 'Esperando log...'"/></pre>
+                                </div>
+                            </div>
+
                             <!-- HISTORY tab -->
-                            <div t-if="state.activeContentTab === 'history'" style="color: #cdd6f4;">
+                            <div t-if="state.activeContentTab === 'history'" class="p-4" style="color: #cdd6f4; overflow-y: auto; flex: 1 1 0; min-height: 0;">
+                                <!-- Repo selector + Search bar -->
+                                <div class="mb-3 d-flex gap-2 flex-wrap align-items-center">
+                                    <div t-if="state.historyRepos.length > 0" class="d-flex gap-1 flex-wrap">
+                                        <t t-foreach="state.historyRepos" t-as="r" t-key="r.path">
+                                            <button class="btn btn-sm d-flex align-items-center gap-1"
+                                                    t-att-style="state.historyRepoPath === r.path ? 'background: #89b4fa; color: #1e1e2e; font-weight: 600; font-size: 11px;' : 'background: #313244; color: #6c7086; font-size: 11px;'"
+                                                    t-att-data-path="r.path"
+                                                    t-on-click="_switchHistoryRepo">
+                                                <t t-esc="r.name"/>
+                                                <span t-if="r.branch and r.branch !== 'HEAD'" style="opacity: 0.6; font-size: 10px;">
+                                                    (<t t-esc="r.branch"/>)
+                                                </span>
+                                                <span t-if="r.dirty" title="Cambios sin commit" style="color: #f9e2af; font-size: 10px;">&#9679;</span>
+                                                <span t-if="r.ahead > 0" title="Commits sin push" style="background: #a6e3a1; color: #1e1e2e; border-radius: 8px; padding: 0 4px; font-size: 9px;">
+                                                    &#8593;<t t-esc="r.ahead"/>
+                                                </span>
+                                                <span t-if="r.behind > 0" title="Commits sin pull" style="background: #f38ba8; color: #1e1e2e; border-radius: 8px; padding: 0 4px; font-size: 9px;">
+                                                    &#8595;<t t-esc="r.behind"/>
+                                                </span>
+                                                <span t-if="!r.ahead and !r.behind and !r.dirty and r.remote" title="Sincronizado" style="color: #a6e3a1; font-size: 10px;">&#10003;</span>
+                                                <span t-if="r.shallow" title="Shallow clone (historial limitado)" style="color: #6c7086; font-size: 9px;">shallow</span>
+                                            </button>
+                                        </t>
+                                    </div>
+                                    <input type="text" class="form-control form-control-sm flex-grow-1"
+                                           style="background: #11111b; border-color: #313244; color: #cdd6f4; max-width: 350px;"
+                                           placeholder="Buscar por hash o mensaje..."
+                                           t-att-value="state.historySearch"
+                                           t-on-input="_onHistorySearchInput"
+                                           t-on-keydown="_onHistorySearchKey"/>
+                                    <button t-if="state.historySearch" class="btn btn-sm"
+                                            style="background: #313244; color: #6c7086; font-size: 12px;"
+                                            t-on-click="_clearHistorySearch">X</button>
+                                </div>
+                                <!-- Shallow clone warning -->
+                                <div t-if="this._isSelectedRepoShallow()" class="mb-2 d-flex align-items-center gap-2"
+                                     style="background: #313244; border-radius: 6px; padding: 8px 12px; font-size: 12px; color: #f9e2af;">
+                                    Historial limitado (shallow clone)
+                                    <button class="btn btn-sm" style="background: #f9e2af; color: #1e1e2e; font-size: 11px; font-weight: 600;"
+                                            t-on-click="_fetchFullHistory">
+                                        Cargar 50 commits mas
+                                    </button>
+                                </div>
                                 <t t-if="state.commits.length === 0">
-                                    <p style="color: #6c7086;">No commit history available. Sync branches from project settings.</p>
+                                    <p style="color: #6c7086;">
+                                        <t t-if="state.historySearch">No se encontraron commits para "<t t-esc="state.historySearch"/>"</t>
+                                        <t t-else="">No commit history available.</t>
+                                    </p>
                                 </t>
                                 <t t-foreach="state.commits" t-as="commit" t-key="commit.short_hash">
                                     <div class="py-2" style="border-bottom: 1px solid #313244;">
@@ -324,25 +419,61 @@
                                         </div>
                                     </div>
                                 </t>
+                                <!-- Load more button -->
+                                <div t-if="state.commits.length > 0 and !state.historySearch" class="text-center py-3">
+                                    <button class="btn btn-sm"
+                                            style="background: #313244; color: #cdd6f4; font-size: 12px;"
+                                            t-on-click="_loadMoreHistory">
+                                        Cargar mas commits
+                                    </button>
+                                </div>
                             </div>
 
-                            <!-- AI tab (always in DOM, hidden when not active) -->
-                            <div t-att-style="state.activeContentTab !== 'ai' ? 'display: none;' : ''">
-                                <div class="pmb-ai-layout d-flex" style="gap: 0;">
+                            <!-- AI tab -->
+                            <div t-if="state.activeContentTab === 'ai'"
+                                 class="flex-grow-1 d-flex flex-column" style="min-height: 0;">
+                                <div class="pmb-ai-layout d-flex flex-grow-1" style="gap: 0; min-height: 0; overflow: hidden;">
                                     <!-- Git changes panel (left on desktop, top on mobile) -->
-                                    <div class="pmb-git-panel" style="width: 260px; min-width: 260px; background: #11111b; border-right: 1px solid #313244; overflow-y: auto; max-height: 500px;">
+                                    <div t-att-class="'pmb-git-panel' + (state.gitPanelCollapsed ? ' pmb-git-collapsed' : '')" style="width: 280px; min-width: 280px; background: #11111b; border-right: 1px solid #313244; overflow-y: auto;">
                                         <div class="p-2">
+                                            <!-- Header -->
                                             <div class="d-flex align-items-center justify-content-between mb-2">
-                                                <span style="color: #cdd6f4; font-size: 12px; font-weight: 600;">Git Changes</span>
+                                                <span style="color: #cdd6f4; font-size: 12px; font-weight: 600; cursor: pointer;"
+                                                      t-on-click="_toggleGitPanel">
+                                                    <t t-if="state.gitPanelCollapsed">&#9654;</t>
+                                                    <t t-else="">&#9660;</t>
+                                                    Git Changes
+                                                </span>
                                                 <button class="btn btn-sm p-0" style="color: #89b4fa; font-size: 12px;"
-                                                        t-on-click="_refreshGitStatus" title="Refresh">↻</button>
+                                                        t-on-click="_refreshGitStatus" title="Refresh">&#8635;</button>
                                             </div>
 
-                                            <!-- Outgoing commits -->
+                                            <!-- Repo selector -->
+                                            <select t-if="state.historyRepos.length > 1"
+                                                    class="form-select form-select-sm mb-2"
+                                                    style="background: #1e1e2e; border-color: #313244; color: #cdd6f4; font-size: 11px;"
+                                                    t-on-change="_onGitRepoChange">
+                                                <t t-foreach="state.historyRepos" t-as="r" t-key="r.path">
+                                                    <option t-att-value="r.path" t-att-selected="state.gitSelectedRepo === r.path">
+                                                        <t t-esc="r.name"/> (<t t-esc="r.branch"/>)
+                                                    </option>
+                                                </t>
+                                            </select>
+
+                                            <!-- Outgoing commits (not pushed) -->
                                             <t t-if="state.gitOutgoing.length > 0">
                                                 <div class="mb-2">
-                                                    <div style="color: #a6e3a1; font-size: 11px; font-weight: 600;" class="mb-1">
-                                                        ↑ Outgoing (<t t-esc="state.gitOutgoing.length"/>)
+                                                    <div class="d-flex align-items-center justify-content-between mb-1">
+                                                        <span style="color: #a6e3a1; font-size: 11px; font-weight: 600;">
+                                                            &#8593; Sin push (<t t-esc="state.gitOutgoing.length"/>)
+                                                        </span>
+                                                        <button class="btn btn-sm py-0 px-1"
+                                                                style="background: #a6e3a1; color: #1e1e2e; font-size: 10px; font-weight: 600;"
+                                                                t-att-disabled="state.gitPushing"
+                                                                t-on-click="_gitPush">
+                                                            <t t-if="state.gitPushing">Pushing...</t>
+                                                            <t t-else="">Push</t>
+                                                        </button>
                                                     </div>
                                                     <t t-foreach="state.gitOutgoing" t-as="c" t-key="c.hash">
                                                         <div class="py-1" style="font-size: 11px; color: #a6adc8;">
@@ -357,7 +488,7 @@
                                             <t t-if="state.gitStaged.length > 0">
                                                 <div class="mb-2">
                                                     <div style="color: #a6e3a1; font-size: 11px; font-weight: 600;" class="mb-1">
-                                                        ✓ Staged (<t t-esc="state.gitStaged.length"/>)
+                                                        &#10003; Staged (<t t-esc="state.gitStaged.length"/>)
                                                     </div>
                                                     <t t-foreach="state.gitStaged" t-as="f" t-key="f.path">
                                                         <div class="py-1 d-flex" style="font-size: 11px;">
@@ -373,8 +504,13 @@
                                             <!-- Unstaged changes -->
                                             <t t-if="state.gitUnstaged.length > 0">
                                                 <div class="mb-2">
-                                                    <div style="color: #f9e2af; font-size: 11px; font-weight: 600;" class="mb-1">
-                                                        ● Modified (<t t-esc="state.gitUnstaged.length"/>)
+                                                    <div class="d-flex align-items-center justify-content-between mb-1">
+                                                        <span style="color: #f9e2af; font-size: 11px; font-weight: 600;">
+                                                            &#9679; Modified (<t t-esc="state.gitUnstaged.length"/>)
+                                                        </span>
+                                                        <button class="btn btn-sm py-0 px-1"
+                                                                style="background: #313244; color: #a6e3a1; font-size: 10px;"
+                                                                t-on-click="_gitStageAll">Stage all</button>
                                                     </div>
                                                     <t t-foreach="state.gitUnstaged" t-as="f" t-key="f.path">
                                                         <div class="py-1 d-flex" style="font-size: 11px;">
@@ -406,11 +542,51 @@
                                                  style="color: #6c7086; font-size: 11px;">
                                                 No hay cambios pendientes
                                             </div>
+
+                                            <!-- Commit / Push actions -->
+                                            <t t-if="state.gitStaged.length > 0 or state.gitUnstaged.length > 0 or state.gitUntracked.length > 0">
+                                                <div class="mt-3 pt-2" style="border-top: 1px solid #313244;">
+                                                    <input type="text" class="form-control form-control-sm mb-2"
+                                                           style="background: #1e1e2e; border-color: #313244; color: #cdd6f4; font-size: 11px;"
+                                                           placeholder="Mensaje del commit..."
+                                                           t-att-value="state.gitCommitMessage"
+                                                           t-on-input="_onCommitMessageInput"/>
+                                                    <div class="d-flex gap-1">
+                                                        <button class="btn btn-sm flex-grow-1"
+                                                                style="background: #89b4fa; color: #1e1e2e; font-size: 11px; font-weight: 600;"
+                                                                t-att-disabled="!state.gitCommitMessage.trim() or state.gitCommitting"
+                                                                t-on-click="_gitCommit">
+                                                            <t t-if="state.gitCommitting">...</t>
+                                                            <t t-else="">Commit</t>
+                                                        </button>
+                                                        <button class="btn btn-sm flex-grow-1"
+                                                                style="background: #a6e3a1; color: #1e1e2e; font-size: 11px; font-weight: 600;"
+                                                                t-att-disabled="!state.gitCommitMessage.trim() or state.gitCommitting or state.gitPushing"
+                                                                t-on-click="_gitCommitAndPush">
+                                                            <t t-if="state.gitCommitting or state.gitPushing">...</t>
+                                                            <t t-else="">Commit + Push</t>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </t>
+
+                                            <!-- Push only (outgoing commits, no local changes) -->
+                                            <t t-if="state.gitOutgoing.length > 0 and state.gitStaged.length === 0 and state.gitUnstaged.length === 0 and state.gitUntracked.length === 0">
+                                                <div class="mt-3 pt-2" style="border-top: 1px solid #313244;">
+                                                    <button class="btn btn-sm w-100"
+                                                            style="background: #a6e3a1; color: #1e1e2e; font-size: 11px; font-weight: 600;"
+                                                            t-att-disabled="state.gitPushing"
+                                                            t-on-click="_gitPush">
+                                                        <t t-if="state.gitPushing">Pushing...</t>
+                                                        <t t-else="">Push <t t-esc="state.gitOutgoing.length"/> commit(s)</t>
+                                                    </button>
+                                                </div>
+                                            </t>
                                         </div>
                                     </div>
 
-                                    <!-- AI Terminal (right) -->
-                                    <div class="flex-grow-1 pmb-terminal-container" style="height: 500px;">
+                                    <!-- AI Terminal via WebSocket (right) -->
+                                    <div class="flex-grow-1 pmb-terminal-container" style="min-height: 300px;">
                                         <div t-ref="terminalAI" style="height: 100%; width: 100%;"/>
                                     </div>
                                 </div>
@@ -443,7 +619,7 @@
                             </div>
 
                             <!-- EDITOR tab — file browser tree -->
-                            <div t-if="state.activeContentTab === 'editor'" style="color: #cdd6f4;">
+                            <div t-if="state.activeContentTab === 'editor'" class="p-4" style="color: #cdd6f4; overflow-y: auto; flex: 1 1 0; min-height: 0;">
                                 <!-- Repo selector -->
                                 <div class="d-flex gap-2 mb-3">
                                     <button class="btn btn-sm"
@@ -483,7 +659,8 @@
                                         <t t-foreach="state.editorFiles" t-as="item" t-key="item.path">
                                             <div class="d-flex align-items-center py-1 px-1 rounded cursor-pointer"
                                                  t-att-style="state.editorSelectedFile === item.path ? 'background: #313244;' : ''"
-                                                 t-on-click="() => item.type === 'dir' ? this._browseDir(item.path) : this._openFile(item)">
+                                                 t-on-click="() => item.type === 'dir' ? this._browseDir(item.path) : this._openFile(item)"
+                                                 t-on-contextmenu="(ev) => this._onFileContextMenu(ev, item)">
                                                 <span class="me-2" style="font-size: 13px; width: 18px; text-align: center;">
                                                     <t t-if="item.type === 'dir'" style="color: #89b4fa;">📁</t>
                                                     <t t-else="">
@@ -530,10 +707,29 @@
                                         </t>
                                     </div>
                                 </div>
+                                <!-- Context menu -->
+                                <div t-if="state.ctxMenu" class="pmb-ctx-menu"
+                                     t-att-style="'position:fixed; z-index:9999; top:' + state.ctxMenu.y + 'px; left:' + state.ctxMenu.x + 'px; background:#1e1e2e; border:1px solid #313244; border-radius:6px; padding:4px 0; min-width:180px; box-shadow:0 4px 12px rgba(0,0,0,0.5);'">
+                                    <div class="px-3 py-1 cursor-pointer pmb-ctx-item"
+                                         style="font-size: 12px; color: #cdd6f4;"
+                                         t-on-click="_ctxCopyName">
+                                        Copiar nombre
+                                    </div>
+                                    <div class="px-3 py-1 cursor-pointer pmb-ctx-item"
+                                         style="font-size: 12px; color: #cdd6f4;"
+                                         t-on-click="_ctxCopyRelPath">
+                                        Copiar path relativo
+                                    </div>
+                                    <div class="px-3 py-1 cursor-pointer pmb-ctx-item"
+                                         style="font-size: 12px; color: #cdd6f4;"
+                                         t-on-click="_ctxCopyFullPath">
+                                        Copiar path completo
+                                    </div>
+                                </div>
                             </div>
 
                             <!-- BACKUPS tab -->
-                            <div t-if="state.activeContentTab === 'backups'" style="color: #cdd6f4;">
+                            <div t-if="state.activeContentTab === 'backups'" class="p-4" style="color: #cdd6f4; overflow-y: auto; flex: 1 1 0; min-height: 0;">
                                 <div class="d-flex justify-content-between align-items-center mb-3">
                                     <h5 class="m-0">Backups</h5>
                                     <button class="btn btn-sm" style="background: #89b4fa; color: #1e1e2e; font-weight: 600;"
@@ -569,34 +765,88 @@
                             </div>
 
                             <!-- UPGRADE tab -->
-                            <div t-if="state.activeContentTab === 'upgrade'" style="color: #cdd6f4;">
-                                <h5 class="mb-3">Instance Management</h5>
-                                <div class="d-flex gap-2 mb-4">
-                                    <button class="btn btn-sm btn-success" t-on-click="_startInstance"
+                            <div t-if="state.activeContentTab === 'upgrade'" class="p-4" style="color: #cdd6f4; overflow-y: auto; flex: 1 1 0; min-height: 0;">
+                                <!-- Service controls -->
+                                <h5 class="mb-3">Servicio</h5>
+                                <div class="d-flex gap-2 mb-3">
+                                    <button class="btn btn-sm" style="background: #a6e3a1; color: #1e1e2e; font-weight: 600;" t-on-click="_startInstance"
                                             t-if="state.selectedInstance and state.selectedInstance.state === 'stopped'">
-                                        <i class="fa fa-play me-1"/> Start
+                                        Iniciar
                                     </button>
-                                    <button class="btn btn-sm btn-warning" t-on-click="_stopInstance"
+                                    <button class="btn btn-sm" style="background: #f9e2af; color: #1e1e2e; font-weight: 600;" t-on-click="_stopInstance"
                                             t-if="state.selectedInstance and state.selectedInstance.state === 'running' and state.selectedInstance.instance_type !== 'production'">
-                                        <i class="fa fa-stop me-1"/> Stop
+                                        Detener
                                     </button>
-                                    <button class="btn btn-sm btn-primary" t-on-click="_restartInstance"
+                                    <button class="btn btn-sm" style="background: #89b4fa; color: #1e1e2e; font-weight: 600;" t-on-click="_restartInstance"
                                             t-if="state.selectedInstance and state.selectedInstance.state === 'running'">
-                                        <i class="fa fa-refresh me-1"/> Restart
+                                        Reiniciar
                                     </button>
                                 </div>
-                                <div class="mb-3" style="color: #6c7086;">
-                                    <div>Service: <code style="color: #89b4fa;"><t t-esc="state.selectedInstance and state.selectedInstance.service_name || '-'"/></code></div>
-                                    <div>Database: <code style="color: #89b4fa;"><t t-esc="state.selectedInstance and state.selectedInstance.database_name || '-'"/></code></div>
-                                    <div>Port: <code style="color: #89b4fa;"><t t-esc="state.selectedInstance and state.selectedInstance.port || '-'"/></code></div>
-                                    <div>URL: <a t-att-href="state.selectedInstance and state.selectedInstance.url || '#'" target="_blank" style="color: #89b4fa;">
-                                        <t t-esc="state.selectedInstance and state.selectedInstance.url || '-'"/>
-                                    </a></div>
+                                <div class="mb-4" style="color: #6c7086; font-size: 12px;">
+                                    <div>Servicio: <code style="color: #89b4fa;"><t t-esc="state.selectedInstance and state.selectedInstance.service_name || '-'"/></code></div>
+                                    <div>BD: <code style="color: #89b4fa;"><t t-esc="state.selectedInstance and state.selectedInstance.database_name || '-'"/></code></div>
+                                    <div>Puerto: <code style="color: #89b4fa;"><t t-esc="state.selectedInstance and state.selectedInstance.port || '-'"/></code></div>
+                                </div>
+
+                                <!-- Deploy per repo -->
+                                <h5 class="mb-3">Desplegar cambios</h5>
+                                <p style="color: #6c7086; font-size: 12px; margin-bottom: 12px;">
+                                    Descarga cambios de git, detecta modulos modificados, los actualiza y reinicia el servicio.
+                                </p>
+
+                                <!-- All repos button -->
+                                <div class="mb-3">
+                                    <button class="btn"
+                                            style="background: #a6e3a1; color: #1e1e2e; font-weight: 600;"
+                                            t-on-click="_deployChanges"
+                                            t-att-disabled="state.deploying">
+                                        <t t-if="state.deploying">Desplegando...</t>
+                                        <t t-else="">&#9889; Desplegar todos los repos</t>
+                                    </button>
+                                </div>
+
+                                <!-- Individual repo cards -->
+                                <div class="row g-2 mb-3">
+                                    <t t-foreach="state.upgradeRepos" t-as="r" t-key="r.path">
+                                        <div class="col-md-4 col-sm-6">
+                                            <div style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 12px;">
+                                                <div class="d-flex align-items-center justify-content-between mb-2">
+                                                    <span style="color: #cdd6f4; font-size: 13px; font-weight: 600;">
+                                                        <t t-esc="r.name"/>
+                                                    </span>
+                                                    <span style="color: #6c7086; font-size: 10px;"><t t-esc="r.branch"/></span>
+                                                </div>
+                                                <div class="d-flex align-items-center gap-1 mb-2" style="font-size: 11px;">
+                                                    <span t-if="r.dirty" style="color: #f9e2af;">&#9679; cambios locales</span>
+                                                    <span t-if="r.behind > 0" style="color: #f38ba8;">&#8595;<t t-esc="r.behind"/> sin pull</span>
+                                                    <span t-if="r.ahead > 0" style="color: #a6e3a1;">&#8593;<t t-esc="r.ahead"/> sin push</span>
+                                                    <span t-if="!r.dirty and !r.behind and !r.ahead and r.remote" style="color: #a6e3a1;">&#10003; al dia</span>
+                                                </div>
+                                                <button class="btn btn-sm w-100"
+                                                        style="background: #313244; color: #cdd6f4; font-size: 11px;"
+                                                        t-att-data-path="r.path"
+                                                        t-on-click="_deployRepo"
+                                                        t-att-disabled="state.deploying">
+                                                    &#8595; Pull + Actualizar
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </t>
+                                </div>
+
+                                <!-- Deploy result -->
+                                <div t-if="state.deployResult" class="mb-2" t-att-style="'font-size: 12px; color:' + (state.deployResult.ok ? '#a6e3a1' : '#f38ba8')">
+                                    <t t-esc="state.deployResult.message"/>
+                                </div>
+
+                                <!-- Deploy log -->
+                                <div t-if="state.deployLog" style="background: #11111b; border: 1px solid #313244; border-radius: 6px; overflow-y: auto; max-height: 300px;">
+                                    <pre style="color: #a6adc8; font-size: 11px; font-family: 'JetBrains Mono', monospace; padding: 12px; margin: 0; white-space: pre-wrap;"><t t-esc="state.deployLog"/></pre>
                                 </div>
                             </div>
 
                             <!-- TOOLS tab -->
-                            <div t-if="state.activeContentTab === 'tools'" style="color: #cdd6f4;">
+                            <div t-if="state.activeContentTab === 'tools'" class="p-4" style="color: #cdd6f4; overflow-y: auto; flex: 1 1 0; min-height: 0;">
                                 <h5 class="mb-3">Instance Info</h5>
                                 <div class="row">
                                     <div class="col-6">
@@ -652,8 +902,88 @@
                     </div>
 
                     <!-- STATUS nav tab -->
-                    <div t-if="state.activeNavTab === 'status'" class="p-4" style="color: #cdd6f4;">
-                        <h4 class="mb-3">Instance Status</h4>
+                    <div t-if="state.activeNavTab === 'status'" class="p-4" style="color: #cdd6f4; overflow-y: auto; flex: 1 1 0; min-height: 0;">
+                        <!-- Server metrics -->
+                        <div class="d-flex align-items-center justify-content-between mb-3">
+                            <h4 class="mb-0">Estado del Servidor</h4>
+                            <div class="d-flex align-items-center gap-2">
+                                <span t-if="state.metricsUpdated" style="color: #45475a; font-size: 10px;">
+                                    <t t-esc="state.metricsUpdated"/>
+                                </span>
+                                <button class="btn btn-sm" style="background: #313244; color: #cdd6f4; font-size: 11px;"
+                                        t-on-click="_refreshMetrics">Actualizar</button>
+                            </div>
+                        </div>
+
+                        <t t-if="state.serverMetrics">
+                            <div class="row g-3 mb-4">
+                                <!-- Disk -->
+                                <div t-if="state.serverMetrics.disk" class="col-md-3 col-sm-6">
+                                    <div style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
+                                        <div style="color: #6c7086; font-size: 11px; margin-bottom: 8px;">DISCO</div>
+                                        <div style="font-size: 24px; font-weight: 300;">
+                                            <t t-esc="state.serverMetrics.disk.percent"/>%
+                                        </div>
+                                        <div style="background: #313244; height: 6px; border-radius: 3px; margin: 8px 0;">
+                                            <div t-att-style="'height:100%; border-radius:3px; background:' + (+state.serverMetrics.disk.percent > 90 ? '#f38ba8' : +state.serverMetrics.disk.percent > 70 ? '#f9e2af' : '#a6e3a1') + '; width:' + state.serverMetrics.disk.percent + '%;'"></div>
+                                        </div>
+                                        <div style="color: #6c7086; font-size: 11px;">
+                                            <t t-esc="Math.round(state.serverMetrics.disk.used / 1073741824)"/> GB /
+                                            <t t-esc="Math.round(state.serverMetrics.disk.total / 1073741824)"/> GB
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Memory -->
+                                <div t-if="state.serverMetrics.memory" class="col-md-3 col-sm-6">
+                                    <div style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
+                                        <div style="color: #6c7086; font-size: 11px; margin-bottom: 8px;">MEMORIA</div>
+                                        <div style="font-size: 24px; font-weight: 300;">
+                                            <t t-esc="state.serverMetrics.memory.percent"/>%
+                                        </div>
+                                        <div style="background: #313244; height: 6px; border-radius: 3px; margin: 8px 0;">
+                                            <div t-att-style="'height:100%; border-radius:3px; background:' + (state.serverMetrics.memory.percent > 90 ? '#f38ba8' : state.serverMetrics.memory.percent > 70 ? '#f9e2af' : '#a6e3a1') + '; width:' + state.serverMetrics.memory.percent + '%;'"></div>
+                                        </div>
+                                        <div style="color: #6c7086; font-size: 11px;">
+                                            <t t-esc="(state.serverMetrics.memory.used / 1073741824).toFixed(1)"/> GB /
+                                            <t t-esc="(state.serverMetrics.memory.total / 1073741824).toFixed(1)"/> GB
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- CPU -->
+                                <div t-if="state.serverMetrics.cpu" class="col-md-3 col-sm-6">
+                                    <div style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
+                                        <div style="color: #6c7086; font-size: 11px; margin-bottom: 8px;">CPU</div>
+                                        <div style="font-size: 24px; font-weight: 300;">
+                                            <t t-esc="state.serverMetrics.cpu.load1"/>
+                                        </div>
+                                        <div style="color: #6c7086; font-size: 11px; margin-top: 8px;">
+                                            Load: <t t-esc="state.serverMetrics.cpu.load1"/> / <t t-esc="state.serverMetrics.cpu.load5"/> / <t t-esc="state.serverMetrics.cpu.load15"/>
+                                        </div>
+                                        <div style="color: #6c7086; font-size: 11px;">
+                                            Cores: <t t-esc="state.serverMetrics.cpu.cores || '?'"/>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Uptime -->
+                                <div class="col-md-3 col-sm-6">
+                                    <div style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
+                                        <div style="color: #6c7086; font-size: 11px; margin-bottom: 8px;">SERVIDOR</div>
+                                        <div style="font-size: 14px; font-weight: 300;">
+                                            <t t-esc="state.serverMetrics.hostname || '—'"/>
+                                        </div>
+                                        <div style="color: #6c7086; font-size: 11px; margin-top: 8px;">
+                                            <t t-esc="state.serverMetrics.uptime || '—'"/>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </t>
+
+                        <!-- Instance cards -->
+                        <h5 class="mb-3">Instancias</h5>
                         <div class="row g-3">
                             <t t-foreach="state.instances" t-as="inst" t-key="inst.id">
                                 <div class="col-md-4 col-sm-6">
@@ -663,10 +993,10 @@
                                             <strong><t t-esc="inst.name"/></strong>
                                         </div>
                                         <div style="font-size: 12px; color: #6c7086;">
-                                            <div>Type: <t t-esc="inst.instance_type"/></div>
-                                            <div>Port: <t t-esc="inst.port"/></div>
+                                            <div>Tipo: <t t-esc="inst.instance_type"/></div>
+                                            <div>Puerto: <t t-esc="inst.port"/></div>
                                             <div t-if="inst.url">URL: <a t-att-href="inst.url" target="_blank" style="color: #89b4fa;"><t t-esc="inst.url"/></a></div>
-                                            <div>State: <t t-esc="inst.state"/></div>
+                                            <div>Estado: <t t-esc="inst.state"/></div>
                                         </div>
                                     </div>
                                 </div>
@@ -681,25 +1011,180 @@
                     </div>
 
                     <!-- SETTINGS nav tab -->
-                    <div t-if="state.activeNavTab === 'settings'" class="p-4" style="color: #cdd6f4;">
-                        <h4 class="mb-3">Project Settings</h4>
-                        <t t-if="state.currentProject">
-                            <div class="row">
+                    <div t-if="state.activeNavTab === 'settings'" class="p-4" style="color: #cdd6f4; overflow-y: auto; flex: 1 1 0; min-height: 0;">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h4 class="mb-0">Ajustes del Proyecto</h4>
+                            <button class="btn btn-sm" style="background: #a6e3a1; color: #1e1e2e; font-weight: 600;"
+                                    t-on-click="_newProject">+ Nuevo Proyecto</button>
+                        </div>
+
+                        <t t-if="state.settingsProject" t-key="state.settingsProject.id || 'new'">
+                            <div class="row g-3">
+                                <!-- Column 1: General -->
                                 <div class="col-md-6">
-                                    <table class="table table-sm" style="color: #cdd6f4;">
-                                        <tbody>
-                                            <tr style="border-color: #313244;"><td style="color: #6c7086;">Project</td><td><t t-esc="state.currentProject.name"/></td></tr>
-                                            <tr style="border-color: #313244;"><td style="color: #6c7086;">Domain</td><td><t t-esc="state.currentProject.domain"/></td></tr>
-                                            <tr style="border-color: #313244;"><td style="color: #6c7086;">Repo Path</td><td><code style="color: #89b4fa;"><t t-esc="state.currentProject.repo_path"/></code></td></tr>
-                                            <tr style="border-color: #313244;"><td style="color: #6c7086;">Max Staging</td><td><t t-esc="state.currentProject.max_staging"/></td></tr>
-                                            <tr style="border-color: #313244;"><td style="color: #6c7086;">Max Development</td><td><t t-esc="state.currentProject.max_development"/></td></tr>
-                                        </tbody>
-                                    </table>
+                                    <div style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
+                                        <h6 style="color: #89b4fa; margin-bottom: 12px;">General</h6>
+                                        <div class="mb-2">
+                                            <label style="color: #6c7086; font-size: 11px;">Nombre</label>
+                                            <input type="text" class="form-control form-control-sm"
+                                                   style="background: #11111b; border-color: #313244; color: #cdd6f4;"
+                                                   t-att-value="state.settingsProject.name"
+                                                   t-on-change="_onSettingsInput" data-field="name"/>
+                                        </div>
+                                        <div class="mb-2">
+                                            <label style="color: #6c7086; font-size: 11px;">Dominio</label>
+                                            <input type="text" class="form-control form-control-sm"
+                                                   style="background: #11111b; border-color: #313244; color: #cdd6f4;"
+                                                   placeholder="ejemplo.com"
+                                                   t-att-value="state.settingsProject.domain"
+                                                   t-on-change="_onSettingsInput" data-field="domain"/>
+                                        </div>
+                                        <div class="mb-2">
+                                            <label style="color: #6c7086; font-size: 11px;">Ruta Repositorio</label>
+                                            <input type="text" class="form-control form-control-sm"
+                                                   style="background: #11111b; border-color: #313244; color: #cdd6f4;"
+                                                   placeholder="/opt/odoo19/cremara_addons"
+                                                   t-att-value="state.settingsProject.repo_path"
+                                                   t-on-change="_onSettingsInput" data-field="repo_path"/>
+                                        </div>
+                                        <div class="mb-2">
+                                            <label style="color: #6c7086; font-size: 11px;">Ruta Enterprise</label>
+                                            <input type="text" class="form-control form-control-sm"
+                                                   style="background: #11111b; border-color: #313244; color: #cdd6f4;"
+                                                   placeholder="/opt/odoo19/enterprise"
+                                                   t-att-value="state.settingsProject.enterprise_path"
+                                                   t-on-change="_onSettingsInput" data-field="enterprise_path"/>
+                                        </div>
+                                        <div class="mb-2">
+                                            <label style="color: #6c7086; font-size: 11px;">Base de Datos Produccion</label>
+                                            <input type="text" class="form-control form-control-sm"
+                                                   style="background: #11111b; border-color: #313244; color: #cdd6f4;"
+                                                   placeholder="odoo19"
+                                                   t-att-value="state.settingsProject.database_name"
+                                                   t-on-change="_onSettingsInput" data-field="database_name"/>
+                                        </div>
+                                        <div class="d-flex gap-2">
+                                            <div class="flex-grow-1">
+                                                <label style="color: #6c7086; font-size: 11px;">Max Staging</label>
+                                                <input type="number" class="form-control form-control-sm"
+                                                       style="background: #11111b; border-color: #313244; color: #cdd6f4;"
+                                                       t-att-value="state.settingsProject.max_staging"
+                                                       t-on-change="_onSettingsInput" data-field="max_staging" data-type="int"/>
+                                            </div>
+                                            <div class="flex-grow-1">
+                                                <label style="color: #6c7086; font-size: 11px;">Max Development</label>
+                                                <input type="number" class="form-control form-control-sm"
+                                                       style="background: #11111b; border-color: #313244; color: #cdd6f4;"
+                                                       t-att-value="state.settingsProject.max_development"
+                                                       t-on-change="_onSettingsInput" data-field="max_development" data-type="int"/>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Column 2: Conexion SSH -->
+                                <div class="col-md-6">
+                                    <div style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
+                                        <h6 style="color: #89b4fa; margin-bottom: 12px;">Conexion al Servidor</h6>
+                                        <div class="mb-2">
+                                            <label style="color: #6c7086; font-size: 11px;">Tipo</label>
+                                            <div class="d-flex gap-2">
+                                                <button class="btn btn-sm flex-grow-1"
+                                                        t-att-style="state.settingsProject.connection_type === 'local' ? 'background: #89b4fa; color: #1e1e2e; font-weight: 600;' : 'background: #313244; color: #6c7086;'"
+                                                        t-on-click="() => { this.state.settingsProject.connection_type = 'local'; }">
+                                                    Local
+                                                </button>
+                                                <button class="btn btn-sm flex-grow-1"
+                                                        t-att-style="state.settingsProject.connection_type === 'ssh' ? 'background: #89b4fa; color: #1e1e2e; font-weight: 600;' : 'background: #313244; color: #6c7086;'"
+                                                        t-on-click="() => { this.state.settingsProject.connection_type = 'ssh'; }">
+                                                    SSH
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <t t-if="state.settingsProject.connection_type === 'ssh'">
+                                            <div class="mb-2">
+                                                <label style="color: #6c7086; font-size: 11px;">Host</label>
+                                                <input type="text" class="form-control form-control-sm"
+                                                       style="background: #11111b; border-color: #313244; color: #cdd6f4;"
+                                                       placeholder="192.168.1.100"
+                                                       t-att-value="state.settingsProject.ssh_host"
+                                                       t-on-change="_onSettingsInput" data-field="ssh_host"/>
+                                            </div>
+                                            <div class="d-flex gap-2 mb-2">
+                                                <div class="flex-grow-1">
+                                                    <label style="color: #6c7086; font-size: 11px;">Usuario</label>
+                                                    <input type="text" class="form-control form-control-sm"
+                                                           style="background: #11111b; border-color: #313244; color: #cdd6f4;"
+                                                           placeholder="root"
+                                                           t-att-value="state.settingsProject.ssh_user"
+                                                           t-on-change="_onSettingsInput" data-field="ssh_user"/>
+                                                </div>
+                                                <div style="width: 100px;">
+                                                    <label style="color: #6c7086; font-size: 11px;">Puerto</label>
+                                                    <input type="number" class="form-control form-control-sm"
+                                                           style="background: #11111b; border-color: #313244; color: #cdd6f4;"
+                                                           t-att-value="state.settingsProject.ssh_port"
+                                                           t-on-change="_onSettingsInput" data-field="ssh_port" data-type="int"/>
+                                                </div>
+                                            </div>
+
+                                            <!-- SSH Key section -->
+                                            <div style="background: #181825; border: 1px solid #313244; border-radius: 6px; padding: 12px; margin-top: 8px;">
+                                                <div class="d-flex align-items-center justify-content-between mb-2">
+                                                    <span style="color: #cba6f7; font-size: 12px; font-weight: 600;">Llave SSH (ED25519)</span>
+                                                    <span t-if="state.settingsProject.ssh_key_configured"
+                                                          style="color: #a6e3a1; font-size: 11px;">Configurada</span>
+                                                    <span t-if="!state.settingsProject.ssh_key_configured"
+                                                          style="color: #f9e2af; font-size: 11px;">No configurada</span>
+                                                </div>
+                                                <button class="btn btn-sm mb-2"
+                                                        style="background: #cba6f7; color: #1e1e2e; font-weight: 600; font-size: 12px;"
+                                                        t-on-click="_generateSshKey">
+                                                    Generar Llave SSH
+                                                </button>
+                                                <t t-if="state.sshPublicKey">
+                                                    <div class="mt-2">
+                                                        <label style="color: #6c7086; font-size: 11px;">Llave Publica (copia al servidor)</label>
+                                                        <textarea readonly="1" rows="3"
+                                                                  class="form-control form-control-sm"
+                                                                  style="background: #11111b; border-color: #313244; color: #a6e3a1; font-family: monospace; font-size: 11px;"
+                                                                  t-att-value="state.sshPublicKey"/>
+                                                        <div style="color: #6c7086; font-size: 11px; margin-top: 6px;">
+                                                            Usa la terminal AI para configurar:
+                                                            <code style="color: #89b4fa; font-size: 11px;">
+                                                                "Configura SSH al servidor con ssh-copy-id"
+                                                            </code>
+                                                        </div>
+                                                    </div>
+                                                </t>
+                                                <button t-if="state.settingsProject.ssh_key_configured"
+                                                        class="btn btn-sm mt-2"
+                                                        style="background: #313244; color: #cdd6f4; font-size: 12px;"
+                                                        t-on-click="_testSshConnection">
+                                                    Probar Conexion
+                                                </button>
+                                                <span t-if="state.sshTestResult"
+                                                      t-att-style="'font-size: 11px; margin-left: 8px; color:' + (state.sshTestResult.ok ? '#a6e3a1' : '#f38ba8')">
+                                                    <t t-esc="state.sshTestResult.message"/>
+                                                </span>
+                                            </div>
+                                        </t>
+                                    </div>
                                 </div>
                             </div>
-                            <a href="/odoo/action-781" target="_blank" class="btn btn-sm" style="background: #313244; color: #cdd6f4;">
-                                Open Odoo Settings
-                            </a>
+
+                            <!-- Save button -->
+                            <div class="mt-3 d-flex gap-2">
+                                <button class="btn px-4"
+                                        style="background: #89b4fa; color: #1e1e2e; font-weight: 600;"
+                                        t-on-click="_saveProject">
+                                    Guardar
+                                </button>
+                                <span t-if="state.settingsSaved" style="color: #a6e3a1; font-size: 12px; align-self: center;">
+                                    Guardado
+                                </span>
+                            </div>
                         </t>
                     </div>
 
@@ -707,9 +1192,64 @@
                     <t t-if="state.activeNavTab === 'branches' and !state.selectedInstance">
                         <div class="d-flex align-items-center justify-content-center flex-grow-1" style="color: #6c7086;">
                             <div class="text-center">
-                                <div style="font-size: 48px; margin-bottom: 16px; color: #89b4fa;">&#9889;</div>
-                                <h3 style="color: #cdd6f4; font-weight: 300;">PatchMyByte DevOps</h3>
-                                <p>Select a branch from the sidebar to begin.</p>
+                                <t t-if="state.instances.length === 0">
+                                    <!-- No instances at all — show setup form -->
+                                    <div style="font-size: 48px; margin-bottom: 16px; color: #f9e2af;">&#9881;</div>
+                                    <h3 style="color: #cdd6f4; font-weight: 300;">Registrar Instancia de Produccion</h3>
+                                    <p style="max-width: 400px; margin: 0 auto 16px;">
+                                        Vincula el servicio Odoo existente como instancia de produccion para este proyecto.
+                                    </p>
+                                    <div style="text-align: left; max-width: 400px; margin: 0 auto;">
+                                        <!-- Step 1: Enter service name -->
+                                        <div class="mb-2">
+                                            <label style="color: #6c7086; font-size: 11px;">Nombre del servicio systemd</label>
+                                            <div class="d-flex gap-2">
+                                                <input type="text" class="form-control form-control-sm flex-grow-1"
+                                                       style="background: #11111b; border-color: #313244; color: #cdd6f4;"
+                                                       placeholder="odooAL" data-field="prodService"
+                                                       t-att-value="state.prodSetup.service"
+                                                       t-on-change="_onProdSetupInput"
+                                                       t-on-keydown="_onProdSetupKey"/>
+                                                <button class="btn btn-sm"
+                                                        style="background: #89b4fa; color: #1e1e2e; font-weight: 600; white-space: nowrap;"
+                                                        t-on-click="_detectService">
+                                                    Detectar
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <!-- Step 2: Show detected config -->
+                                        <t t-if="state.prodSetup.detected">
+                                            <div style="background: #11111b; border: 1px solid #313244; border-radius: 6px; padding: 12px; margin-bottom: 12px;">
+                                                <div class="d-flex align-items-center gap-2 mb-2">
+                                                    <span t-if="state.prodSetup.active" style="color: #a6e3a1; font-size: 12px; font-weight: 600;">&#9679; Activo</span>
+                                                    <span t-if="!state.prodSetup.active" style="color: #f38ba8; font-size: 12px; font-weight: 600;">&#9679; Inactivo</span>
+                                                </div>
+                                                <table style="font-size: 12px; color: #a6adc8; width: 100%;">
+                                                    <tr><td style="color: #6c7086; padding: 2px 8px 2px 0;">Base de datos</td><td><t t-esc="state.prodSetup.db"/></td></tr>
+                                                    <tr><td style="color: #6c7086; padding: 2px 8px 2px 0;">Puerto</td><td><t t-esc="state.prodSetup.port"/></td></tr>
+                                                    <tr><td style="color: #6c7086; padding: 2px 8px 2px 0;">Gevent</td><td><t t-esc="state.prodSetup.gevent_port"/></td></tr>
+                                                    <tr><td style="color: #6c7086; padding: 2px 8px 2px 0;">Ruta</td><td><code style="color: #89b4fa; font-size: 11px;"><t t-esc="state.prodSetup.path"/></code></td></tr>
+                                                    <tr><td style="color: #6c7086; padding: 2px 8px 2px 0;">Config</td><td><code style="color: #89b4fa; font-size: 11px;"><t t-esc="state.prodSetup.config_path"/></code></td></tr>
+                                                    <tr t-if="state.prodSetup.repo_path"><td style="color: #6c7086; padding: 2px 8px 2px 0;">Repo</td><td><code style="color: #a6e3a1; font-size: 11px;"><t t-esc="state.prodSetup.repo_path"/></code></td></tr>
+                                                    <tr t-if="state.prodSetup.enterprise_path"><td style="color: #6c7086; padding: 2px 8px 2px 0;">Enterprise</td><td><code style="color: #a6e3a1; font-size: 11px;"><t t-esc="state.prodSetup.enterprise_path"/></code></td></tr>
+                                                </table>
+                                            </div>
+                                            <button class="btn w-100"
+                                                    style="background: #a6e3a1; color: #1e1e2e; font-weight: 600;"
+                                                    t-on-click="_registerProduction">
+                                                Registrar Produccion
+                                            </button>
+                                        </t>
+                                        <div t-if="state.prodSetup.error" style="color: #f38ba8; font-size: 12px; margin-top: 8px;">
+                                            <t t-esc="state.prodSetup.error"/>
+                                        </div>
+                                    </div>
+                                </t>
+                                <t t-else="">
+                                    <div style="font-size: 48px; margin-bottom: 16px; color: #89b4fa;">&#9889;</div>
+                                    <h3 style="color: #cdd6f4; font-weight: 300;">PatchMyByte DevOps</h3>
+                                    <p>Selecciona una instancia del sidebar.</p>
+                                </t>
                             </div>
                         </div>
                     </t>

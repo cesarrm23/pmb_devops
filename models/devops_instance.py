@@ -53,6 +53,9 @@ class DevopsInstance(models.Model):
     creation_step = fields.Char(
         string='Paso Actual', help='Current step during creation',
     )
+    creation_pid = fields.Integer(
+        string='PID Creación', help='PID del script de creación (0 = no running)',
+    )
     last_activity = fields.Datetime(
         string='Última Actividad', default=fields.Datetime.now,
     )
@@ -116,12 +119,35 @@ class DevopsInstance(models.Model):
     # ------------------------------------------------------------------
 
     def _find_free_port(self):
-        """Find next available port starting from 8080."""
+        """Find next available port starting from 8080.
+
+        Checks both the DB (other instances) and the OS (ss) to avoid conflicts
+        with non-Odoo processes like code-server.
+        """
+        import subprocess
         used_ports = set(
             self.search([('port', '!=', False)]).mapped('port')
         )
+        # Also check ports in use at OS level
+        try:
+            result = subprocess.run(
+                ['ss', '-tlnH'],
+                capture_output=True, text=True, timeout=5,
+            )
+            for line in result.stdout.split('\n'):
+                parts = line.split()
+                if len(parts) >= 4:
+                    addr = parts[3]
+                    if ':' in addr:
+                        try:
+                            used_ports.add(int(addr.rsplit(':', 1)[1]))
+                        except ValueError:
+                            pass
+        except Exception:
+            pass
         for port in range(8080, 8200):
-            if port not in used_ports:
+            # Check both HTTP port and gevent port (port + 1000)
+            if port not in used_ports and (port + 1000) not in used_ports:
                 return port
         raise UserError(_("No hay puertos disponibles (8080-8199)."))
 

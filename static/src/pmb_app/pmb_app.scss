@@ -1,5 +1,6 @@
 .pmb-app {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    height: 100%;  // fill the o_action_manager container, not the full viewport
 
     .cursor-pointer {
         cursor: pointer;
@@ -34,6 +35,65 @@
     select.form-select option {
         background: #313244;
         color: #cdd6f4;
+    }
+
+    // AI Chat
+    .pmb-chat-messages {
+        &::-webkit-scrollbar {
+            width: 6px;
+        }
+        &::-webkit-scrollbar-track {
+            background: #1e1e2e;
+        }
+        &::-webkit-scrollbar-thumb {
+            background: #45475a;
+            border-radius: 3px;
+        }
+    }
+
+    .pmb-chat-msg-assistant .pmb-chat-msg-body {
+        white-space: normal !important;
+
+        pre {
+            margin: 8px 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        code {
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+        }
+    }
+
+    .pmb-chat-typing {
+        display: flex;
+        gap: 4px;
+        padding: 8px 0;
+
+        .pmb-dot {
+            width: 8px;
+            height: 8px;
+            background: #6c7086;
+            border-radius: 50%;
+            animation: pmb-typing 1.4s infinite;
+
+            &:nth-child(2) { animation-delay: 0.2s; }
+            &:nth-child(3) { animation-delay: 0.4s; }
+        }
+    }
+
+    @keyframes pmb-typing {
+        0%, 60%, 100% { opacity: 0.3; transform: scale(0.8); }
+        30% { opacity: 1; transform: scale(1); }
+    }
+
+    .pmb-chat-input:focus {
+        border-color: #89b4fa !important;
+    }
+
+    // Context menu
+    .pmb-ctx-item:hover {
+        background: #313244;
     }
 
     // Mobile responsive
@@ -74,34 +134,64 @@
             }
         }
 
-        // Content tabs scroll horizontally
+        // Content tabs scroll horizontally, single row
         .pmb-content-tabs {
             overflow-x: auto;
-            white-space: nowrap;
+            overflow-y: hidden;
+            flex-wrap: nowrap !important;
             -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+            min-height: 32px;
+            max-height: 32px;
+            &::-webkit-scrollbar {
+                display: none;
+            }
 
             > span {
+                flex-shrink: 0;
                 font-size: 11px !important;
                 padding: 6px 8px !important;
+                white-space: nowrap;
             }
         }
 
-        // Terminal smaller on mobile
+        // Terminal: fill available space on mobile
         .pmb-terminal-container {
-            height: 350px !important;
+            height: auto !important;
+            min-height: 200px;
+            flex: 1 1 0;
         }
 
-        // AI tab: git panel on top, terminal below
+        // AI tab: git panel collapses to a thin toggle bar on mobile
         .pmb-ai-layout {
             flex-direction: column !important;
 
             .pmb-git-panel {
                 width: 100% !important;
                 min-width: 100% !important;
-                max-height: 200px !important;
+                max-height: none !important;
                 border-right: none !important;
                 border-bottom: 1px solid #313244;
+
+                &.pmb-git-collapsed {
+                    max-height: 32px !important;
+                    overflow: hidden;
+                }
             }
+        }
+
+        // Hide instance header details to save vertical space
+        .pmb-actions {
+            display: none !important;
+        }
+    }
+
+    // When mobile keyboard is open — hide everything except tabs + terminal
+    body.pmb-keyboard-open & {
+        .pmb-navbar,
+        .pmb-sidebar,
+        .pmb-instance-header {
+            display: none !important;
         }
     }
 
@@ -121,4 +211,9 @@
             }
         }
     }
+}
+
+// Odoo top navbar — hide when mobile keyboard is open
+body.pmb-keyboard-open .o_main_navbar {
+    display: none !important;
 }

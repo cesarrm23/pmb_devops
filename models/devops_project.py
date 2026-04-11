@@ -99,6 +99,10 @@ class DevopsProject(models.Model):
         groups='pmb_devops.group_devops_admin',
     )
 
+    # ---- Server metrics (updated by cron) ----
+    server_metrics = fields.Text(string='Server Metrics JSON')
+    server_metrics_updated = fields.Datetime(string='Metrics Updated')
+
     # ---- Branch config ----
     production_branch = fields.Char(string='Rama Producción', default='main')
     staging_branch = fields.Char(string='Rama Staging', default='staging')
@@ -369,6 +373,134 @@ class DevopsProject(models.Model):
         self.message_post(
             body=_("Backup creado: %s") % backup_name,
         )
+
+    @api.model
+    def _cron_collect_server_metrics(self):
+        """Collect disk, memory, CPU metrics for all projects."""
+        import json
+        for project in self.search([]):
+            try:
+                metrics = self._collect_metrics(project)
+                project.write({
+                    'server_metrics': json.dumps(metrics),
+                    'server_metrics_updated': fields.Datetime.now(),
+                })
+                project._check_metrics_thresholds(metrics)
+            except Exception as e:
+                _logger.warning("Metrics collection failed for %s: %s", project.name, e)
+
+    def _check_metrics_thresholds(self, metrics):
+        """Create an activity alert if any metric exceeds 80%."""
+        self.ensure_one()
+        alerts = []
+
+        # Disk > 80%
+        disk_pct = float(metrics.get('disk', {}).get('percent', 0))
+        if disk_pct > 80:
+            alerts.append(_("Disk usage at %s%%") % disk_pct)
+
+        # Memory > 80%
+        mem_pct = float(metrics.get('memory', {}).get('percent', 0))
+        if mem_pct > 80:
+            alerts.append(_("Memory usage at %s%%") % mem_pct)
+
+        # CPU load1 > 80% of cores
+        cpu = metrics.get('cpu', {})
+        cores = cpu.get('cores', 1)
+        load1 = cpu.get('load1', 0)
+        if cores and load1 > (cores * 0.8):
+            alerts.append(
+                _("CPU load1 %(load)s exceeds 80%% of %(cores)s cores")
+                % {'load': load1, 'cores': cores}
+            )
+
+        if not alerts:
+            return
+
+        # Check for existing active alert activity (not done) to avoid spam
+        existing = self.env['mail.activity'].search([
+            ('res_model', '=', self._name),
+            ('res_id', '=', self.id),
+            ('user_id', '=', 2),
+            ('summary', 'like', 'Server Alert'),
+        ], limit=1)
+        if existing:
+            return
+
+        # Create alert activity for admin (uid=2)
+        self.activity_schedule(
+            'mail.mail_activity_data_todo',
+            user_id=2,
+            summary=_("Server Alert: %s") % self.name,
+            note=_("Thresholds exceeded:<br/>%s") % '<br/>'.join(alerts),
+            date_deadline=fields.Date.today(),
+        )
+
+    def _collect_metrics(self, project):
+        """Collect system metrics via local commands or SSH."""
+        import json
+        metrics = {}
+
+        # Disk
+        result = ssh_utils.execute_command(project, [
+            'df', '-B1', '--output=size,used,avail,pcent', '/',
+        ], timeout=5)
+        if result.returncode == 0:
+            lines = result.stdout.strip().split('\n')
+            if len(lines) >= 2:
+                parts = lines[1].split()
+                if len(parts) >= 4:
+                    metrics['disk'] = {
+                        'total': int(parts[0]),
+                        'used': int(parts[1]),
+                        'free': int(parts[2]),
+                        'percent': parts[3].replace('%', ''),
+                    }
+
+        # Memory
+        result = ssh_utils.execute_command(project, [
+            'free', '-b',
+        ], timeout=5)
+        if result.returncode == 0:
+            for line in result.stdout.split('\n'):
+                if line.startswith('Mem:'):
+                    parts = line.split()
+                    if len(parts) >= 4:
+                        metrics['memory'] = {
+                            'total': int(parts[1]),
+                            'used': int(parts[2]),
+                            'free': int(parts[3]),
+                            'percent': round(int(parts[2]) / int(parts[1]) * 100, 1) if int(parts[1]) else 0,
+                        }
+
+        # CPU load
+        result = ssh_utils.execute_command(project, [
+            'cat', '/proc/loadavg',
+        ], timeout=5)
+        if result.returncode == 0:
+            parts = result.stdout.strip().split()
+            if len(parts) >= 3:
+                metrics['cpu'] = {
+                    'load1': float(parts[0]),
+                    'load5': float(parts[1]),
+                    'load15': float(parts[2]),
+                }
+        # CPU count
+        result = ssh_utils.execute_command(project, ['nproc'], timeout=5)
+        if result.returncode == 0:
+            metrics.setdefault('cpu', {})['cores'] = int(result.stdout.strip())
+
+        # Uptime
+        result = ssh_utils.execute_command(project, ['uptime', '-p'], timeout=5)
+        if result.returncode == 0:
+            metrics['uptime'] = result.stdout.strip()
+
+        # Hostname
+        result = ssh_utils.execute_command(project, ['hostname'], timeout=5)
+        if result.returncode == 0:
+            metrics['hostname'] = result.stdout.strip()
+
+        return metrics
 
     def action_fetch_logs(self):
         """Fetch recent journalctl logs for the Odoo service."""

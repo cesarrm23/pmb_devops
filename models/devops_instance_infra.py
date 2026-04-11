@@ -134,29 +134,57 @@ class DevopsInstanceInfra(models.Model):
             except Exception:
                 pass
 
+        enterprise_path = project.enterprise_path or '/opt/odoo19/enterprise'
+
         script = f"""#!/bin/bash
-set -e
+set -euo pipefail
 ID={instance_id}
 DB="{dbname}"
-STEP() {{ psql -q "$DB" -c "UPDATE devops_instance SET creation_step='$1' WHERE id=$ID;" 2>/dev/null; }}
-FAIL() {{ psql -q "$DB" -c "UPDATE devops_instance SET state='error', creation_step='Error: $1' WHERE id=$ID;" 2>/dev/null; exit 1; }}
+STEP() {{ psql -q "$DB" -c "UPDATE devops_instance SET creation_step='$1', creation_pid=$$ WHERE id=$ID;" 2>/dev/null; }}
+FAIL() {{ psql -q "$DB" -c "UPDATE devops_instance SET state='error', creation_step='Error: $1', creation_pid=0 WHERE id=$ID;" 2>/dev/null; exit 1; }}
+
+# Save PID immediately
+psql -q "$DB" -c "UPDATE devops_instance SET creation_pid=$$ WHERE id=$ID;" 2>/dev/null
 
 exec >> /var/log/odoo/pmb_creation.log 2>&1
-echo "=== Creating instance {rec.name} (id=$ID) at $(date) ==="
+echo "=== Creating instance {rec.name} (id=$ID) pid=$$ at $(date) ==="
 
-# Step 1: Clone database
+# Step 1: Clone database — idempotent: skip if DB already has Odoo tables
 STEP "Clonando base de datos ({source_db})..."
 if [ -n "{source_db}" ]; then
-    createdb -O odooal "{rec.database_name}" || FAIL "createdb failed"
-    pg_dump "{source_db}" | psql -q "{rec.database_name}" || FAIL "pg_dump failed"
+    DB_READY=0
+    if psql -q "{rec.database_name}" -c "SELECT 1 FROM ir_module_module LIMIT 1" 2>/dev/null | grep -q 1; then
+        DB_READY=1
+    fi
+    if [ "$DB_READY" -eq 0 ]; then
+        # Kill any lingering connections to the target DB
+        psql -q "{dbname}" -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='{rec.database_name}' AND pid != pg_backend_pid();" 2>/dev/null
+        sleep 1
+        dropdb --if-exists "{rec.database_name}" 2>/dev/null
+        createdb -O odooal "{rec.database_name}" || FAIL "createdb failed"
+        set +e
+        pg_dump "{source_db}" 2>/dev/null | psql -q "{rec.database_name}" 2>/dev/null
+        PG_EXIT=${{PIPESTATUS[0]}}
+        set -e
+        if [ "$PG_EXIT" -ne 0 ]; then
+            FAIL "pg_dump failed (exit $PG_EXIT)"
+        fi
+    else
+        echo "DB {rec.database_name} already has data, skipping clone"
+    fi
 fi
 
-# Step 1b: Copy filestore
+# Step 1b: Copy filestore — idempotent: skip if dir already has files
 if [ -n "{source_filestore}" ] && [ -d "{source_filestore}" ]; then
-    STEP "Copiando filestore..."
-    sudo mkdir -p "{rec.instance_path}/.local/share/Odoo/filestore/{rec.database_name}"
-    sudo cp -a "{source_filestore}/." "{rec.instance_path}/.local/share/Odoo/filestore/{rec.database_name}/" || echo "WARNING: filestore copy failed"
-    sudo chown -R odooal:odooal "{rec.instance_path}/.local/share/Odoo"
+    FSDEST="{rec.instance_path}/.local/share/Odoo/filestore/{rec.database_name}"
+    if [ ! -d "$FSDEST" ] || [ -z "$(ls -A "$FSDEST" 2>/dev/null)" ]; then
+        STEP "Copiando filestore..."
+        sudo mkdir -p "$FSDEST"
+        sudo rsync -a "{source_filestore}/" "$FSDEST/" || echo "WARNING: filestore copy failed"
+        sudo chown -R odooal:odooal "{rec.instance_path}/.local/share/Odoo"
+    else
+        echo "Filestore already exists, skipping"
+    fi
 fi
 
 # Step 2: Create directory + copy odoo/enterprise + clone repo
@@ -164,31 +192,39 @@ STEP "Preparando directorio de instancia..."
 sudo mkdir -p "{inst_path}/.local/share/Odoo"
 sudo chown -R odooal:odooal "{inst_path}"
 
-# Copy Odoo source (each instance gets its own copy, no __pycache__)
-STEP "Copiando Odoo source..."
-rsync -a --exclude='__pycache__' /opt/odooAL/odoo/ "{inst_path}/odoo/"
+# Copy Odoo source — idempotent: skip if odoo-bin exists
+if [ ! -f "{inst_path}/odoo/odoo-bin" ]; then
+    STEP "Copiando Odoo source..."
+    rsync -a --exclude='__pycache__' /opt/odooAL/odoo/ "{inst_path}/odoo/"
+else
+    echo "Odoo source already exists, skipping"
+fi
 
-# Copy enterprise addons (each instance gets its own copy, no __pycache__)
-if [ -d "/opt/odoo19/enterprise" ]; then
-    STEP "Copiando enterprise addons..."
-    sudo rsync -a --exclude='__pycache__' /opt/odoo19/enterprise/ "{inst_path}/enterprise/"
-    sudo chown -R odooal:odooal "{inst_path}/enterprise"
-elif [ -n "{project.enterprise_path}" ] && [ -d "{project.enterprise_path}" ]; then
-    STEP "Copiando enterprise addons..."
-    sudo rsync -a --exclude='__pycache__' "{project.enterprise_path}/" "{inst_path}/enterprise/"
-    sudo chown -R odooal:odooal "{inst_path}/enterprise"
+# Copy enterprise addons — idempotent: skip if dir has modules
+if [ -d "{enterprise_path}" ]; then
+    if [ ! -d "{inst_path}/enterprise/account" ]; then
+        STEP "Copiando enterprise addons..."
+        sudo rsync -a --exclude='__pycache__' "{enterprise_path}/" "{inst_path}/enterprise/"
+        sudo chown -R odooal:odooal "{inst_path}/enterprise"
+    else
+        echo "Enterprise addons already exist, skipping"
+    fi
+else
+    FAIL "Enterprise path not found: {enterprise_path}"
 fi
 
 # Symlink venv (shared, read-only executables)
 ln -sfn /opt/odooAL/.venv "{inst_path}/.venv"
 
-# Clone custom addons repo into instance (own copy per branch)
-if [ -n "{repo_url}" ]; then
+# Clone custom addons repo — idempotent: skip if dir exists
+if [ -n "{repo_url}" ] && [ ! -d "{inst_path}/cremara_addons/.git" ]; then
     STEP "Clonando repositorio de addons..."
-    BRANCH="{rec.name}"
+    rm -rf "{inst_path}/cremara_addons" 2>/dev/null
     git clone "{repo_url}" "{inst_path}/cremara_addons" --branch staging --single-branch 2>/dev/null || \
     git clone "{repo_url}" "{inst_path}/cremara_addons" 2>/dev/null || \
     echo "WARNING: repo clone failed"
+else
+    echo "Addons repo already cloned, skipping"
 fi
 
 # Step 3: Odoo config
@@ -289,13 +325,13 @@ sudo certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --email admin@pa
 STEP "Verificando..."
 HTTP=$(curl -sk -o /dev/null -w '%{{http_code}}' "https://$DOMAIN/web/login" --max-time 15 2>/dev/null || echo "000")
 if [ "$HTTP" = "200" ] || [ "$HTTP" = "303" ] || [ "$HTTP" = "302" ]; then
-    psql -q "$DB" -c "UPDATE devops_instance SET state='running', creation_step='' WHERE id=$ID;"
+    psql -q "$DB" -c "UPDATE devops_instance SET state='running', creation_step='', creation_pid=0 WHERE id=$ID;"
     echo "=== Instance {rec.name} created successfully (HTTP $HTTP) ==="
 else
     # Try HTTP (no SSL)
     HTTP2=$(curl -sk -o /dev/null -w '%{{http_code}}' "http://$DOMAIN/web/login" --max-time 15 2>/dev/null || echo "000")
     if [ "$HTTP2" = "200" ] || [ "$HTTP2" = "303" ] || [ "$HTTP2" = "302" ]; then
-        psql -q "$DB" -c "UPDATE devops_instance SET state='running', creation_step='' WHERE id=$ID;"
+        psql -q "$DB" -c "UPDATE devops_instance SET state='running', creation_step='', creation_pid=0 WHERE id=$ID;"
         echo "=== Instance {rec.name} created (HTTP $HTTP2, no SSL) ==="
     else
         FAIL "HTTP verify failed ($HTTP / $HTTP2)"
@@ -755,6 +791,50 @@ fi
                     inst.action_destroy()
                 except Exception as e:
                     _logger.warning("Auto-destroy failed for %s: %s", inst.name, e)
+
+    @api.model
+    def _cron_creation_watchdog(self):
+        """Detect stuck 'creating' instances and relaunch their scripts.
+
+        Runs every 2 minutes. If an instance is in 'creating' state but
+        its creation_pid is dead (process no longer exists), relaunches
+        the creation script. The script is idempotent so it will skip
+        already-completed steps.
+        """
+        stuck = self.search([('state', '=', 'creating')])
+        for inst in stuck:
+            pid = inst.creation_pid
+            if pid and pid > 0:
+                # Check if process is still alive
+                try:
+                    os.kill(pid, 0)  # signal 0 = check existence
+                    continue  # process alive, nothing to do
+                except ProcessLookupError:
+                    pass  # process dead, need to relaunch
+                except PermissionError:
+                    continue  # process exists but different user
+
+            # Process is dead or no PID — relaunch
+            script_path = f"/tmp/pmb_create_{inst.id}.sh"
+            if not os.path.exists(script_path):
+                # Script gone (server rebooted?) — regenerate it
+                _logger.info(
+                    "Watchdog: regenerating creation script for %s (id=%s)",
+                    inst.name, inst.id,
+                )
+                dbname = self.env.cr.dbname
+                inst._launch_creation_script(inst.id, dbname)
+            else:
+                _logger.info(
+                    "Watchdog: relaunching creation script for %s (id=%s, old pid=%s)",
+                    inst.name, inst.id, pid,
+                )
+                subprocess.Popen(
+                    ['/bin/bash', script_path],
+                    start_new_session=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
 
     @api.model
     def _cron_health_check(self):

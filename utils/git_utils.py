@@ -80,31 +80,71 @@ def git_list_branches(project):
     return branches
 
 
-def git_log(project, branch='HEAD', count=20):
+def git_log(project, branch='HEAD', count=20, skip=0):
     """Get commit history."""
     commits = []
     try:
-        result = ssh_utils.execute_command(project, [
+        cmd = [
             'git', 'log', f'-{count}',
             '--format=%H|||%h|||%s|||%ai|||%an|||%ae',
             branch,
-        ], cwd=project.repo_path)
+        ]
+        if skip:
+            cmd.insert(3, f'--skip={skip}')
+        result = ssh_utils.execute_command(project, cmd, cwd=project.repo_path)
         if result.returncode == 0:
-            for line in result.stdout.strip().split('\n'):
-                if not line.strip():
-                    continue
-                parts = line.split('|||')
-                if len(parts) >= 6:
-                    commits.append({
-                        'full_hash': parts[0],
-                        'short_hash': parts[1],
-                        'message': parts[2],
-                        'date': parts[3],
-                        'author': parts[4],
-                        'email': parts[5],
-                    })
+            commits = _parse_log_output(result.stdout)
     except Exception as e:
         _logger.warning("Error en git log: %s", e)
+    return commits
+
+
+def git_search(project, branch='HEAD', query='', count=20):
+    """Search commits by hash or message."""
+    commits = []
+    if not query:
+        return commits
+    try:
+        # Try exact hash first
+        if len(query) >= 7 and all(c in '0123456789abcdefABCDEF' for c in query):
+            result = ssh_utils.execute_command(project, [
+                'git', 'log', '-1',
+                '--format=%H|||%h|||%s|||%ai|||%an|||%ae',
+                query,
+            ], cwd=project.repo_path)
+            if result.returncode == 0 and result.stdout.strip():
+                return _parse_log_output(result.stdout)
+
+        # Search by message (grep)
+        result = ssh_utils.execute_command(project, [
+            'git', 'log', f'-{count}',
+            '--format=%H|||%h|||%s|||%ai|||%an|||%ae',
+            f'--grep={query}', '--regexp-ignore-case',
+            branch,
+        ], cwd=project.repo_path, timeout=15)
+        if result.returncode == 0:
+            commits = _parse_log_output(result.stdout)
+    except Exception as e:
+        _logger.warning("Error en git search: %s", e)
+    return commits
+
+
+def _parse_log_output(output):
+    """Parse git log formatted output into commit dicts."""
+    commits = []
+    for line in output.strip().split('\n'):
+        if not line.strip():
+            continue
+        parts = line.split('|||')
+        if len(parts) >= 6:
+            commits.append({
+                'full_hash': parts[0],
+                'short_hash': parts[1],
+                'message': parts[2],
+                'date': parts[3],
+                'author': parts[4],
+                'email': parts[5],
+            })
     return commits
 
 

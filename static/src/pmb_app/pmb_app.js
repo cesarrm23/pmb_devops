@@ -46,6 +46,9 @@ class PmbDevopsApp extends Component {
 
             // History
             commits: [],
+            historySearch: '',
+            historyRepos: [],
+            historyRepoPath: '',
 
             // All builds (for Builds nav tab)
             allBuilds: [],
@@ -61,6 +64,11 @@ class PmbDevopsApp extends Component {
             gitUnstaged: [],
             gitUntracked: [],
             gitOutgoing: [],
+            gitPanelCollapsed: window.innerWidth <= 768, // collapsed by default on mobile
+            gitSelectedRepo: '',        // selected repo path for git panel
+            gitCommitMessage: '',       // commit message input
+            gitCommitting: false,       // commit in progress
+            gitPushing: false,          // push in progress
 
             // Editor / file browser
             editorRepo: 'addons',  // 'addons', 'odoo', 'enterprise'
@@ -70,6 +78,34 @@ class PmbDevopsApp extends Component {
             editorSelectedFile: '',
             editorFileContent: '',
             editorFileName: '',
+            ctxMenu: null,
+
+            // AI terminal (WebSocket)
+            aiConnected: false,
+            aiError: '',
+
+            // Creation log
+            creationLog: '',
+            creationPid: 0,
+
+            // Production setup
+            prodSetup: { service: '', db: '', port: 8069, path: '' },
+
+            // Deploy / Upgrade
+            deploying: false,
+            deployLog: '',
+            deployResult: null,
+            upgradeRepos: [],
+
+            // Server metrics
+            serverMetrics: null,
+            metricsUpdated: '',
+
+            // Settings
+            settingsProject: null,
+            sshPublicKey: '',
+            sshTestResult: null,
+            settingsSaved: false,
         });
 
         this.terminalAIRef = useRef("terminalAI");
@@ -85,6 +121,16 @@ class PmbDevopsApp extends Component {
                 this.state.currentProject = this.state.projects[0];
                 await this._loadProjectData();
             }
+            // Mobile keyboard: re-fit terminals and collapse header
+            if (window.visualViewport) {
+                this._onViewportResize = () => {
+                    this._refitTerminals();
+                    // Detect keyboard open: viewport height much smaller than window height
+                    const keyboardOpen = window.visualViewport.height < window.innerHeight * 0.75;
+                    document.body.classList.toggle('pmb-keyboard-open', keyboardOpen);
+                };
+                window.visualViewport.addEventListener('resize', this._onViewportResize);
+            }
         });
 
         onWillUnmount(() => {
@@ -93,6 +139,10 @@ class PmbDevopsApp extends Component {
                 this._pollTimer = null;
             }
             this._cleanupTerminal();
+            this._cleanupAiTerminal();
+            if (this._onViewportResize && window.visualViewport) {
+                window.visualViewport.removeEventListener('resize', this._onViewportResize);
+            }
         });
     }
 
@@ -210,12 +260,32 @@ class PmbDevopsApp extends Component {
         if (!instance) {
             return;
         }
-        // Cleanup terminal when switching instances
+        // Cleanup terminals when switching instances
         if (this._termConnected || this._term) {
             this._cleanupTerminal();
         }
+        this._cleanupAiTerminal();
+        // Stop any existing creation polling
+        if (this._pollTimer) {
+            clearInterval(this._pollTimer);
+            this._pollTimer = null;
+        }
+        this.state.creationLog = '';
+        this.state.creationPid = 0;
         this.state.selectedInstance = instance;
-        this.state.activeContentTab = "history";
+
+        // If instance is creating/error, go to DEPLOY tab
+        if (instance.state === 'creating' || instance.state === 'error') {
+            this.state.activeContentTab = "deploy";
+            if (instance.state === 'creating') {
+                this._pollCreation(instance.id);
+            } else {
+                // Load log for error state (one-time, no polling)
+                this._loadCreationLog(instance.id);
+            }
+        } else {
+            this.state.activeContentTab = "history";
+        }
         // Collapse sidebar on mobile
         if (window.innerWidth <= 768) {
             this.state.sidebarCollapsed = true;
@@ -233,8 +303,8 @@ class PmbDevopsApp extends Component {
             this.state.selectedBranch = null;
         }
 
-        // Load history for the newly selected instance
-        this._loadHistory();
+        // Load repos and history for the newly selected instance
+        this._loadHistoryRepos().then(() => this._loadHistory());
     }
 
     _selectBranch(branch) {
@@ -323,8 +393,21 @@ class PmbDevopsApp extends Component {
     // ------------------------------------------------------------------
 
     async _onNavTabChange(tab) {
+        // Toggle sidebar on mobile when clicking Branches while already on branches
+        if (tab === 'branches' && this.state.activeNavTab === 'branches' && window.innerWidth <= 768) {
+            this.state.sidebarCollapsed = !this.state.sidebarCollapsed;
+            return;
+        }
         this.state.activeNavTab = tab;
-        if (tab === 'builds') {
+        // Show sidebar when switching to branches on mobile
+        if (tab === 'branches' && window.innerWidth <= 768) {
+            this.state.sidebarCollapsed = false;
+        }
+        if (tab === 'settings') {
+            await this._loadSettings();
+        } else if (tab === 'status') {
+            await this._loadMetrics();
+        } else if (tab === 'builds') {
             await this._loadAllBuilds();
         }
     }
@@ -344,42 +427,43 @@ class PmbDevopsApp extends Component {
     async _onContentTabChange(tab) {
         if (tab === this.state.activeContentTab) return;
 
-        const termTabs = ['ai', 'shell', 'logs'];
-        const wasTermTab = termTabs.includes(this.state.activeContentTab);
-        const isTermTab = termTabs.includes(tab);
+        const prevTab = this.state.activeContentTab;
+        const httpTermTabs = ['shell', 'logs'];
 
-        // When leaving terminal tab for non-terminal, pause polling (keep session alive)
-        if (wasTermTab && !isTermTab) {
+        // Pause shell/logs polling when leaving those tabs (keep session alive)
+        if (httpTermTabs.includes(prevTab)) {
             if (this._termPollTimeout) {
                 clearTimeout(this._termPollTimeout);
                 this._termPollTimeout = null;
             }
         }
-        // When switching between different terminal types (shell->ai), destroy old
-        if (wasTermTab && isTermTab && tab !== this.state.activeContentTab) {
+
+        // When switching between shell↔logs, destroy old HTTP terminal
+        if (httpTermTabs.includes(prevTab) && httpTermTabs.includes(tab) && prevTab !== tab) {
             this._cleanupTerminal();
         }
 
         this.state.activeContentTab = tab;
 
         if (tab === 'history') {
+            await this._loadHistoryRepos();
             await this._loadHistory();
+        } else if (tab === 'ai') {
+            this._refreshGitStatus();
+            // Always init — t-if destroys the DOM when leaving, so xterm needs re-attaching
+            setTimeout(() => this._initAiTerminal(), 200);
         } else if (tab === 'editor') {
             await this._browseDir('');
+        } else if (tab === 'upgrade') {
+            await this._loadUpgradeRepos();
         } else if (tab === 'backups') {
             await this._loadBackups();
-        } else if (isTermTab) {
-            // Load git status once when entering AI tab (no polling)
-            if (tab === 'ai') {
-                this._refreshGitStatus();
-            }
-            const sessionType = tab === 'ai' ? 'claude' : tab === 'shell' ? 'shell' : (this.state.logType === 'odoo' ? 'odoo_log' : 'logs');
-            // If same session type is still alive, resume polling
+        } else if (httpTermTabs.includes(tab)) {
+            const sessionType = tab === 'shell' ? 'shell' : (this.state.logType === 'odoo' ? 'odoo_log' : 'logs');
             if (this._termConnected && this._terminalType === sessionType && this._term) {
                 if (!this._termPollTimeout) this._pollTerminal();
                 setTimeout(() => { if (this._fitAddon) this._fitAddon.fit(); }, 100);
             } else {
-                // New session needed
                 setTimeout(async () => {
                     if (this.state.activeContentTab === tab && !this._termInitializing) {
                         await this._initTerminal(sessionType);
@@ -442,14 +526,33 @@ class PmbDevopsApp extends Component {
         }
     }
 
+    async _loadCreationLog(instanceId) {
+        this.state.creationLog = '';
+        try {
+            const status = await rpc('/devops/instance/poll_status', {
+                instance_id: instanceId, log_pos: 0,
+            });
+            this.state.creationLog = status.log || '';
+            this.state.creationPid = status.creation_pid || 0;
+            setTimeout(() => {
+                const el = this.__owl__.refs.creationLog;
+                if (el) el.parentElement.scrollTop = el.parentElement.scrollHeight;
+            }, 100);
+        } catch (e) {}
+    }
+
     async _pollCreation(instanceId) {
         if (this._pollTimer) {
             clearInterval(this._pollTimer);
         }
+        this._creationLogPos = 0;
+        this.state.creationLog = '';
+        this.state.creationPid = 0;
         this._pollTimer = setInterval(async () => {
             try {
                 const status = await rpc('/devops/instance/poll_status', {
                     instance_id: instanceId,
+                    log_pos: this._creationLogPos || 0,
                 });
 
                 // Update the instance in our local state
@@ -459,10 +562,30 @@ class PmbDevopsApp extends Component {
                     inst.creation_step = status.creation_step;
                 }
 
+                // Update creation log
+                if (status.log) {
+                    this.state.creationLog += status.log;
+                    // Auto-scroll log
+                    setTimeout(() => {
+                        const el = this.__owl__.refs.creationLog;
+                        if (el) el.parentElement.scrollTop = el.parentElement.scrollHeight;
+                    }, 50);
+                }
+                if (status.log_pos) {
+                    this._creationLogPos = status.log_pos;
+                }
+                if (status.creation_pid) {
+                    this.state.creationPid = status.creation_pid;
+                }
+
                 if (status.state === 'running' || status.state === 'error') {
                     clearInterval(this._pollTimer);
                     this._pollTimer = null;
                     await this._loadProjectData();
+                    // Switch to HISTORY when done
+                    if (this.state.activeContentTab === 'deploy') {
+                        this.state.activeContentTab = 'history';
+                    }
                 }
             } catch (e) {
                 // Ignore polling errors silently
@@ -570,20 +693,85 @@ class PmbDevopsApp extends Component {
     // History
     // ------------------------------------------------------------------
 
-    async _loadHistory() {
+    async _loadHistoryRepos() {
         if (!this.state.selectedInstance || !this.state.currentProjectId) return;
-        const branchName = this.state.selectedInstance.git_branch || this.state.selectedInstance.branch_name || 'HEAD';
+        try {
+            const result = await rpc('/devops/instance/repos', {
+                project_id: this.state.currentProjectId,
+                instance_id: this.state.selectedInstance.id,
+            });
+            this.state.historyRepos = result.repos || [];
+            // Select first repo if current selection is invalid
+            if (this.state.historyRepos.length > 0) {
+                const paths = this.state.historyRepos.map(r => r.path);
+                if (!this.state.historyRepoPath || !paths.includes(this.state.historyRepoPath)) {
+                    this.state.historyRepoPath = this.state.historyRepos[0].path;
+                }
+            }
+        } catch (e) {
+            this.state.historyRepos = [];
+        }
+    }
+
+    _isSelectedRepoShallow() {
+        const repo = this.state.historyRepos.find(r => r.path === this.state.historyRepoPath);
+        return repo && repo.shallow;
+    }
+
+    async _fetchFullHistory() {
+        if (!this.state.historyRepoPath) return;
+        try {
+            const result = await rpc('/devops/repo/fetch_deeper', {
+                repo_path: this.state.historyRepoPath,
+                count: 50,
+            });
+            if (result.error) {
+                alert('Error: ' + result.error);
+            } else {
+                // Update shallow flag on current repo
+                const repo = this.state.historyRepos.find(r => r.path === this.state.historyRepoPath);
+                if (repo) repo.shallow = result.still_shallow;
+                await this._loadHistory();
+            }
+        } catch (e) {
+            alert('Error: ' + (e.message || e));
+        }
+    }
+
+    _switchHistoryRepo(ev) {
+        const btn = ev.target.closest('button[data-path]');
+        const path = btn ? btn.dataset.path : '';
+        if (path && path !== this.state.historyRepoPath) {
+            this.state.historyRepoPath = path;
+            this._loadHistory();
+        }
+    }
+
+    async _loadHistory(search = '', offset = 0) {
+        if (!this.state.selectedInstance || !this.state.currentProjectId) return;
+        // Use the selected repo's branch, not the instance's git_branch
+        const selectedRepo = this.state.historyRepos.find(r => r.path === this.state.historyRepoPath);
+        const branchName = (selectedRepo && selectedRepo.branch) || 'HEAD';
         try {
             const result = await rpc('/devops/branch/history', {
                 project_id: this.state.currentProjectId,
                 branch_name: branchName,
                 limit: 30,
+                search: search,
+                offset: offset,
+                repo_path: this.state.historyRepoPath || '',
             });
-            this.state.commits = (result.commits || []).map(c => ({
+            const newCommits = (result.commits || []).map(c => ({
                 ...c, _expanded: false, _loading: false, _body: '', _files: [], _stat: '',
             }));
+            if (offset > 0 && newCommits.length > 0) {
+                this.state.commits = this.state.commits.concat(newCommits);
+            } else {
+                this.state.commits = newCommits;
+            }
+            this._hasMoreCommits = newCommits.length >= 30;
         } catch (e) {
-            this.state.commits = [];
+            if (offset === 0) this.state.commits = [];
         }
     }
 
@@ -599,12 +787,37 @@ class PmbDevopsApp extends Component {
                 project_id: this.state.currentProjectId,
                 commit_hash: commit.full_hash,
                 file_path: file.path,
+                repo_path: this.state.historyRepoPath || '',
             });
             file._diff = result.diff || 'No diff available';
         } catch (e) {
             file._diff = 'Error loading diff';
         }
         file._loading = false;
+    }
+
+    _onHistorySearchInput(ev) {
+        this.state.historySearch = ev.target.value;
+    }
+
+    _onHistorySearchKey(ev) {
+        if (ev.key === 'Enter') {
+            this._loadHistory(this.state.historySearch);
+        }
+    }
+
+    _clearHistorySearch() {
+        this.state.historySearch = '';
+        this._loadHistory();
+    }
+
+    async _loadMoreHistory() {
+        const repo = this.state.historyRepos.find(r => r.path === this.state.historyRepoPath);
+        if (repo && repo.shallow) {
+            await this._fetchFullHistory();
+            return;
+        }
+        await this._loadHistory('', this.state.commits.length);
     }
 
     async _toggleCommitDetail(commit) {
@@ -618,6 +831,7 @@ class PmbDevopsApp extends Component {
             const result = await rpc('/devops/commit/detail', {
                 project_id: this.state.currentProjectId,
                 commit_hash: commit.full_hash,
+                repo_path: this.state.historyRepoPath || '',
             });
             commit._body = result.body || '';
             commit._files = (result.files || []).map(f => ({
@@ -784,12 +998,27 @@ class PmbDevopsApp extends Component {
         }
     }
 
+    _refitTerminals() {
+        // Called when mobile keyboard opens/closes — refit all active terminals
+        try { if (this._fitAddon) this._fitAddon.fit(); } catch (e) {}
+        try { if (this._aiFitAddon) this._aiFitAddon.fit(); } catch (e) {}
+        // Also send resize to AI WebSocket
+        if (this._aiWs && this._aiWs.readyState === WebSocket.OPEN && this._aiFitAddon) {
+            const dims = this._aiFitAddon.proposeDimensions();
+            if (dims) {
+                this._aiWs.send(JSON.stringify({ type: 'resize', rows: dims.rows, cols: dims.cols }));
+            }
+        }
+    }
+
     _getTerminalContainer() {
         // Return the DOM element for the current terminal tab
-        const ref = this.state.activeContentTab === 'ai' ? 'terminalAI'
-                  : this.state.activeContentTab === 'shell' ? 'terminalShell'
-                  : 'terminalLogs';
+        const ref = this.state.activeContentTab === 'shell' ? 'terminalShell' : 'terminalLogs';
         return this.__owl__.refs[ref] || null;
+    }
+
+    _getAiTerminalContainer() {
+        return this.__owl__.refs.terminalAI || null;
     }
 
     _loadScript(url) {
@@ -849,12 +1078,35 @@ class PmbDevopsApp extends Component {
     // Git changes (AI tab panel) — loaded once on tab enter + manual refresh
     // ------------------------------------------------------------------
 
+    _toggleGitPanel() {
+        this.state.gitPanelCollapsed = !this.state.gitPanelCollapsed;
+    }
+
+    _onGitRepoChange(ev) {
+        this.state.gitSelectedRepo = ev.target.value;
+        this._refreshGitStatus();
+    }
+
+    _onCommitMessageInput(ev) {
+        this.state.gitCommitMessage = ev.target.value;
+    }
+
     async _refreshGitStatus() {
         if (!this.state.currentProjectId) return;
+        if (this.state.historyRepos.length === 0) {
+            await this._loadHistoryRepos();
+        }
+        // Auto-select first repo if none selected
+        if (!this.state.gitSelectedRepo && this.state.historyRepos.length > 0) {
+            this.state.gitSelectedRepo = this.state.historyRepos[0].path;
+        }
+        const repoPath = this.state.gitSelectedRepo;
+        if (!repoPath) return;
         try {
             const result = await rpc('/devops/git/status', {
                 project_id: this.state.currentProjectId,
                 instance_id: this.state.selectedInstance ? this.state.selectedInstance.id : null,
+                repo_path: repoPath,
             });
             if (!result.error) {
                 this.state.gitStaged = result.staged || [];
@@ -863,6 +1115,65 @@ class PmbDevopsApp extends Component {
                 this.state.gitOutgoing = result.outgoing || [];
             }
         } catch (e) { /* ignore */ }
+    }
+
+    async _gitStageAll() {
+        if (!this.state.gitSelectedRepo || !this.state.currentProjectId) return;
+        try {
+            await rpc('/devops/git/stage', {
+                project_id: this.state.currentProjectId,
+                repo_path: this.state.gitSelectedRepo,
+            });
+            await this._refreshGitStatus();
+        } catch (e) { /* ignore */ }
+    }
+
+    async _gitCommit() {
+        const msg = this.state.gitCommitMessage.trim();
+        if (!msg || !this.state.gitSelectedRepo || !this.state.currentProjectId) return;
+        this.state.gitCommitting = true;
+        try {
+            const result = await rpc('/devops/git/commit', {
+                project_id: this.state.currentProjectId,
+                repo_path: this.state.gitSelectedRepo,
+                message: msg,
+            });
+            if (result.error) {
+                alert('Error: ' + result.error);
+            } else {
+                this.state.gitCommitMessage = '';
+            }
+            await this._refreshGitStatus();
+        } catch (e) {
+            alert('Error: ' + (e.message || e));
+        }
+        this.state.gitCommitting = false;
+    }
+
+    async _gitPush() {
+        if (!this.state.gitSelectedRepo || !this.state.currentProjectId) return;
+        this.state.gitPushing = true;
+        try {
+            const result = await rpc('/devops/git/push', {
+                project_id: this.state.currentProjectId,
+                repo_path: this.state.gitSelectedRepo,
+            });
+            if (result.error) {
+                alert('Error: ' + result.error);
+            }
+            await this._refreshGitStatus();
+        } catch (e) {
+            alert('Error: ' + (e.message || e));
+        }
+        this.state.gitPushing = false;
+    }
+
+    async _gitCommitAndPush() {
+        await this._gitCommit();
+        if (!this.state.gitCommitMessage) {
+            // Commit succeeded (message was cleared)
+            await this._gitPush();
+        }
     }
 
     // ------------------------------------------------------------------
@@ -893,6 +1204,7 @@ class PmbDevopsApp extends Component {
                 alert(result.error);
             } else {
                 this.state.editorFiles = result.items || [];
+                this._editorBaseDir = result.base_dir || '';
             }
         } catch (e) {
             this.state.editorFiles = [];
@@ -925,6 +1237,60 @@ class PmbDevopsApp extends Component {
     // Log type switching
     // ------------------------------------------------------------------
 
+    // ------------------------------------------------------------------
+    // Editor context menu
+    // ------------------------------------------------------------------
+
+    _onFileContextMenu(ev, item) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const basePath = this._editorBaseDir || '';
+        const fullPath = basePath ? `${basePath}/${item.path}` : item.path;
+        // Store data separately so it survives ctxMenu being nulled
+        this._ctxData = { name: item.name, path: item.path, fullPath };
+        this.state.ctxMenu = {
+            x: ev.clientX,
+            y: ev.clientY,
+            item: item,
+            fullPath: fullPath,
+        };
+        // Close on next click anywhere (non-capture, so menu handlers fire first)
+        const close = () => {
+            // Delay null so copy handlers can read ctxData
+            setTimeout(() => { this.state.ctxMenu = null; }, 50);
+            document.removeEventListener('click', close);
+            document.removeEventListener('contextmenu', close);
+        };
+        setTimeout(() => {
+            document.addEventListener('click', close);
+            document.addEventListener('contextmenu', close);
+        }, 0);
+    }
+
+    _ctxCopyName() { this._ctxCopy(this._ctxData?.name || ''); }
+    _ctxCopyRelPath() { this._ctxCopy(this._ctxData?.path || ''); }
+    _ctxCopyFullPath() { this._ctxCopy(this._ctxData?.fullPath || ''); }
+
+    async _ctxCopy(text) {
+        this.state.ctxMenu = null;
+        if (!text) return;
+        try {
+            await navigator.clipboard.writeText(text);
+        } catch (e) {
+            // Fallback for older browsers or permission issues
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.left = '-9999px';
+            ta.style.top = '-9999px';
+            document.body.appendChild(ta);
+            ta.focus();
+            ta.select();
+            try { document.execCommand('copy'); } catch (e2) {}
+            document.body.removeChild(ta);
+        }
+    }
+
     async _switchLogType(type) {
         if (type === this.state.logType) return;
         this.state.logType = type;
@@ -948,10 +1314,498 @@ class PmbDevopsApp extends Component {
         await this._loadProjectData();
     }
 
+    async _loadUpgradeRepos() {
+        if (!this.state.selectedInstance || !this.state.currentProjectId) return;
+        try {
+            const result = await rpc('/devops/instance/repos', {
+                project_id: this.state.currentProjectId,
+                instance_id: this.state.selectedInstance.id,
+            });
+            this.state.upgradeRepos = result.repos || [];
+        } catch (e) {
+            this.state.upgradeRepos = [];
+        }
+    }
+
+    async _deployChanges() {
+        await this._startDeploy('');
+    }
+
+    async _deployRepo(ev) {
+        const btn = ev.target.closest('button[data-path]');
+        const repoPath = btn ? btn.dataset.path : '';
+        if (repoPath) await this._startDeploy(repoPath);
+    }
+
+    async _startDeploy(repoPath) {
+        if (!this.state.selectedInstance || this.state.deploying) return;
+        this.state.deploying = true;
+        this.state.deployLog = '';
+        this.state.deployResult = null;
+        try {
+            const result = await rpc('/devops/instance/deploy', {
+                instance_id: this.state.selectedInstance.id,
+                repo_path: repoPath,
+            });
+            if (result.error) {
+                this.state.deployResult = { ok: false, message: result.error };
+                this.state.deploying = false;
+                return;
+            }
+            // Poll for status
+            this._deployLogPos = 0;
+            this._pollDeploy(result.deploy_id);
+        } catch (e) {
+            this.state.deployResult = { ok: false, message: 'Error: ' + (e.message || e) };
+            this.state.deploying = false;
+        }
+    }
+
+    async _pollDeploy(deployId) {
+        try {
+            const result = await rpc('/devops/instance/deploy_status', {
+                deploy_id: deployId,
+                log_pos: this._deployLogPos || 0,
+            });
+            if (result.log) {
+                this.state.deployLog += result.log;
+            }
+            this._deployLogPos = result.log_pos || 0;
+
+            if (result.status === 'done') {
+                this.state.deploying = false;
+                this.state.deployResult = { ok: true, message: 'Deploy completado' };
+                await this._loadUpgradeRepos();
+            } else {
+                setTimeout(() => this._pollDeploy(deployId), 2000);
+            }
+        } catch (e) {
+            setTimeout(() => this._pollDeploy(deployId), 3000);
+        }
+    }
+
     async _restartInstance() {
         if (!this.state.selectedInstance) return;
         await rpc('/devops/instance/restart', { instance_id: this.state.selectedInstance.id });
         await this._loadProjectData();
+    }
+
+    // ------------------------------------------------------------------
+    // Server metrics
+    // ------------------------------------------------------------------
+
+    async _loadMetrics() {
+        if (!this.state.currentProjectId) return;
+        try {
+            const result = await rpc('/devops/project/metrics', {
+                project_id: this.state.currentProjectId,
+            });
+            if (!result.error) {
+                this.state.serverMetrics = result.metrics;
+                this.state.metricsUpdated = result.updated || '';
+            }
+        } catch (e) {}
+    }
+
+    async _refreshMetrics() {
+        if (!this.state.currentProjectId) return;
+        try {
+            const result = await rpc('/devops/project/metrics', {
+                project_id: this.state.currentProjectId,
+                refresh: true,
+            });
+            if (!result.error) {
+                this.state.serverMetrics = result.metrics;
+                this.state.metricsUpdated = result.updated || '';
+            }
+        } catch (e) {}
+    }
+
+    // ------------------------------------------------------------------
+    // Register production instance
+    // ------------------------------------------------------------------
+
+    _onProdSetupInput(ev) {
+        if (ev.target.dataset.field === 'prodService') {
+            this.state.prodSetup.service = ev.target.value;
+        }
+    }
+
+    _onProdSetupKey(ev) {
+        if (ev.key === 'Enter') this._detectService();
+    }
+
+    async _detectService() {
+        const name = this.state.prodSetup.service.trim();
+        if (!name) return;
+        this.state.prodSetup = { service: name, detected: false, error: '' };
+        try {
+            const r = await rpc('/devops/instance/detect_service', { service_name: name });
+            if (r.error) {
+                this.state.prodSetup.error = r.error;
+            } else {
+                this.state.prodSetup = {
+                    service: name,
+                    detected: true,
+                    active: r.active || false,
+                    db: r.database_name || '',
+                    port: r.port || 8069,
+                    gevent_port: r.gevent_port || 0,
+                    path: r.instance_path || '',
+                    config_path: r.config_path || '',
+                    repo_path: r.repo_path || '',
+                    enterprise_path: r.enterprise_path || '',
+                    error: '',
+                };
+            }
+        } catch (e) {
+            this.state.prodSetup.error = 'Error: ' + (e.message || e);
+        }
+    }
+
+    async _registerProduction() {
+        const s = this.state.prodSetup;
+        if (!s.service || !s.db) {
+            alert('Servicio y base de datos son requeridos');
+            return;
+        }
+        try {
+            const result = await rpc('/devops/instance/register_production', {
+                project_id: this.state.currentProjectId,
+                service_name: s.service,
+                database_name: s.db,
+                port: s.port || 8069,
+                instance_path: s.path || '',
+            });
+            if (result.error) {
+                alert(result.error);
+            } else {
+                await this._loadProjectData();
+            }
+        } catch (e) {
+            alert('Error: ' + (e.message || e));
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Settings / Project management
+    // ------------------------------------------------------------------
+
+    async _loadSettings() {
+        if (!this.state.currentProjectId) return;
+        this.state.settingsSaved = false;
+        this.state.sshPublicKey = '';
+        this.state.sshTestResult = null;
+        try {
+            const result = await rpc('/devops/project/get', {
+                project_id: this.state.currentProjectId,
+            });
+            if (result.error) {
+                this.state.settingsProject = null;
+            } else {
+                this.state.settingsProject = result;
+            }
+        } catch (e) {
+            this.state.settingsProject = null;
+        }
+    }
+
+    _newProject() {
+        this.state.settingsProject = {
+            id: null,
+            name: '',
+            domain: '',
+            repo_path: '',
+            enterprise_path: '',
+            database_name: '',
+            connection_type: 'local',
+            ssh_host: '',
+            ssh_user: 'root',
+            ssh_port: 22,
+            ssh_key_path: '',
+            max_staging: 3,
+            max_development: 5,
+            auto_destroy_hours: 24,
+            production_branch: 'main',
+            ssh_key_configured: false,
+        };
+        this.state.sshPublicKey = '';
+        this.state.settingsSaved = false;
+    }
+
+    async _saveProject() {
+        const p = this.state.settingsProject;
+        if (!p) return;
+        try {
+            const result = await rpc('/devops/project/save', {
+                project_id: p.id || null,
+                name: p.name,
+                domain: p.domain,
+                repo_path: p.repo_path,
+                enterprise_path: p.enterprise_path,
+                database_name: p.database_name,
+                connection_type: p.connection_type,
+                ssh_host: p.ssh_host,
+                ssh_user: p.ssh_user,
+                ssh_port: p.ssh_port,
+                max_staging: p.max_staging,
+                max_development: p.max_development,
+                auto_destroy_hours: p.auto_destroy_hours,
+                production_branch: p.production_branch,
+            });
+            if (result.error) {
+                alert(result.error);
+            } else {
+                this.state.settingsSaved = true;
+                if (!p.id) {
+                    p.id = result.project_id;
+                }
+                // Reload projects list
+                await this._loadProjects();
+                this.state.currentProjectId = p.id;
+                this.state.currentProject = this.state.projects.find(pr => pr.id === p.id) || null;
+                setTimeout(() => { this.state.settingsSaved = false; }, 3000);
+            }
+        } catch (e) {
+            alert('Error: ' + (e.message || e));
+        }
+    }
+
+    async _generateSshKey() {
+        const p = this.state.settingsProject;
+        if (!p || !p.id) {
+            alert('Guarda el proyecto primero');
+            return;
+        }
+        try {
+            const result = await rpc('/devops/project/generate_ssh_key', {
+                project_id: p.id,
+            });
+            if (result.error) {
+                alert(result.error);
+            } else {
+                this.state.sshPublicKey = result.public_key;
+                p.ssh_key_path = result.key_path;
+                p.ssh_key_configured = true;
+            }
+        } catch (e) {
+            alert('Error: ' + (e.message || e));
+        }
+    }
+
+    _onSettingsInput(ev) {
+        const field = ev.target.dataset.field;
+        if (!field || !this.state.settingsProject) return;
+        const val = ev.target.dataset.type === 'int' ? parseInt(ev.target.value) || 0 : ev.target.value;
+        this.state.settingsProject[field] = val;
+    }
+
+    _onConnectionTypeChange(ev) {
+        this.state.settingsProject.connection_type = ev.target.value;
+    }
+
+    async _testSshConnection() {
+        const p = this.state.settingsProject;
+        if (!p || !p.id) return;
+        this.state.sshTestResult = null;
+        try {
+            const result = await rpc('/devops/project/test_ssh', {
+                project_id: p.id,
+            });
+            this.state.sshTestResult = {
+                ok: result.status === 'ok',
+                message: result.message || result.error || '',
+            };
+        } catch (e) {
+            this.state.sshTestResult = { ok: false, message: e.message || 'Error' };
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // AI Terminal (xterm.js via WebSocket)
+    // ------------------------------------------------------------------
+
+    async _initAiTerminal() {
+        if (this._aiTermInitializing) return;
+        this._aiTermInitializing = true;
+
+        try {
+            // Dispose old xterm (DOM was destroyed by t-if)
+            if (this._aiResizeObserver) { this._aiResizeObserver.disconnect(); this._aiResizeObserver = null; }
+            if (this._aiTerm) { this._aiTerm.dispose(); this._aiTerm = null; }
+            this._aiFitAddon = null;
+
+            // Load xterm.js from CDN if not loaded
+            if (!window.Terminal) {
+                await this._loadScript('https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js');
+                await this._loadCSS('https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css');
+                await this._loadScript('https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js');
+            }
+
+            const container = this._getAiTerminalContainer();
+            if (!container) return;
+
+            // Create xterm
+            this._aiTerm = new window.Terminal({
+                cursorBlink: true,
+                fontSize: 14,
+                fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                theme: {
+                    background: '#1e1e2e',
+                    foreground: '#cdd6f4',
+                    cursor: '#f5e0dc',
+                    selectionBackground: '#45475a',
+                    black: '#45475a', red: '#f38ba8', green: '#a6e3a1',
+                    yellow: '#f9e2af', blue: '#89b4fa', magenta: '#cba6f7',
+                    cyan: '#94e2d5', white: '#bac2de',
+                },
+                allowProposedApi: true,
+            });
+            this._aiFitAddon = new window.FitAddon.FitAddon();
+            this._aiTerm.loadAddon(this._aiFitAddon);
+            this._aiTerm.open(container);
+            this._aiFitAddon.fit();
+
+            // Re-fit on container resize
+            this._aiResizeObserver = new ResizeObserver(() => {
+                if (this._aiFitAddon) { try { this._aiFitAddon.fit(); } catch (e) {} }
+            });
+            this._aiResizeObserver.observe(container);
+
+            // Forward keyboard input to WebSocket
+            this._aiTerm.onData((data) => {
+                if (this._aiWs && this._aiWs.readyState === WebSocket.OPEN) {
+                    this._aiWs.send(JSON.stringify({ type: 'input', data: data }));
+                }
+            });
+
+            // Image paste support: intercept clipboard paste on the terminal container
+            this._aiPasteHandler = (ev) => {
+                const items = ev.clipboardData && ev.clipboardData.items;
+                if (!items) return;
+                for (const item of items) {
+                    if (item.type.startsWith('image/')) {
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                        const blob = item.getAsFile();
+                        if (!blob) return;
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                            const base64 = reader.result.split(',')[1];
+                            if (this._aiWs && this._aiWs.readyState === WebSocket.OPEN) {
+                                this._aiWs.send(JSON.stringify({
+                                    type: 'image',
+                                    data: base64,
+                                    filename: `paste_${Date.now()}.png`,
+                                }));
+                                if (this._aiTerm) {
+                                    this._aiTerm.writeln('\x1b[33m[Imagen pegada: enviando...]\x1b[0m');
+                                }
+                            }
+                        };
+                        reader.readAsDataURL(blob);
+                        return;
+                    }
+                }
+            };
+            container.addEventListener('paste', this._aiPasteHandler, true);
+            // Also listen on document for when xterm has focus
+            document.addEventListener('paste', this._aiPasteHandler, false);
+
+            // If WebSocket already connected, reattach and send resize
+            if (this._aiWs && this._aiWs.readyState === WebSocket.OPEN) {
+                this._aiTerm.writeln('\x1b[32mClaude Code (reconectado)\x1b[0m\r\n');
+                this._aiWs.onmessage = (event) => this._onAiWsMessage(event);
+                const dims = this._aiFitAddon.proposeDimensions();
+                if (dims) {
+                    this._aiWs.send(JSON.stringify({ type: 'resize', rows: dims.rows, cols: dims.cols }));
+                }
+                return;
+            }
+
+            // New WebSocket connection
+            this._aiTerm.writeln('\x1b[33mConectando a Claude Code...\x1b[0m');
+
+            const tokenResult = await rpc('/devops/ai/token', {
+                project_id: this.state.currentProjectId || null,
+                instance_id: this.state.selectedInstance ? this.state.selectedInstance.id : null,
+            });
+            if (tokenResult.error) {
+                this._aiTerm.writeln('\x1b[31mError: ' + tokenResult.error + '\x1b[0m');
+                return;
+            }
+
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${proto}//${location.host}${tokenResult.ws_url}`;
+            this._aiWs = new WebSocket(wsUrl);
+
+            this._aiWs.onopen = () => {
+                this._aiWs.send(JSON.stringify({ token: tokenResult.token }));
+            };
+            this._aiWs.onmessage = (event) => this._onAiWsMessage(event);
+            this._aiWs.onclose = () => {
+                this.state.aiConnected = false;
+                if (this._aiTerm) this._aiTerm.writeln('\r\n\x1b[31m[Sesion terminada]\x1b[0m');
+            };
+            this._aiWs.onerror = () => {
+                this.state.aiConnected = false;
+                if (this._aiTerm) this._aiTerm.writeln('\r\n\x1b[31m[Error de conexion WebSocket]\x1b[0m');
+            };
+
+        } catch (e) {
+            if (this._aiTerm) this._aiTerm.writeln('\x1b[31mError: ' + (e.message || e) + '\x1b[0m');
+        } finally {
+            this._aiTermInitializing = false;
+        }
+    }
+
+    _onAiWsMessage(event) {
+        if (!this._aiTerm) return;
+        if (typeof event.data === 'string') {
+            try {
+                const msg = JSON.parse(event.data);
+                if (msg.type === 'ready') {
+                    this.state.aiConnected = true;
+                    if (msg.reattached) {
+                        this._aiTerm.writeln('\x1b[32mReconectado a sesion existente\x1b[0m\r\n');
+                    } else {
+                        this._aiTerm.writeln('\x1b[32mConectado a Claude Code\x1b[0m\r\n');
+                    }
+                    const dims = this._aiFitAddon ? this._aiFitAddon.proposeDimensions() : null;
+                    if (dims && this._aiWs) {
+                        this._aiWs.send(JSON.stringify({ type: 'resize', rows: dims.rows, cols: dims.cols }));
+                    }
+                    return;
+                }
+                if (msg.type === 'error') {
+                    this._aiTerm.writeln('\x1b[31mError: ' + msg.data + '\x1b[0m');
+                    return;
+                }
+                if (msg.type === 'info') {
+                    this._aiTerm.writeln('\x1b[32m' + msg.data + '\x1b[0m');
+                    return;
+                }
+            } catch (e) {}
+        }
+        if (event.data instanceof ArrayBuffer) {
+            this._aiTerm.write(new Uint8Array(event.data));
+        } else if (event.data instanceof Blob) {
+            event.data.arrayBuffer().then(buf => { if (this._aiTerm) this._aiTerm.write(new Uint8Array(buf)); });
+        } else {
+            this._aiTerm.write(event.data);
+        }
+    }
+
+    _cleanupAiTerminal() {
+        if (this._aiPasteHandler) {
+            document.removeEventListener('paste', this._aiPasteHandler, false);
+            this._aiPasteHandler = null;
+        }
+        if (this._aiResizeObserver) { this._aiResizeObserver.disconnect(); this._aiResizeObserver = null; }
+        if (this._aiWs) { this._aiWs.close(); this._aiWs = null; }
+        if (this._aiTerm) { this._aiTerm.dispose(); this._aiTerm = null; }
+        this._aiFitAddon = null;
+        this.state.aiConnected = false;
     }
 }
 
