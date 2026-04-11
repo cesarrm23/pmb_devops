@@ -690,18 +690,15 @@ echo "done" > {status_file}
                 except PermissionError:
                     pass
 
-        # For dev/staging: filter repos from other instances and system repos
-        SYSTEM_REPOS = {'odoo', 'enterprise'}
+        # For dev/staging: filter repos from OTHER instances, keep own + shared
         if inst_path and inst_type != 'production':
             instances_base = os.path.dirname(inst_path)
             repos = [r for r in repos
-                     if (r['path'].startswith(inst_path) and r['name'] not in SYSTEM_REPOS)
+                     if r['path'].startswith(inst_path)
                      or not r['path'].startswith(instances_base + '/')]
-            for r in repos:
-                r['owned'] = r['path'].startswith(inst_path) if inst_path else True
-        else:
-            for r in repos:
-                r['owned'] = True
+        # Mark repos as owned (inside instance path) or shared
+        for r in repos:
+            r['owned'] = r['path'].startswith(inst_path) if inst_path else True
 
         # Fallback: project.repo_path (only if not already found)
         if not repos and project.repo_path and project.repo_path not in seen:
