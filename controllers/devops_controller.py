@@ -1167,8 +1167,16 @@ echo "done" > {status_file}
         elif inst.project_id.repo_path and os.path.isdir(inst.project_id.repo_path):
             cwd = inst.project_id.repo_path
 
-        slug = cwd.replace('/', '-')
-        return os.path.join(home, '.claude', 'projects', slug)
+        # Claude replaces / and _ with - in the project slug
+        slug = cwd.replace('/', '-').replace('_', '-')
+        project_dir = os.path.join(home, '.claude', 'projects', slug)
+        # Fallback: try with underscore preserved (older Claude versions)
+        if not os.path.isdir(project_dir):
+            slug_alt = cwd.replace('/', '-')
+            project_dir_alt = os.path.join(home, '.claude', 'projects', slug_alt)
+            if os.path.isdir(project_dir_alt):
+                return project_dir_alt
+        return project_dir
 
     @http.route('/devops/claude/sessions', type='json', auth='user')
     def claude_sessions(self, instance_id=None, search=''):
