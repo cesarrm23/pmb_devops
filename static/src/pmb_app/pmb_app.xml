@@ -797,16 +797,41 @@
                                     </div>
 
                                     <!-- AI Terminal via WebSocket (right) -->
-                                    <div class="flex-grow-1 pmb-terminal-container" style="min-height: 300px;">
-                                        <div t-ref="terminalAI" style="height: 100%; width: 100%;"/>
+                                    <div class="flex-grow-1 d-flex flex-column pmb-terminal-container" style="min-height: 300px;">
+                                        <!-- Terminal key buttons (special keys for mobile/tablet) -->
+                                        <div class="pmb-term-keys d-flex flex-wrap gap-1 px-2 py-1" style="background: #181825; border-bottom: 1px solid #313244; flex-shrink: 0;">
+                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\x03')" title="Ctrl+C">Ctrl+C</button>
+                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\x1a')" title="Ctrl+Z">Ctrl+Z</button>
+                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\x04')" title="Ctrl+D">Ctrl+D</button>
+                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\x0c')" title="Ctrl+L (clear)">Ctrl+L</button>
+                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\x1b')" title="Escape">Esc</button>
+                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\t')" title="Tab">Tab</button>
+                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\x1b[A')" title="Up arrow">↑</button>
+                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\x1b[B')" title="Down arrow">↓</button>
+                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('y\\n')" title="Yes + Enter">Y</button>
+                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\n')" title="Enter">Enter</button>
+                                        </div>
+                                        <div t-ref="terminalAI" style="flex: 1 1 0; min-height: 0; width: 100%;"/>
                                     </div>
                                 </div>
                             </div>
 
                             <!-- SHELL tab (always in DOM, hidden when not active) -->
-                            <div class="pmb-terminal-container"
+                            <div class="d-flex flex-column"
                                  t-att-style="'height: 500px;' + (state.activeContentTab !== 'shell' ? ' display: none;' : '')">
-                                <div t-ref="terminalShell" style="height: 100%; width: 100%;"/>
+                                <div class="pmb-term-keys d-flex flex-wrap gap-1 px-2 py-1" style="background: #181825; border-bottom: 1px solid #313244; flex-shrink: 0;">
+                                    <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\x03')" title="Ctrl+C">Ctrl+C</button>
+                                    <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\x1a')" title="Ctrl+Z">Ctrl+Z</button>
+                                    <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\x04')" title="Ctrl+D">Ctrl+D</button>
+                                    <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\x0c')" title="Ctrl+L">Ctrl+L</button>
+                                    <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\x1b')" title="Escape">Esc</button>
+                                    <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\t')" title="Tab">Tab</button>
+                                    <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\x1b[A')" title="Up">↑</button>
+                                    <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\x1b[B')" title="Down">↓</button>
+                                </div>
+                                <div class="pmb-terminal-container" style="flex: 1 1 0; min-height: 0;">
+                                    <div t-ref="terminalShell" style="height: 100%; width: 100%;"/>
+                                </div>
                             </div>
 
                             <!-- LOGS tab (always in DOM, hidden when not active) -->

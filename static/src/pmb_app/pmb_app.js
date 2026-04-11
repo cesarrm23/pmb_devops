@@ -1952,6 +1952,25 @@ class PmbDevopsApp extends Component {
         }
     }
 
+    _sendTermKey(data) {
+        if (this._aiWs && this._aiWs.readyState === WebSocket.OPEN) {
+            this._aiWs.send(JSON.stringify({ type: 'input', data }));
+        }
+        if (this._aiTerm) this._aiTerm.focus();
+    }
+
+    _sendShellKey(data) {
+        // Shell terminal uses HTTP polling, send via the input endpoint
+        if (this._termSessionId && this.state.currentProjectId) {
+            rpc('/devops/terminal/input', {
+                project_id: this.state.currentProjectId,
+                session_id: this._termSessionId,
+                data: data,
+            }).catch(() => {});
+        }
+        if (this._term) this._term.focus();
+    }
+
     _cleanupAiTerminal() {
         if (this._aiPasteHandler) {
             document.removeEventListener('paste', this._aiPasteHandler, false);
