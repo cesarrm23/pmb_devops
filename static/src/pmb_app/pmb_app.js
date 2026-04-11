@@ -453,6 +453,7 @@ class PmbDevopsApp extends Component {
             await this._loadHistoryRepos();
             await this._loadHistory();
         } else if (tab === 'ai') {
+            this.state.gitPanelCollapsed = false;  // Always expand git panel when entering AI tab
             this._refreshGitStatus();
             // Always init — t-if destroys the DOM when leaving, so xterm needs re-attaching
             setTimeout(() => this._initAiTerminal(), 200);
