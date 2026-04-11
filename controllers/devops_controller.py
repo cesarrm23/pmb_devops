@@ -1156,12 +1156,14 @@ echo "done" > {status_file}
         if not inst.exists():
             return ''
 
-        # Replicate terminal_controller cwd logic
+        # Replicate terminal_controller cwd logic exactly
         cwd = home
         if inst.instance_type == 'production':
             repo = inst.project_id.repo_path
             if repo and os.path.isdir(repo):
                 cwd = repo
+            elif inst.instance_path and os.path.isdir(inst.instance_path):
+                cwd = inst.instance_path
         elif inst.instance_path and os.path.isdir(inst.instance_path):
             cwd = inst.instance_path
         elif inst.project_id.repo_path and os.path.isdir(inst.project_id.repo_path):

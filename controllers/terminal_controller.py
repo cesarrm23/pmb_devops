@@ -140,10 +140,12 @@ class DevopsTerminalController(http.Controller):
                     # Logs don't need a specific cwd, just the service name
                     cwd = '/tmp'
                 elif instance.instance_type == 'production':
-                    # Production: try repo_path, fallback to home
+                    # Production: try repo_path, then instance_path
                     repo = instance.project_id.repo_path
                     if repo and os.path.isdir(repo) and os.access(repo, os.R_OK):
                         cwd = repo
+                    elif instance.instance_path and os.path.isdir(instance.instance_path):
+                        cwd = instance.instance_path
                 elif instance.instance_path and os.path.isdir(instance.instance_path):
                     cwd = instance.instance_path
                 elif instance.project_id.repo_path and os.path.isdir(instance.project_id.repo_path):
