@@ -920,28 +920,20 @@ echo "done" > {status_file}
             return {'error': 'Proyecto no encontrado'}
 
         allowed_paths = self._get_editor_allowed_paths(project, instance_id)
+        external_paths = []
 
         from ..utils import ssh_utils
 
-        # Root listing: if single allowed path (instance root), list its contents directly
-        # If multiple (instance root + external shared paths), show them as top-level
+        # Root listing: list instance dir contents + external paths at same level
         if not path:
-            if len(allowed_paths) == 1:
-                # Single root: list its contents directly
-                path = allowed_paths[0]
+            inst_root = allowed_paths[0] if allowed_paths else ''
+            external_paths = allowed_paths[1:] if len(allowed_paths) > 1 else []
+            if inst_root:
+                # List instance dir contents
+                path = inst_root
+                # Will be listed below; add external paths as extra items after
             else:
-                # Multiple roots: show each as a top-level folder
-                items = []
-                for ap in allowed_paths:
-                    items.append({
-                        'type': 'dir',
-                        'name': os.path.basename(ap) or ap,
-                        'size': 0,
-                        'path': ap,
-                        'absolute': True,
-                    })
-                items.sort(key=lambda x: x['name'].lower())
-                return {'items': items, 'current_path': '', 'allowed_paths': [os.path.basename(p) for p in allowed_paths]}
+                return {'items': [], 'current_path': ''}
 
         # Sub-directory: path is absolute (from root click) or relative within a base
         full_path = path
@@ -976,6 +968,17 @@ echo "done" > {status_file}
                     'path': os.path.join(full_path, name),
                     'absolute': True,
                 })
+
+        # Add external shared paths at root level (only for root listing)
+        if external_paths:
+            existing_names = {i['name'] for i in items}
+            for ep in external_paths:
+                name = os.path.basename(ep)
+                if name not in existing_names:
+                    items.append({
+                        'type': 'dir', 'name': name, 'size': 0,
+                        'path': ep, 'absolute': True,
+                    })
 
         # Sort: dirs first, then files, alphabetical
         items.sort(key=lambda x: (0 if x['type'] == 'dir' else 1, x['name'].lower()))
