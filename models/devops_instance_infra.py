@@ -116,10 +116,11 @@ class DevopsInstanceInfra(models.Model):
             source_db = project.database_name
 
         # Build addons path using instance-local paths
-        # Each instance gets: odoo (symlink), enterprise (symlink), cremara_addons (git clone)
+        # Enterprise is only included if configured on the project
         inst_path = rec.instance_path
         addons_path = f"{inst_path}/odoo/odoo/addons,{inst_path}/odoo/addons"
-        addons_path += f",{inst_path}/enterprise"
+        if project.enterprise_path:
+            addons_path += f",{inst_path}/enterprise"
         addons_path += f",/opt/odooAL/custom_addons"
         addons_path += f",{inst_path}/cremara_addons"
 
@@ -134,7 +135,7 @@ class DevopsInstanceInfra(models.Model):
             except Exception:
                 pass
 
-        enterprise_path = project.enterprise_path or '/opt/odoo19/enterprise'
+        enterprise_path = project.enterprise_path or ''
 
         script = f"""#!/bin/bash
 set -euo pipefail
@@ -200,8 +201,8 @@ else
     echo "Odoo source already exists, skipping"
 fi
 
-# Copy enterprise addons — idempotent: skip if dir has modules
-if [ -d "{enterprise_path}" ]; then
+# Copy enterprise addons — only if project has enterprise configured
+if [ -n "{enterprise_path}" ] && [ -d "{enterprise_path}" ]; then
     if [ ! -d "{inst_path}/enterprise/account" ]; then
         STEP "Copiando enterprise addons..."
         sudo rsync -a --exclude='__pycache__' "{enterprise_path}/" "{inst_path}/enterprise/"
@@ -210,7 +211,7 @@ if [ -d "{enterprise_path}" ]; then
         echo "Enterprise addons already exist, skipping"
     fi
 else
-    FAIL "Enterprise path not found: {enterprise_path}"
+    echo "Enterprise no configurado para este proyecto, saltando"
 fi
 
 # Symlink venv (shared, read-only executables)
