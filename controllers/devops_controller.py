@@ -598,10 +598,37 @@ echo "done" > {status_file}
             except Exception:
                 pass
             shallow = os.path.exists(os.path.join(git_path, '.git', 'shallow'))
+            # Pending merge: commits ahead of target branch
+            merge_target = ''
+            merge_pending = 0
+            merge_pending_commits = []
+            if branch == 'development':
+                merge_target = 'staging'
+            elif branch == 'staging':
+                merge_target = 'main'
+            if merge_target:
+                try:
+                    r5 = subprocess.run(
+                        ['git', 'log', '--oneline', f'origin/{merge_target}..{branch}'],
+                        capture_output=True, text=True, timeout=5, cwd=git_path,
+                    )
+                    if r5.returncode == 0 and r5.stdout.strip():
+                        lines = [l for l in r5.stdout.strip().split('\n') if l.strip()]
+                        merge_pending = len(lines)
+                        for l in lines[:10]:
+                            parts = l.split(' ', 1)
+                            merge_pending_commits.append({
+                                'hash': parts[0],
+                                'message': parts[1] if len(parts) > 1 else '',
+                            })
+                except Exception:
+                    pass
             repos.append({
                 'path': git_path, 'name': os.path.basename(git_path),
                 'branch': branch, 'ahead': ahead, 'behind': behind,
                 'remote': remote, 'dirty': dirty, 'shallow': shallow,
+                'merge_target': merge_target, 'merge_pending': merge_pending,
+                'merge_pending_commits': merge_pending_commits,
             })
 
         # For non-production instances, only show repos inside the instance's own path
@@ -637,16 +664,20 @@ echo "done" > {status_file}
                 except PermissionError:
                     pass
 
-        # For dev/staging: filter repos to only those inside the instance's path
+        # For dev/staging: filter repos from other instances, keep shared repos
         if inst_path and inst_type != 'production':
-            repos = [r for r in repos if r['path'].startswith(inst_path)]
+            instances_base = os.path.dirname(inst_path)
+            repos = [r for r in repos
+                     if r['path'].startswith(inst_path)
+                     or not r['path'].startswith(instances_base + '/')]
 
         # Fallback: project.repo_path (only if not already found)
         if not repos and project.repo_path and project.repo_path not in seen:
             if os.path.isdir(os.path.join(project.repo_path, '.git')):
                 repos.append({'path': project.repo_path, 'name': os.path.basename(project.repo_path), 'branch': 'HEAD'})
 
-        return {'repos': repos}
+        is_admin = request.env.user.has_group('pmb_devops.group_devops_admin')
+        return {'repos': repos, 'is_admin': is_admin}
 
     @http.route('/devops/repo/fetch_deeper', type='json', auth='user')
     def repo_fetch_deeper(self, repo_path, count=50):
@@ -1045,10 +1076,13 @@ echo "done" > {status_file}
             return {'error': 'Repo path not found'}
 
         # Validate merge direction: development → staging → main only
+        # Admin required for staging → main
+        is_admin = request.env.user.has_group('pmb_devops.group_devops_admin')
         allowed_merges = {
             'development': ['staging'],
-            'staging': ['main'],
         }
+        if is_admin:
+            allowed_merges['staging'] = ['main']
         allowed_targets = allowed_merges.get(source_branch, [])
         if target_branch not in allowed_targets:
             return {'error': f'No se permite merge de {source_branch} → {target_branch}. '

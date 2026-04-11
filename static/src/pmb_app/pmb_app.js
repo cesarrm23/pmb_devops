@@ -37,6 +37,7 @@ class PmbDevopsApp extends Component {
             createName: "",
             createBranchFrom: "main",
             createCloneFrom: "",
+            isAdmin: false,
 
             // Terminal
             terminalConnected: false,
@@ -701,6 +702,7 @@ class PmbDevopsApp extends Component {
                 instance_id: this.state.selectedInstance.id,
             });
             this.state.historyRepos = result.repos || [];
+            this.state.isAdmin = result.is_admin || false;
             // Select first repo if current selection is invalid
             if (this.state.historyRepos.length > 0) {
                 const paths = this.state.historyRepos.map(r => r.path);
