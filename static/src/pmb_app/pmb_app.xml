@@ -817,8 +817,8 @@
                             </div>
 
                             <!-- SHELL tab (always in DOM, hidden when not active) -->
-                            <div class="d-flex flex-column"
-                                 t-att-style="'height: 500px;' + (state.activeContentTab !== 'shell' ? ' display: none;' : '')">
+                            <div t-att-class="'d-flex flex-column' + (state.activeContentTab !== 'shell' ? ' d-none' : '')"
+                                 t-att-style="'height: 500px;' + (state.activeContentTab !== 'shell' ? ' display: none !important;' : '')">
                                 <div class="pmb-term-keys d-flex flex-wrap gap-1 px-2 py-1" style="background: #181825; border-bottom: 1px solid #313244; flex-shrink: 0;">
                                     <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\x03')" title="Ctrl+C">Ctrl+C</button>
                                     <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\x1a')" title="Ctrl+Z">Ctrl+Z</button>
