@@ -452,6 +452,7 @@
                                                 </div>
                                             </div>
 
+                                            <t t-if="!state.gitPanelCollapsed">
                                             <!-- Repo selector -->
                                             <select t-if="state.historyRepos.length > 1"
                                                     class="form-select form-select-sm mb-2"
@@ -619,6 +620,7 @@
                                                         </div>
                                                     </t>
                                                 </div>
+                                            </t>
                                             </t>
                                         </div>
                                     </div>

@@ -96,6 +96,12 @@
         background: #313244;
     }
 
+    // Git panel collapse/expand (desktop)
+    .pmb-git-panel.pmb-git-collapsed {
+        width: auto !important;
+        min-width: auto !important;
+    }
+
     // Mobile responsive
     @media (max-width: 768px) {
         .pmb-navbar {
