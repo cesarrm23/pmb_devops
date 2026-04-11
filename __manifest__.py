@@ -46,6 +46,7 @@ Administra múltiples instancias Odoo desde una plataforma central.
             'pmb_devops/static/src/pmb_app/pmb_app.xml',
             'pmb_devops/static/src/terminal/devops_terminal.js',
             'pmb_devops/static/src/terminal/devops_terminal.xml',
+            'pmb_devops/static/src/user_menu_items.js',
         ],
     },
     'author': 'PatchMyByte',

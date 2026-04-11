@@ -10,6 +10,18 @@ _logger = logging.getLogger(__name__)
 
 class DevopsController(http.Controller):
 
+    @http.route('/devops/assets/clear', type='json', auth='user')
+    def assets_clear(self):
+        """Clear all compiled asset bundles to force regeneration."""
+        request.env['ir.attachment'].sudo().search([
+            '|',
+            ('name', 'like', 'assets'),
+            ('url', 'like', '/web/assets'),
+        ]).unlink()
+        # Also clear the asset caches via ir.qweb
+        request.env.registry.clear_all_caches()
+        return {'status': 'ok'}
+
     @http.route('/devops/project/data', type='json', auth='user')
     def project_data(self, project_id):
         """Get all instances + branches for a project (sidebar data)."""
