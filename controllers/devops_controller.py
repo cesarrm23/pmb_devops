@@ -1144,15 +1144,31 @@ echo "done" > {status_file}
     # ---- Claude sessions ----
 
     def _get_claude_project_dir(self, instance_id=None):
-        """Get the Claude project directory for an instance."""
+        """Get the Claude project directory for an instance.
+
+        Must match the cwd logic in terminal_controller.py so we find
+        the same sessions that Claude Code created.
+        """
         home = os.path.expanduser('~')
-        if instance_id:
-            inst = request.env['devops.instance'].browse(instance_id)
-            if inst.exists() and inst.instance_path:
-                # Claude uses path with / replaced by - and leading -
-                slug = inst.instance_path.replace('/', '-')
-                return os.path.join(home, '.claude', 'projects', slug)
-        return ''
+        if not instance_id:
+            return ''
+        inst = request.env['devops.instance'].browse(instance_id)
+        if not inst.exists():
+            return ''
+
+        # Replicate terminal_controller cwd logic
+        cwd = home
+        if inst.instance_type == 'production':
+            repo = inst.project_id.repo_path
+            if repo and os.path.isdir(repo):
+                cwd = repo
+        elif inst.instance_path and os.path.isdir(inst.instance_path):
+            cwd = inst.instance_path
+        elif inst.project_id.repo_path and os.path.isdir(inst.project_id.repo_path):
+            cwd = inst.project_id.repo_path
+
+        slug = cwd.replace('/', '-')
+        return os.path.join(home, '.claude', 'projects', slug)
 
     @http.route('/devops/claude/sessions', type='json', auth='user')
     def claude_sessions(self, instance_id=None, search=''):
