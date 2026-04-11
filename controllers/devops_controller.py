@@ -1169,6 +1169,10 @@ echo "done" > {status_file}
         elif inst.project_id.repo_path and os.path.isdir(inst.project_id.repo_path):
             cwd = inst.project_id.repo_path
 
+        # Use instance_path as unique key even if dir doesn't exist yet
+        if cwd == home and inst.instance_path:
+            cwd = inst.instance_path
+
         # Claude replaces / and _ with - in the project slug
         slug = cwd.replace('/', '-').replace('_', '-')
         project_dir = os.path.join(home, '.claude', 'projects', slug)

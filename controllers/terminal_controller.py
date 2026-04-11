@@ -151,6 +151,11 @@ class DevopsTerminalController(http.Controller):
                 elif instance.project_id.repo_path and os.path.isdir(instance.project_id.repo_path):
                     cwd = instance.project_id.repo_path
 
+                # Ensure unique cwd per instance (avoid HOME collision)
+                if cwd == os.path.expanduser('~') and instance.instance_path:
+                    os.makedirs(instance.instance_path, exist_ok=True)
+                    cwd = instance.instance_path
+
                 # For logs, get service name from instance
                 if session_type == 'logs' and instance.service_name:
                     service = instance.service_name
