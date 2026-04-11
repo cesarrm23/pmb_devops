@@ -1,2 +1,22 @@
 __pycache__/
 *.pyc
+
+# Auto-added by pmb_devops
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+.local/
+filestore/
+sessions/
+*.log
+.env
+.env.*
