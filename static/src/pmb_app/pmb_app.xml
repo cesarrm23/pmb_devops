@@ -565,8 +565,16 @@
                                                     <div style="background: #11111b; border: 1px solid #313244; border-radius: 6px; max-height: 350px; overflow: auto;">
                                                         <table style="width: 100%; border-collapse: collapse; font-size: 11px; font-family: 'JetBrains Mono', 'Fira Code', monospace;">
                                                             <t t-foreach="(state.gitDiffContent || '').split('\n')" t-as="line" t-key="line_index">
-                                                                <!-- Skip headers: diff, index, ---, +++, @@ -->
-                                                                <tr t-if="line.startsWith('+')" style="background: rgba(166,227,161,0.1);">
+                                                                <tr t-if="line.startsWith('diff ') || line.startsWith('index ') || line.startsWith('--- ') || line.startsWith('+++ ')"
+                                                                    style="background: rgba(137,180,250,0.05);">
+                                                                    <td style="padding: 1px 6px; color: #45475a; text-align: right; user-select: none; width: 1px; white-space: nowrap; border-right: 1px solid #313244; font-size: 9px;"></td>
+                                                                    <td style="padding: 1px 8px; color: #89b4fa; font-weight: 600; white-space: pre-wrap; word-break: break-all;"><t t-esc="line"/></td>
+                                                                </tr>
+                                                                <tr t-elif="line.startsWith('@@')" style="background: rgba(137,180,250,0.08);">
+                                                                    <td style="padding: 2px 6px; color: #45475a; text-align: right; user-select: none; width: 1px; white-space: nowrap; border-right: 1px solid #313244; font-size: 9px;">···</td>
+                                                                    <td style="padding: 2px 8px; color: #89b4fa; font-size: 10px; white-space: pre-wrap;"><t t-esc="line"/></td>
+                                                                </tr>
+                                                                <tr t-elif="line.startsWith('+')" style="background: rgba(166,227,161,0.1);">
                                                                     <td style="padding: 1px 6px; color: #a6e3a1; text-align: right; user-select: none; width: 1px; white-space: nowrap; border-right: 1px solid #313244; font-size: 9px;">+</td>
                                                                     <td style="padding: 1px 8px; color: #a6e3a1; white-space: pre-wrap; word-break: break-all;"><t t-esc="line.substring(1)"/></td>
                                                                 </tr>
@@ -574,7 +582,7 @@
                                                                     <td style="padding: 1px 6px; color: #f38ba8; text-align: right; user-select: none; width: 1px; white-space: nowrap; border-right: 1px solid #313244; font-size: 9px;">−</td>
                                                                     <td style="padding: 1px 8px; color: #f38ba8; white-space: pre-wrap; word-break: break-all;"><t t-esc="line.substring(1)"/></td>
                                                                 </tr>
-                                                                <tr t-elif="line.trim() and !line.startsWith('diff ') and !line.startsWith('index ') and !line.startsWith('@@')">
+                                                                <tr t-elif="line.trim()">
                                                                     <td style="padding: 1px 6px; color: #45475a; text-align: right; user-select: none; width: 1px; white-space: nowrap; border-right: 1px solid #313244; font-size: 9px;"></td>
                                                                     <td style="padding: 1px 8px; color: #6c7086; white-space: pre-wrap; word-break: break-all;"><t t-esc="line.startsWith(' ') ? line.substring(1) : line"/></td>
                                                                 </tr>
