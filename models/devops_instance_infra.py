@@ -794,7 +794,11 @@ fi
             ('state', '=', 'stopped'),
         ])
         for inst in instances:
-            hours = inst.project_id.auto_destroy_hours or 24
+            hours = inst.project_id.auto_destroy_hours
+            if hours is None:
+                hours = 24
+            if hours <= 0:
+                continue  # 0 = never auto-destroy
             cutoff = fields.Datetime.now() - timedelta(hours=hours)
             if inst.last_activity and inst.last_activity < cutoff:
                 try:
