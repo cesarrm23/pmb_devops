@@ -729,28 +729,12 @@
 
                             <!-- EDITOR tab — file browser tree -->
                             <div t-if="state.activeContentTab === 'editor'" class="p-4" style="color: #cdd6f4; overflow-y: auto; flex: 1 1 0; min-height: 0;">
-                                <!-- Repo selector -->
-                                <div class="d-flex gap-2 mb-3">
-                                    <button class="btn btn-sm"
-                                            t-att-style="state.editorRepo === 'addons' ? 'background: #89b4fa; color: #1e1e2e; font-weight: 600;' : 'background: #313244; color: #cdd6f4;'"
-                                            t-on-click="() => this._switchRepo('addons')">
-                                        Custom Addons
-                                    </button>
-                                    <button class="btn btn-sm"
-                                            t-att-style="state.editorRepo === 'odoo' ? 'background: #89b4fa; color: #1e1e2e; font-weight: 600;' : 'background: #313244; color: #cdd6f4;'"
-                                            t-on-click="() => this._switchRepo('odoo')">
-                                        Odoo Source
-                                    </button>
-                                    <button class="btn btn-sm"
-                                            t-att-style="state.editorRepo === 'enterprise' ? 'background: #89b4fa; color: #1e1e2e; font-weight: 600;' : 'background: #313244; color: #cdd6f4;'"
-                                            t-on-click="() => this._switchRepo('enterprise')">
-                                        Enterprise
-                                    </button>
-                                </div>
                                 <!-- Breadcrumb path -->
                                 <div class="d-flex align-items-center gap-1 mb-3" style="font-size: 12px;">
                                     <span class="cursor-pointer" style="color: #89b4fa;"
-                                          t-on-click="() => this._browseDir('')">root</span>
+                                          t-on-click="() => this._browseDir('')">
+                                        <t t-esc="state.selectedInstance ? state.selectedInstance.name : (state.currentProject ? state.currentProject.name : 'root')"/>
+                                    </span>
                                     <t t-foreach="(state.editorPath || '').split('/').filter(p => p)" t-as="part" t-key="part_index">
                                         <span style="color: #45475a;">/</span>
                                         <span class="cursor-pointer" style="color: #89b4fa;"

@@ -841,34 +841,23 @@ echo "done" > {status_file}
 
     @http.route('/devops/files/list', type='json', auth='user')
     def files_list(self, project_id, instance_id=None, path='', repo='addons'):
-        """List files and directories. repo: 'addons', 'odoo', 'enterprise'."""
+        """List files and directories from instance/project root."""
         project = request.env['devops.project'].browse(project_id)
         if not project.exists():
             return {'error': 'Proyecto no encontrado'}
 
-        # Determine base directory based on repo type and instance
-        base_dir = project.repo_path  # default: addons
+        # Base dir = instance path (staging/dev) or production path
+        base_dir = ''
         if instance_id:
             inst = request.env['devops.instance'].browse(instance_id)
-            if inst.exists() and inst.instance_path and inst.instance_type != 'production':
-                if repo == 'addons':
-                    base_dir = f"{inst.instance_path}/cremara_addons"
-                elif repo == 'odoo':
-                    base_dir = f"{inst.instance_path}/odoo"
-                elif repo == 'enterprise':
-                    base_dir = f"{inst.instance_path}/enterprise"
-            else:
-                # Production
-                if repo == 'odoo':
-                    base_dir = '/opt/odooAL/odoo'
-                elif repo == 'enterprise':
-                    base_dir = project.enterprise_path or '/opt/odoo19/enterprise'
-                    # If path doesn't exist, try common locations
-                    if not os.path.isdir(base_dir):
-                        for path_candidate in ['/opt/odoo19/enterprise', '/opt/odooAL/enterprise']:
-                            if os.path.isdir(path_candidate):
-                                base_dir = path_candidate
-                                break
+            if inst.exists() and inst.instance_path:
+                base_dir = inst.instance_path
+        if not base_dir:
+            # Production: use the parent of repo_path (e.g. /opt/odooAL)
+            if project.repo_path:
+                base_dir = os.path.dirname(project.repo_path)
+            elif project.production_instance_id and project.production_instance_id.instance_path:
+                base_dir = project.production_instance_id.instance_path
 
         from ..utils import ssh_utils
 
@@ -911,27 +900,16 @@ echo "done" > {status_file}
         if not project.exists():
             return {'error': 'Proyecto no encontrado'}
 
-        base_dir = project.repo_path
+        base_dir = ''
         if instance_id:
             inst = request.env['devops.instance'].browse(instance_id)
-            if inst.exists() and inst.instance_path and inst.instance_type != 'production':
-                if repo == 'addons':
-                    base_dir = f"{inst.instance_path}/cremara_addons"
-                elif repo == 'odoo':
-                    base_dir = f"{inst.instance_path}/odoo"
-                elif repo == 'enterprise':
-                    base_dir = f"{inst.instance_path}/enterprise"
-            else:
-                if repo == 'odoo':
-                    base_dir = '/opt/odooAL/odoo'
-                elif repo == 'enterprise':
-                    base_dir = project.enterprise_path or '/opt/odoo19/enterprise'
-                    # If path doesn't exist, try common locations
-                    if not os.path.isdir(base_dir):
-                        for path_candidate in ['/opt/odoo19/enterprise', '/opt/odooAL/enterprise']:
-                            if os.path.isdir(path_candidate):
-                                base_dir = path_candidate
-                                break
+            if inst.exists() and inst.instance_path:
+                base_dir = inst.instance_path
+        if not base_dir:
+            if project.repo_path:
+                base_dir = os.path.dirname(project.repo_path)
+            elif project.production_instance_id and project.production_instance_id.instance_path:
+                base_dir = project.production_instance_id.instance_path
 
         from ..utils import ssh_utils
 

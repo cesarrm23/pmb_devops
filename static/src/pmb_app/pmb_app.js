@@ -1223,11 +1223,7 @@ class PmbDevopsApp extends Component {
     // Editor / File browser
     // ------------------------------------------------------------------
 
-    async _switchRepo(repo) {
-        if (repo === this.state.editorRepo) return;
-        this.state.editorRepo = repo;
-        await this._browseDir('');
-    }
+    // _switchRepo removed: editor now browses full instance directory
 
     async _browseDir(path) {
         this.state.editorPath = path;
