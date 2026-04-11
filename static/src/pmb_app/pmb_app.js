@@ -288,6 +288,7 @@ class PmbDevopsApp extends Component {
         }
         this.state.creationLog = '';
         this.state.creationPid = 0;
+        this.state.claudeSessions = [];
         this.state.selectedInstance = instance;
 
         // If instance is creating/error, go to DEPLOY tab
@@ -356,6 +357,8 @@ class PmbDevopsApp extends Component {
             this.state.projects.find((p) => p.id === val) || null;
         this.state.selectedInstance = null;
         this.state.selectedBranch = null;
+        this.state.claudeSessions = [];
+        this.state.claudeSessionsVisible = false;
         this._loadProjectData();
     }
 
