@@ -227,6 +227,16 @@ else
     echo "Addons repo already cloned, skipping"
 fi
 
+# Enforce .gitignore in cloned repo (remove tracked .pyc etc.)
+if [ -d "{inst_path}/cremara_addons/.git" ]; then
+    STEP "Aplicando .gitignore..."
+    python3 -c "
+import sys; sys.path.insert(0, '/opt/odooAL/custom_addons/pmb_devops')
+from utils.git_utils import ensure_gitignore
+ensure_gitignore('{inst_path}/cremara_addons')
+" 2>/dev/null || echo "WARNING: .gitignore enforcement skipped"
+fi
+
 # Step 3: Odoo config
 STEP "Generando configuración Odoo..."
 sudo tee "{rec.odoo_config_path}" > /dev/null << 'CONF'

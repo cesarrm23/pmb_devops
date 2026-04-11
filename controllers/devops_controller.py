@@ -300,6 +300,11 @@ class DevopsController(http.Controller):
             project_vals['enterprise_path'] = enterprise_path
         project.write(project_vals)
 
+        # Enforce .gitignore on the production repo
+        if repo_path:
+            from ..utils.git_utils import ensure_gitignore
+            ensure_gitignore(repo_path)
+
         return {
             'status': 'ok',
             'instance_id': instance.id,
@@ -675,6 +680,14 @@ echo "done" > {status_file}
         if not repos and project.repo_path and project.repo_path not in seen:
             if os.path.isdir(os.path.join(project.repo_path, '.git')):
                 repos.append({'path': project.repo_path, 'name': os.path.basename(project.repo_path), 'branch': 'HEAD'})
+
+        # Enforce .gitignore on all discovered repos (idempotent)
+        from ..utils.git_utils import ensure_gitignore
+        for repo in repos:
+            try:
+                ensure_gitignore(repo['path'])
+            except Exception:
+                pass
 
         is_admin = request.env.user.has_group('pmb_devops.group_devops_admin')
         return {'repos': repos, 'is_admin': is_admin}
