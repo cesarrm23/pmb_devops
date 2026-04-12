@@ -1486,7 +1486,8 @@ echo "done" > {status_file}
 
     @http.route('/devops/meetings/analyze', type='json', auth='user')
     def meetings_analyze(self, meeting_id):
-        """Analyze transcription with Claude AI to extract tasks."""
+        """Analyze transcription with Claude CLI to extract tasks."""
+        import subprocess, json as json_mod
         meeting = request.env['devops.meeting'].sudo().browse(meeting_id)
         if not meeting.exists():
             return {'error': 'Reunion no encontrada'}
@@ -1494,43 +1495,31 @@ echo "done" > {status_file}
         if not text.strip():
             return {'error': 'No hay transcripcion ni notas para analizar'}
 
-        api_key = request.env['ir.config_parameter'].sudo().get_param('pmb_devops.claude_api_key', '')
-        if not api_key:
-            return {'error': 'API key de Claude no configurada'}
+        prompt = f"""Analiza esta transcripcion/notas de una reunion de desarrollo de software y extrae las tareas accionables.
 
-        import requests as http_req
-        try:
-            headers = {
-                'anthropic-version': '2023-06-01',
-                'content-type': 'application/json',
-            }
-            # Support both direct API key (sk-ant-api) and OAuth token (sk-ant-oat)
-            if api_key.startswith('sk-ant-oat'):
-                headers['Authorization'] = f'Bearer {api_key}'
-            else:
-                headers['x-api-key'] = api_key
-            resp = http_req.post('https://api.anthropic.com/v1/messages', headers=headers, json={
-                'model': 'claude-haiku-4-5-20251001',
-                'max_tokens': 2000,
-                'messages': [{'role': 'user', 'content': f"""Analiza esta transcripcion/notas de una reunion de desarrollo de software y extrae las tareas accionables.
-
-Responde SOLO con un JSON array, sin texto adicional. Cada tarea debe tener:
-- "name": titulo corto de la tarea (max 80 chars)
+Responde SOLO con un JSON array, sin texto adicional ni markdown. Cada tarea:
+- "name": titulo corto (max 80 chars)
 - "description": descripcion detallada
 - "priority": "0" (normal), "1" (urgente)
 - "tag": categoria (bug, feature, refactor, docs, deploy, test)
 
-Texto de la reunion:
-{text[:4000]}"""}],
-            }, timeout=30)
+Texto:
+{text[:4000]}"""
 
-            if resp.status_code != 200:
-                return {'error': f'Claude API error {resp.status_code}'}
+        try:
+            claude_bin = os.path.expanduser('~/.local/bin/claude')
+            if not os.path.isfile(claude_bin):
+                claude_bin = 'claude'
+            result = subprocess.run(
+                [claude_bin, '-p', '--output-format', 'text'],
+                input=prompt, capture_output=True, text=True,
+                timeout=60, cwd=os.path.expanduser('~'),
+                env={**os.environ, 'HOME': os.path.expanduser('~')},
+            )
+            if result.returncode != 0:
+                return {'error': f'Claude CLI error: {result.stderr[:200]}'}
 
-            content = resp.json().get('content', [{}])[0].get('text', '[]')
-            # Parse JSON from response
-            import json as json_mod
-            # Try to extract JSON array from response
+            content = result.stdout.strip()
             start = content.find('[')
             end = content.rfind(']') + 1
             if start >= 0 and end > start:
@@ -1538,6 +1527,8 @@ Texto de la reunion:
             else:
                 tasks = []
             return {'tasks': tasks}
+        except subprocess.TimeoutExpired:
+            return {'error': 'Claude CLI timeout (60s)'}
         except Exception as e:
             return {'error': str(e)}
 
