@@ -1673,37 +1673,33 @@ class PmbDevopsApp extends Component {
     async _meetStartRecording(ev) {
         const mid = parseInt(ev.currentTarget.dataset.mid);
         try {
-            // Request tab audio capture — user picks which tab to record
+            // Request screen/tab share with audio — works on all browsers
             const stream = await navigator.mediaDevices.getDisplayMedia({
-                video: false,
+                video: true,
                 audio: true,
-                preferCurrentTab: false,
             });
 
-            // Some browsers require video track — check if we got audio
-            const audioTracks = stream.getAudioTracks();
-            if (audioTracks.length === 0) {
-                // Try with video+audio then discard video
+            // Keep only audio tracks for recording, stop video to save resources
+            stream.getVideoTracks().forEach(t => {
+                t.enabled = false;
+                t.stop();
+            });
+
+            if (stream.getAudioTracks().length === 0) {
                 stream.getTracks().forEach(t => t.stop());
-                const stream2 = await navigator.mediaDevices.getDisplayMedia({
-                    video: true,
-                    audio: true,
-                });
-                // Keep only audio
-                stream2.getVideoTracks().forEach(t => t.stop());
-                this._recordStream = stream2;
-            } else {
-                // Stop video tracks if any
-                stream.getVideoTracks().forEach(t => t.stop());
-                this._recordStream = stream;
+                alert('No se pudo capturar audio. Asegurate de marcar "Compartir audio del tab" al seleccionar la pestaña.');
+                return;
             }
 
+            this._recordStream = stream;
             this._recordChunks = [];
-            this._mediaRecorder = new MediaRecorder(this._recordStream, {
-                mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-                    ? 'audio/webm;codecs=opus'
-                    : 'audio/webm',
-            });
+
+            // Use a mimeType that works across browsers
+            let mimeType = 'audio/webm';
+            for (const mt of ['audio/webm;codecs=opus', 'audio/webm', 'video/webm', 'audio/ogg']) {
+                if (MediaRecorder.isTypeSupported(mt)) { mimeType = mt; break; }
+            }
+            this._mediaRecorder = new MediaRecorder(this._recordStream, { mimeType });
 
             this._mediaRecorder.ondataavailable = (e) => {
                 if (e.data.size > 0) this._recordChunks.push(e.data);
