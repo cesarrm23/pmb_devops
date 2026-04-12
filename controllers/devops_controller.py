@@ -1484,6 +1484,143 @@ echo "done" > {status_file}
         finally:
             os.unlink(tmp_path)
 
+    @http.route('/devops/meetings/analyze', type='json', auth='user')
+    def meetings_analyze(self, meeting_id):
+        """Analyze transcription with Claude AI to extract tasks."""
+        meeting = request.env['devops.meeting'].sudo().browse(meeting_id)
+        if not meeting.exists():
+            return {'error': 'Reunion no encontrada'}
+        text = meeting.transcription or meeting.notes or ''
+        if not text.strip():
+            return {'error': 'No hay transcripcion ni notas para analizar'}
+
+        api_key = request.env['ir.config_parameter'].sudo().get_param('pmb_devops.claude_api_key', '')
+        if not api_key:
+            return {'error': 'API key de Claude no configurada'}
+
+        import requests as http_req
+        try:
+            resp = http_req.post('https://api.anthropic.com/v1/messages', headers={
+                'x-api-key': api_key,
+                'anthropic-version': '2023-06-01',
+                'content-type': 'application/json',
+            }, json={
+                'model': 'claude-haiku-4-5-20251001',
+                'max_tokens': 2000,
+                'messages': [{'role': 'user', 'content': f"""Analiza esta transcripcion/notas de una reunion de desarrollo de software y extrae las tareas accionables.
+
+Responde SOLO con un JSON array, sin texto adicional. Cada tarea debe tener:
+- "name": titulo corto de la tarea (max 80 chars)
+- "description": descripcion detallada
+- "priority": "0" (normal), "1" (urgente)
+- "tag": categoria (bug, feature, refactor, docs, deploy, test)
+
+Texto de la reunion:
+{text[:4000]}"""}],
+            }, timeout=30)
+
+            if resp.status_code != 200:
+                return {'error': f'Claude API error {resp.status_code}'}
+
+            content = resp.json().get('content', [{}])[0].get('text', '[]')
+            # Parse JSON from response
+            import json as json_mod
+            # Try to extract JSON array from response
+            start = content.find('[')
+            end = content.rfind(']') + 1
+            if start >= 0 and end > start:
+                tasks = json_mod.loads(content[start:end])
+            else:
+                tasks = []
+            return {'tasks': tasks}
+        except Exception as e:
+            return {'error': str(e)}
+
+    @http.route('/devops/meetings/create_tasks', type='json', auth='user')
+    def meetings_create_tasks(self, meeting_id, tasks=None):
+        """Create Odoo project.task records from analyzed tasks."""
+        if not tasks:
+            return {'error': 'No tasks provided'}
+        meeting = request.env['devops.meeting'].sudo().browse(meeting_id)
+        if not meeting.exists():
+            return {'error': 'Reunion no encontrada'}
+
+        project = meeting.project_id
+        odoo_project = project.odoo_project_id
+        if not odoo_project:
+            # Auto-create Odoo project linked to devops project
+            odoo_project = request.env['project.project'].sudo().create({
+                'name': f'[DevOps] {project.name}',
+            })
+            project.sudo().write({'odoo_project_id': odoo_project.id})
+
+        created_ids = []
+        for t in tasks:
+            task = request.env['project.task'].sudo().create({
+                'name': t.get('name', 'Sin titulo'),
+                'description': t.get('description', ''),
+                'project_id': odoo_project.id,
+                'priority': t.get('priority', '0'),
+                'tag_ids': [(0, 0, {'name': t.get('tag', 'meeting')})] if t.get('tag') else [],
+            })
+            created_ids.append(task.id)
+
+        if created_ids:
+            meeting.sudo().write({'task_ids': [(4, tid) for tid in created_ids]})
+
+        return {'status': 'ok', 'count': len(created_ids), 'task_ids': created_ids}
+
+    @http.route('/devops/meetings/tasks', type='json', auth='user')
+    def meetings_tasks(self, meeting_id):
+        """Get tasks linked to a meeting."""
+        meeting = request.env['devops.meeting'].sudo().browse(meeting_id)
+        if not meeting.exists():
+            return {'tasks': []}
+        return {'tasks': [{
+            'id': t.id,
+            'name': t.name,
+            'state': t.state,
+            'priority': t.priority,
+            'stage': t.stage_id.name if t.stage_id else '',
+        } for t in meeting.task_ids]}
+
+    @http.route('/devops/tasks/from_commit', type='json', auth='user')
+    def tasks_from_commit(self, project_id, commit_message=''):
+        """Check if a commit message references tasks and close them.
+
+        Patterns: closes #123, fixes #123, resolves #123, task #123
+        """
+        import re
+        if not commit_message:
+            return {'closed': []}
+        project = request.env['devops.project'].browse(project_id)
+        if not project.exists() or not project.odoo_project_id:
+            return {'closed': []}
+
+        # Find task references
+        pattern = r'(?:closes?|fix(?:es)?|resolves?|task)\s*#(\d+)'
+        matches = re.findall(pattern, commit_message, re.IGNORECASE)
+        closed = []
+        for task_id_str in matches:
+            task_id = int(task_id_str)
+            task = request.env['project.task'].sudo().browse(task_id)
+            if task.exists() and task.project_id.id == project.odoo_project_id.id:
+                # Move to done stage or set state
+                done_stage = request.env['project.task.type'].sudo().search([
+                    ('name', 'ilike', 'done'),
+                    ('project_ids', 'in', project.odoo_project_id.id),
+                ], limit=1)
+                if not done_stage:
+                    done_stage = request.env['project.task.type'].sudo().search([
+                        ('name', 'ilike', 'hecho'),
+                    ], limit=1)
+                vals = {'state': '1_done'}
+                if done_stage:
+                    vals['stage_id'] = done_stage.id
+                task.sudo().write(vals)
+                closed.append({'id': task.id, 'name': task.name})
+        return {'closed': closed}
+
     @http.route('/devops/meetings/delete', type='json', auth='user')
     def meetings_delete(self, meeting_id):
         """Delete a meeting."""
@@ -1556,7 +1693,14 @@ echo "done" > {status_file}
         if result.returncode != 0:
             err = result.stderr.strip() or result.stdout.strip()
             return {'error': err or 'git commit failed'}
-        return {'status': 'ok', 'output': result.stdout.strip()}
+        # Auto-close referenced tasks
+        closed_tasks = []
+        try:
+            closed = self.tasks_from_commit(project_id, message)
+            closed_tasks = closed.get('closed', [])
+        except Exception:
+            pass
+        return {'status': 'ok', 'output': result.stdout.strip(), 'closed_tasks': closed_tasks}
 
     @http.route('/devops/git/push', type='json', auth='user')
     def git_push(self, project_id, repo_path=''):
@@ -1746,6 +1890,8 @@ echo "done" > {status_file}
             'max_development': project.max_development,
             'auto_destroy_hours': project.auto_destroy_hours,
             'production_branch': project.production_branch or 'main',
+            'odoo_project_id': project.odoo_project_id.id if project.odoo_project_id else False,
+            'odoo_project_name': project.odoo_project_id.name if project.odoo_project_id else '',
             'ssh_key_configured': bool(project.ssh_key_path and os.path.exists(project.ssh_key_path)),
         }
 
@@ -1756,7 +1902,7 @@ echo "done" > {status_file}
             'name', 'domain', 'repo_path', 'enterprise_path', 'database_name',
             'connection_type', 'ssh_host', 'ssh_user', 'ssh_port',
             'max_staging', 'max_development', 'auto_destroy_hours',
-            'production_branch',
+            'production_branch', 'odoo_project_id',
         ]
         write_vals = {k: v for k, v in vals.items() if k in allowed_fields}
 

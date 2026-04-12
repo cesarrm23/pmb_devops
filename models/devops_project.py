@@ -40,6 +40,8 @@ class DevopsProject(models.Model):
     max_staging = fields.Integer(string='Max Staging', default=3)
     max_development = fields.Integer(string='Max Development', default=5)
     auto_destroy_hours = fields.Integer(string='Auto-destroy (horas)', default=24)
+    odoo_project_id = fields.Many2one('project.project', string='Proyecto Odoo',
+        help='Proyecto de Odoo para crear tareas desde transcripciones')
     enterprise_path = fields.Char(
         string='Ruta Enterprise Addons',
         help='Ruta a los addons enterprise (ej: /opt/odoo19Test/enterprise)',

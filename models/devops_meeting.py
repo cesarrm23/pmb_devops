@@ -28,3 +28,4 @@ class DevopsMeeting(models.Model):
         ('transcribed', 'Transcrita'),
     ], default='scheduled', string='Estado')
     duration_minutes = fields.Integer(string='Duracion (min)')
+    task_ids = fields.Many2many('project.task', string='Tareas creadas')

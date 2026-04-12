@@ -87,6 +87,10 @@ class PmbDevopsApp extends Component {
             meetType: 'jitsi',          // create form: jitsi or external
             meetRecordingId: null,      // meeting currently recording
             meetRecordingTime: '',      // recording duration display
+            meetAnalyzedId: null,       // meeting with analyzed tasks pending
+            meetAnalyzedTasks: [],      // tasks extracted by AI
+            meetTasksId: null,          // meeting showing created tasks
+            meetTasks: [],              // created Odoo tasks
             groqApiKey: '',
             gitPanelWidth: 280,         // resizable panel width (px)
             gitResizing: false,         // drag in progress
@@ -1845,6 +1849,43 @@ class PmbDevopsApp extends Component {
         const result = await rpc('/devops/meetings/transcription', { meeting_id: mid });
         this.state.meetTranscriptionId = mid;
         this.state.meetTranscription = result.transcription || '';
+    }
+
+    async _meetAnalyzeTasks(ev) {
+        const mid = parseInt(ev.currentTarget.dataset.mid);
+        ev.currentTarget.disabled = true;
+        ev.currentTarget.textContent = '🤖 Analizando...';
+        try {
+            const result = await rpc('/devops/meetings/analyze', { meeting_id: mid });
+            if (result.error) {
+                alert('Error: ' + result.error);
+            } else {
+                this.state.meetAnalyzedId = mid;
+                this.state.meetAnalyzedTasks = result.tasks || [];
+            }
+        } catch (e) { alert('Error: ' + e.message); }
+        ev.currentTarget.disabled = false;
+        ev.currentTarget.textContent = '🤖 Extraer tareas con IA';
+    }
+
+    async _meetCreateTasks(ev) {
+        const mid = parseInt(ev.currentTarget.dataset.mid);
+        try {
+            const result = await rpc('/devops/meetings/create_tasks', {
+                meeting_id: mid,
+                tasks: this.state.meetAnalyzedTasks,
+            });
+            if (result.error) {
+                alert('Error: ' + result.error);
+            } else {
+                this.state.meetAnalyzedId = null;
+                this.state.meetAnalyzedTasks = [];
+                // Show created tasks
+                this.state.meetTasksId = mid;
+                const tasksResult = await rpc('/devops/meetings/tasks', { meeting_id: mid });
+                this.state.meetTasks = tasksResult.tasks || [];
+            }
+        } catch (e) { alert('Error: ' + e.message); }
     }
 
     async _onGroqKeyChange(ev) {

@@ -1374,6 +1374,54 @@
                                                         <pre style="color: #a6adc8; font-size: 11px; white-space: pre-wrap; margin: 0;"><t t-esc="state.meetTranscription"/></pre>
                                                     </div>
                                                 </t>
+
+                                                <!-- AI Task extraction -->
+                                                <t t-if="m.has_transcription or m.notes">
+                                                    <div class="mt-2 d-flex align-items-center gap-2 flex-wrap">
+                                                        <button class="btn btn-sm"
+                                                                style="background: #f9e2af; color: #1e1e2e; font-size: 11px; font-weight: 600;"
+                                                                t-att-data-mid="m.id" t-on-click="_meetAnalyzeTasks">
+                                                            🤖 Extraer tareas con IA</button>
+                                                    </div>
+                                                </t>
+
+                                                <!-- Analyzed tasks (pending confirmation) -->
+                                                <t t-if="state.meetAnalyzedId === m.id and state.meetAnalyzedTasks.length > 0">
+                                                    <div class="mt-2 p-2" style="background: #11111b; border: 1px solid #f9e2af; border-radius: 6px;">
+                                                        <div class="d-flex align-items-center justify-content-between mb-2">
+                                                            <span style="color: #f9e2af; font-size: 11px; font-weight: 600;">Tareas detectadas</span>
+                                                            <button class="btn btn-sm" style="background: #a6e3a1; color: #1e1e2e; font-size: 10px; font-weight: 600;"
+                                                                    t-att-data-mid="m.id" t-on-click="_meetCreateTasks">Crear todas en Odoo</button>
+                                                        </div>
+                                                        <t t-foreach="state.meetAnalyzedTasks" t-as="task" t-key="task_index">
+                                                            <div class="py-1" style="font-size: 11px; border-bottom: 1px solid #313244;">
+                                                                <span t-if="task.priority === '1'" style="color: #f38ba8;">&#9733; </span>
+                                                                <span style="color: #cdd6f4;"><t t-esc="task.name"/></span>
+                                                                <span t-if="task.tag" style="color: #6c7086; font-size: 9px; margin-left: 4px;">[<t t-esc="task.tag"/>]</span>
+                                                            </div>
+                                                        </t>
+                                                    </div>
+                                                </t>
+
+                                                <!-- Linked tasks (already created) -->
+                                                <t t-if="state.meetTasksId === m.id and state.meetTasks.length > 0">
+                                                    <div class="mt-2 p-2" style="background: #11111b; border: 1px solid #a6e3a1; border-radius: 6px;">
+                                                        <span style="color: #a6e3a1; font-size: 11px; font-weight: 600;">Tareas creadas en Odoo</span>
+                                                        <t t-foreach="state.meetTasks" t-as="task" t-key="task.id">
+                                                            <div class="py-1 d-flex align-items-center gap-2" style="font-size: 11px;">
+                                                                <span t-att-style="task.state === '1_done' ? 'color: #a6e3a1;' : 'color: #cdd6f4;'">
+                                                                    <t t-if="task.state === '1_done'">&#10004;</t>
+                                                                    <t t-else="">&#9679;</t>
+                                                                    #<t t-esc="task.id"/> <t t-esc="task.name"/>
+                                                                </span>
+                                                                <span t-if="task.stage" style="color: #6c7086; font-size: 9px;">[<t t-esc="task.stage"/>]</span>
+                                                            </div>
+                                                        </t>
+                                                        <div style="color: #6c7086; font-size: 10px; margin-top: 4px;">
+                                                            Tip: en commits usa <code>closes #ID</code> o <code>fixes #ID</code> para cerrar tareas
+                                                        </div>
+                                                    </div>
+                                                </t>
                                             </div>
                                         </t>
                                     </div>

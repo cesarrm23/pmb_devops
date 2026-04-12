@@ -16,7 +16,7 @@ Administra múltiples instancias Odoo desde una plataforma central.
 * Plugins de Claude Code
 * Roles multi-usuario por proyecto
 """,
-    'depends': ['base', 'mail'],
+    'depends': ['base', 'mail', 'project'],
     'data': [
         'security/devops_security.xml',
         'security/ir.model.access.csv',
