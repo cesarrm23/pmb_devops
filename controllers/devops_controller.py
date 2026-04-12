@@ -1507,14 +1507,16 @@ Texto:
 {text[:4000]}"""
 
         try:
-            claude_bin = os.path.expanduser('~/.local/bin/claude')
+            # Claude is installed for odooal user
+            odooal_home = '/opt/odooAL'
+            claude_bin = os.path.join(odooal_home, '.local/bin/claude')
             if not os.path.isfile(claude_bin):
                 claude_bin = 'claude'
+            env = {**os.environ, 'HOME': odooal_home, 'PATH': os.environ.get('PATH', '') + ':' + os.path.join(odooal_home, '.local/bin')}
             result = subprocess.run(
                 [claude_bin, '-p', '--output-format', 'text'],
                 input=prompt, capture_output=True, text=True,
-                timeout=60, cwd=os.path.expanduser('~'),
-                env={**os.environ, 'HOME': os.path.expanduser('~')},
+                timeout=60, cwd=odooal_home, env=env,
             )
             if result.returncode != 0:
                 return {'error': f'Claude CLI error: {result.stderr[:200]}'}
