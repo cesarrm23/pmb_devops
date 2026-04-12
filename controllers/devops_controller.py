@@ -1513,16 +1513,14 @@ Texto:
             if not os.path.isfile(claude_bin):
                 claude_bin = 'claude'
             import tempfile
-            env = {**os.environ, 'HOME': odooal_home, 'PATH': os.environ.get('PATH', '') + ':' + os.path.join(odooal_home, '.local/bin')}
-            # Write prompt to temp file (avoid stdin pipe issues with Bun)
             with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as tmp:
                 tmp.write(prompt)
                 prompt_file = tmp.name
             try:
+                script = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'utils', 'claude_analyze.sh')
                 result = subprocess.run(
-                    f'cat {prompt_file} | {claude_bin} -p --output-format text',
-                    shell=True, capture_output=True, text=True,
-                    timeout=60, cwd=odooal_home, env=env,
+                    ['/bin/bash', script, prompt_file],
+                    capture_output=True, text=True, timeout=60,
                 )
             finally:
                 os.unlink(prompt_file)
