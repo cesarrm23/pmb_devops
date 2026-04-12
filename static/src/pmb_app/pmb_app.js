@@ -1677,21 +1677,37 @@ class PmbDevopsApp extends Component {
             const isMobile = window.innerWidth <= 768 || /Android|iPhone|iPad/i.test(navigator.userAgent);
 
             if (isMobile || !navigator.mediaDevices.getDisplayMedia) {
-                // Mobile: record from microphone (speaker/hands-free mode)
+                // Mobile: mic captures speaker output + your voice
                 stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             } else {
-                // Desktop: capture tab audio
+                // Desktop: mix tab audio + mic for full conversation capture
                 try {
-                    stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-                    // Stop video, keep audio only
-                    stream.getVideoTracks().forEach(t => { t.stop(); });
-                    if (stream.getAudioTracks().length === 0) {
-                        stream.getTracks().forEach(t => t.stop());
-                        // Fallback to mic
+                    const tabStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+                    tabStream.getVideoTracks().forEach(t => t.stop());
+
+                    if (tabStream.getAudioTracks().length > 0) {
+                        // Also get mic
+                        let micStream;
+                        try {
+                            micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                        } catch (e) { /* mic denied, tab-only */ }
+
+                        // Mix both with AudioContext
+                        const ctx = new AudioContext();
+                        const dest = ctx.createMediaStreamDestination();
+                        ctx.createMediaStreamSource(tabStream).connect(dest);
+                        if (micStream) {
+                            ctx.createMediaStreamSource(micStream).connect(dest);
+                            this._recordMicStream = micStream;
+                        }
+                        this._recordAudioCtx = ctx;
+                        this._recordTabStream = tabStream;
+                        stream = dest.stream;
+                    } else {
+                        tabStream.getTracks().forEach(t => t.stop());
                         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                     }
                 } catch (displayErr) {
-                    // Fallback to mic if getDisplayMedia denied
                     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 }
             }
@@ -1750,9 +1766,11 @@ class PmbDevopsApp extends Component {
             await this._loadMeetings();
 
             // Auto-stop if stream ends (user stops sharing)
-            this._recordStream.getAudioTracks()[0].onended = () => {
-                this._meetStopRecording();
-            };
+            const autoStop = () => this._meetStopRecording();
+            this._recordStream.getAudioTracks().forEach(t => t.onended = autoStop);
+            if (this._recordTabStream) {
+                this._recordTabStream.getAudioTracks().forEach(t => t.onended = autoStop);
+            }
 
         } catch (e) {
             if (e.name !== 'NotAllowedError') {
@@ -1768,6 +1786,18 @@ class PmbDevopsApp extends Component {
         if (this._recordStream) {
             this._recordStream.getTracks().forEach(t => t.stop());
             this._recordStream = null;
+        }
+        if (this._recordTabStream) {
+            this._recordTabStream.getTracks().forEach(t => t.stop());
+            this._recordTabStream = null;
+        }
+        if (this._recordMicStream) {
+            this._recordMicStream.getTracks().forEach(t => t.stop());
+            this._recordMicStream = null;
+        }
+        if (this._recordAudioCtx) {
+            this._recordAudioCtx.close().catch(() => {});
+            this._recordAudioCtx = null;
         }
         if (this._recordTimer) {
             clearInterval(this._recordTimer);
