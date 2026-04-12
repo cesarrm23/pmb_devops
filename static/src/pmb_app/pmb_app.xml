@@ -1351,8 +1351,7 @@
                                                     <button t-if="!m.has_audio and state.meetRecordingId !== m.id" class="btn btn-sm"
                                                             style="background: #f38ba8; color: #1e1e2e; font-size: 11px; font-weight: 600;"
                                                             t-att-data-mid="m.id" t-on-click="_meetStartRecording">
-                                                        🔴 Grabar tab</button>
-                                                    <!-- File upload fallback -->
+                                                        🔴 Grabar</button>
                                                     <label t-if="!m.has_audio and state.meetRecordingId !== m.id" class="btn btn-sm" style="background: #313244; color: #cdd6f4; font-size: 11px; cursor: pointer;">
                                                         📎 Subir
                                                         <input type="file" accept="audio/*,video/*" style="display:none;"

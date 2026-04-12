@@ -1673,21 +1673,31 @@ class PmbDevopsApp extends Component {
     async _meetStartRecording(ev) {
         const mid = parseInt(ev.currentTarget.dataset.mid);
         try {
-            // Request screen/tab share with audio — works on all browsers
-            const stream = await navigator.mediaDevices.getDisplayMedia({
-                video: true,
-                audio: true,
-            });
+            let stream;
+            const isMobile = window.innerWidth <= 768 || /Android|iPhone|iPad/i.test(navigator.userAgent);
 
-            // Keep only audio tracks for recording, stop video to save resources
-            stream.getVideoTracks().forEach(t => {
-                t.enabled = false;
-                t.stop();
-            });
+            if (isMobile || !navigator.mediaDevices.getDisplayMedia) {
+                // Mobile: record from microphone (speaker/hands-free mode)
+                stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            } else {
+                // Desktop: capture tab audio
+                try {
+                    stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+                    // Stop video, keep audio only
+                    stream.getVideoTracks().forEach(t => { t.stop(); });
+                    if (stream.getAudioTracks().length === 0) {
+                        stream.getTracks().forEach(t => t.stop());
+                        // Fallback to mic
+                        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    }
+                } catch (displayErr) {
+                    // Fallback to mic if getDisplayMedia denied
+                    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                }
+            }
 
-            if (stream.getAudioTracks().length === 0) {
-                stream.getTracks().forEach(t => t.stop());
-                alert('No se pudo capturar audio. Asegurate de marcar "Compartir audio del tab" al seleccionar la pestaña.');
+            if (!stream || stream.getAudioTracks().length === 0) {
+                alert('No se pudo acceder al audio. Verifica los permisos del navegador.');
                 return;
             }
 
