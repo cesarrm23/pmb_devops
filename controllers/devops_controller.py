@@ -1512,12 +1512,20 @@ Texto:
             claude_bin = os.path.join(odooal_home, '.local/bin/claude')
             if not os.path.isfile(claude_bin):
                 claude_bin = 'claude'
+            import tempfile
             env = {**os.environ, 'HOME': odooal_home, 'PATH': os.environ.get('PATH', '') + ':' + os.path.join(odooal_home, '.local/bin')}
-            result = subprocess.run(
-                [claude_bin, '-p', '--output-format', 'text'],
-                input=prompt, capture_output=True, text=True,
-                timeout=60, cwd=odooal_home, env=env,
-            )
+            # Write prompt to temp file (avoid stdin pipe issues with Bun)
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as tmp:
+                tmp.write(prompt)
+                prompt_file = tmp.name
+            try:
+                result = subprocess.run(
+                    f'cat {prompt_file} | {claude_bin} -p --output-format text',
+                    shell=True, capture_output=True, text=True,
+                    timeout=60, cwd=odooal_home, env=env,
+                )
+            finally:
+                os.unlink(prompt_file)
             if result.returncode != 0:
                 return {'error': f'Claude CLI error: {result.stderr[:200]}'}
 
