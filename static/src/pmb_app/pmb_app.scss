@@ -96,6 +96,12 @@
         background: #313244;
     }
 
+    // Recording pulse animation
+    @keyframes pmb-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+
     // Terminal key buttons
     .pmb-key-btn {
         background: #313244 !important;

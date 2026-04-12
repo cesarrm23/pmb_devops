@@ -85,6 +85,8 @@ class PmbDevopsApp extends Component {
             meetActiveId: null,         // active Jitsi call meeting ID
             meetActiveName: '',
             meetType: 'jitsi',          // create form: jitsi or external
+            meetRecordingId: null,      // meeting currently recording
+            meetRecordingTime: '',      // recording duration display
             groqApiKey: '',
             gitPanelWidth: 280,         // resizable panel width (px)
             gitResizing: false,         // drag in progress
@@ -1662,6 +1664,116 @@ class PmbDevopsApp extends Component {
         this._jitsiApi.addListener('readyToClose', () => {
             this._meetEndCall();
         });
+    }
+
+    async _meetStartRecording(ev) {
+        const mid = parseInt(ev.currentTarget.dataset.mid);
+        try {
+            // Request tab audio capture — user picks which tab to record
+            const stream = await navigator.mediaDevices.getDisplayMedia({
+                video: false,
+                audio: true,
+                preferCurrentTab: false,
+            });
+
+            // Some browsers require video track — check if we got audio
+            const audioTracks = stream.getAudioTracks();
+            if (audioTracks.length === 0) {
+                // Try with video+audio then discard video
+                stream.getTracks().forEach(t => t.stop());
+                const stream2 = await navigator.mediaDevices.getDisplayMedia({
+                    video: true,
+                    audio: true,
+                });
+                // Keep only audio
+                stream2.getVideoTracks().forEach(t => t.stop());
+                this._recordStream = stream2;
+            } else {
+                // Stop video tracks if any
+                stream.getVideoTracks().forEach(t => t.stop());
+                this._recordStream = stream;
+            }
+
+            this._recordChunks = [];
+            this._mediaRecorder = new MediaRecorder(this._recordStream, {
+                mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+                    ? 'audio/webm;codecs=opus'
+                    : 'audio/webm',
+            });
+
+            this._mediaRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0) this._recordChunks.push(e.data);
+            };
+
+            this._mediaRecorder.onstop = async () => {
+                const blob = new Blob(this._recordChunks, { type: 'audio/webm' });
+                // Convert to base64 and upload
+                const reader = new FileReader();
+                reader.onload = async () => {
+                    const base64 = reader.result.split(',')[1];
+                    await rpc('/devops/meetings/upload_audio', {
+                        meeting_id: mid,
+                        audio_data: base64,
+                        filename: `recording_${Date.now()}.webm`,
+                    });
+                    await rpc('/devops/meetings/update', { meeting_id: mid, state: 'done' });
+                    await this._loadMeetings();
+                };
+                reader.readAsDataURL(blob);
+                this._recordChunks = [];
+            };
+
+            this._mediaRecorder.start(1000); // collect data every second
+            this.state.meetRecordingId = mid;
+            this._recordStartTime = Date.now();
+
+            // Timer display
+            this._recordTimer = setInterval(() => {
+                const elapsed = Math.floor((Date.now() - this._recordStartTime) / 1000);
+                const min = Math.floor(elapsed / 60);
+                const sec = elapsed % 60;
+                this.state.meetRecordingTime = `${min}:${sec.toString().padStart(2, '0')}`;
+            }, 1000);
+
+            // Update state
+            await rpc('/devops/meetings/update', { meeting_id: mid, state: 'in_progress' });
+            await this._loadMeetings();
+
+            // Auto-stop if stream ends (user stops sharing)
+            this._recordStream.getAudioTracks()[0].onended = () => {
+                this._meetStopRecording();
+            };
+
+        } catch (e) {
+            if (e.name !== 'NotAllowedError') {
+                alert('Error iniciando grabacion: ' + e.message);
+            }
+        }
+    }
+
+    async _meetStopRecording() {
+        if (this._mediaRecorder && this._mediaRecorder.state !== 'inactive') {
+            this._mediaRecorder.stop();
+        }
+        if (this._recordStream) {
+            this._recordStream.getTracks().forEach(t => t.stop());
+            this._recordStream = null;
+        }
+        if (this._recordTimer) {
+            clearInterval(this._recordTimer);
+            this._recordTimer = null;
+        }
+        // Save duration
+        if (this.state.meetRecordingId && this._recordStartTime) {
+            const duration = Math.round((Date.now() - this._recordStartTime) / 60000);
+            await rpc('/devops/meetings/update', {
+                meeting_id: this.state.meetRecordingId,
+                duration: duration || 1,
+            });
+        }
+        this.state.meetRecordingId = null;
+        this.state.meetRecordingTime = '';
+        this._recordStartTime = null;
     }
 
     async _meetEndCall() {
