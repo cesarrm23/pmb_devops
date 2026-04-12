@@ -1500,11 +1500,16 @@ echo "done" > {status_file}
 
         import requests as http_req
         try:
-            resp = http_req.post('https://api.anthropic.com/v1/messages', headers={
-                'x-api-key': api_key,
+            headers = {
                 'anthropic-version': '2023-06-01',
                 'content-type': 'application/json',
-            }, json={
+            }
+            # Support both direct API key (sk-ant-api) and OAuth token (sk-ant-oat)
+            if api_key.startswith('sk-ant-oat'):
+                headers['Authorization'] = f'Bearer {api_key}'
+            else:
+                headers['x-api-key'] = api_key
+            resp = http_req.post('https://api.anthropic.com/v1/messages', headers=headers, json={
                 'model': 'claude-haiku-4-5-20251001',
                 'max_tokens': 2000,
                 'messages': [{'role': 'user', 'content': f"""Analiza esta transcripcion/notas de una reunion de desarrollo de software y extrae las tareas accionables.
