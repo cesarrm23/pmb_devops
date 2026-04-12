@@ -1551,13 +1551,21 @@ Texto:
             project.sudo().write({'odoo_project_id': odoo_project.id})
 
         created_ids = []
+        Tag = request.env['project.tags'].sudo()
         for t in tasks:
+            tag_ids = []
+            tag_name = t.get('tag', '')
+            if tag_name:
+                tag = Tag.search([('name', '=', tag_name)], limit=1)
+                if not tag:
+                    tag = Tag.create({'name': tag_name})
+                tag_ids = [(4, tag.id)]
             task = request.env['project.task'].sudo().create({
                 'name': t.get('name', 'Sin titulo'),
                 'description': t.get('description', ''),
                 'project_id': odoo_project.id,
                 'priority': t.get('priority', '0'),
-                'tag_ids': [(0, 0, {'name': t.get('tag', 'meeting')})] if t.get('tag') else [],
+                'tag_ids': tag_ids,
             })
             created_ids.append(task.id)
 
