@@ -11,7 +11,12 @@ class DevopsMeeting(models.Model):
     instance_id = fields.Many2one('devops.instance', string='Instancia')
     user_id = fields.Many2one('res.users', string='Creado por', default=lambda self: self.env.uid)
     date = fields.Datetime(string='Fecha', default=fields.Datetime.now)
+    meet_type = fields.Selection([
+        ('jitsi', 'Jitsi (embebido)'),
+        ('external', 'Link externo'),
+    ], default='jitsi', string='Tipo')
     meet_url = fields.Char(string='URL de Meet')
+    jitsi_room = fields.Char(string='Jitsi Room ID')
     notes = fields.Text(string='Notas')
     transcription = fields.Text(string='Transcripcion')
     audio_filename = fields.Char(string='Audio filename')

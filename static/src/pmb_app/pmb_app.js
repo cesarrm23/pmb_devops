@@ -82,6 +82,9 @@ class PmbDevopsApp extends Component {
             meetNewUrl: '',
             meetTranscriptionId: null,
             meetTranscription: '',
+            meetActiveId: null,         // active Jitsi call meeting ID
+            meetActiveName: '',
+            meetType: 'jitsi',          // create form: jitsi or external
             groqApiKey: '',
             gitPanelWidth: 280,         // resizable panel width (px)
             gitResizing: false,         // drag in progress
@@ -134,6 +137,7 @@ class PmbDevopsApp extends Component {
         });
 
         this.terminalAIRef = useRef("terminalAI");
+        this.jitsiContainerRef = useRef("jitsiContainer");
         this.terminalShellRef = useRef("terminalShell");
         this.terminalLogsRef = useRef("terminalLogs");
         this._pollTimer = null;
@@ -1569,20 +1573,107 @@ class PmbDevopsApp extends Component {
         } catch (e) { this.state.meetings = []; }
     }
 
-    _meetCreate() { this.state.meetCreating = true; this.state.meetNewName = ''; this.state.meetNewUrl = ''; }
+    _meetCreate() { this.state.meetCreating = true; this.state.meetNewName = ''; this.state.meetNewUrl = ''; this.state.meetType = 'jitsi'; }
     _meetCancelCreate() { this.state.meetCreating = false; }
+    _meetSetTypeJitsi() { this.state.meetType = 'jitsi'; }
+    _meetSetTypeExternal() { this.state.meetType = 'external'; }
     _onMeetNameInput(ev) { this.state.meetNewName = ev.target.value; }
     _onMeetUrlInput(ev) { this.state.meetNewUrl = ev.target.value; }
 
     async _meetSave() {
         if (!this.state.meetNewName.trim()) return;
-        await rpc('/devops/meetings/create', {
+        const result = await rpc('/devops/meetings/create', {
             project_id: this.state.currentProjectId,
             name: this.state.meetNewName,
             meet_url: this.state.meetNewUrl,
+            meet_type: this.state.meetType,
             instance_id: this.state.selectedInstance ? this.state.selectedInstance.id : null,
         });
         this.state.meetCreating = false;
+        await this._loadMeetings();
+        // Auto-join if Jitsi
+        if (result.jitsi_room && this.state.meetType === 'jitsi') {
+            this._startJitsiCall(result.id, this.state.meetNewName, result.jitsi_room);
+        }
+    }
+
+    async _meetQuickCall() {
+        const name = 'Llamada ' + new Date().toLocaleTimeString();
+        const result = await rpc('/devops/meetings/create', {
+            project_id: this.state.currentProjectId,
+            name: name,
+            meet_type: 'jitsi',
+            instance_id: this.state.selectedInstance ? this.state.selectedInstance.id : null,
+        });
+        await this._loadMeetings();
+        if (result.jitsi_room) {
+            this._startJitsiCall(result.id, name, result.jitsi_room);
+        }
+    }
+
+    _meetJoinJitsi(ev) {
+        const mid = parseInt(ev.currentTarget.dataset.mid);
+        const meeting = this.state.meetings.find(m => m.id === mid);
+        if (meeting && meeting.jitsi_room) {
+            this._startJitsiCall(mid, meeting.name, meeting.jitsi_room);
+        }
+    }
+
+    async _startJitsiCall(meetingId, name, roomName) {
+        // Load Jitsi API
+        if (!window.JitsiMeetExternalAPI) {
+            await this._loadScript('https://meet.jit.si/external_api.js');
+        }
+        this.state.meetActiveId = meetingId;
+        this.state.meetActiveName = name;
+        // Update state to in_progress
+        await rpc('/devops/meetings/update', { meeting_id: meetingId, state: 'in_progress' });
+
+        // Wait for DOM to render the container
+        await new Promise(r => setTimeout(r, 200));
+        const container = this.__owl__.refs.jitsiContainer;
+        if (!container) return;
+
+        const user = this.state.currentProject ? this.state.currentProject.name : 'PMB';
+        this._jitsiApi = new window.JitsiMeetExternalAPI('meet.jit.si', {
+            roomName: roomName,
+            parentNode: container,
+            width: '100%',
+            height: '100%',
+            configOverwrite: {
+                startWithAudioMuted: false,
+                startWithVideoMuted: true,
+                prejoinPageEnabled: false,
+                disableDeepLinking: true,
+            },
+            interfaceConfigOverwrite: {
+                TOOLBAR_BUTTONS: [
+                    'microphone', 'camera', 'desktop', 'chat',
+                    'recording', 'raisehand', 'tileview', 'hangup',
+                ],
+                SHOW_JITSI_WATERMARK: false,
+                DEFAULT_BACKGROUND: '#1e1e2e',
+            },
+            userInfo: {
+                displayName: user,
+            },
+        });
+
+        this._jitsiApi.addListener('readyToClose', () => {
+            this._meetEndCall();
+        });
+    }
+
+    async _meetEndCall() {
+        if (this._jitsiApi) {
+            this._jitsiApi.dispose();
+            this._jitsiApi = null;
+        }
+        if (this.state.meetActiveId) {
+            await rpc('/devops/meetings/update', { meeting_id: this.state.meetActiveId, state: 'done' });
+        }
+        this.state.meetActiveId = null;
+        this.state.meetActiveName = '';
         await this._loadMeetings();
     }
 

@@ -1359,6 +1359,8 @@ echo "done" > {status_file}
             'name': m.name,
             'date': m.date.isoformat() if m.date else '',
             'meet_url': m.meet_url or '',
+            'meet_type': m.meet_type or 'jitsi',
+            'jitsi_room': m.jitsi_room or '',
             'state': m.state,
             'user': m.user_id.name,
             'notes': m.notes or '',
@@ -1368,20 +1370,30 @@ echo "done" > {status_file}
         } for m in meetings]}
 
     @http.route('/devops/meetings/create', type='json', auth='user')
-    def meetings_create(self, project_id, name='', meet_url='', instance_id=None):
+    def meetings_create(self, project_id, name='', meet_url='', meet_type='jitsi', instance_id=None):
         """Create a new meeting."""
         if not name:
             return {'error': 'Nombre requerido'}
+        import uuid
+        jitsi_room = ''
+        if meet_type == 'jitsi':
+            # Generate unique room name
+            project = request.env['devops.project'].browse(project_id)
+            slug = (project.name or 'pmb').replace(' ', '').lower()
+            jitsi_room = f"pmb-{slug}-{uuid.uuid4().hex[:8]}"
+            meet_url = f"https://meet.jit.si/{jitsi_room}"
         vals = {
             'name': name,
             'project_id': project_id,
-            'meet_url': meet_url or f'https://meet.google.com/new',
+            'meet_type': meet_type,
+            'meet_url': meet_url,
+            'jitsi_room': jitsi_room,
             'state': 'scheduled',
         }
         if instance_id:
             vals['instance_id'] = instance_id
         meeting = request.env['devops.meeting'].create(vals)
-        return {'status': 'ok', 'id': meeting.id, 'meet_url': meeting.meet_url}
+        return {'status': 'ok', 'id': meeting.id, 'meet_url': meeting.meet_url, 'jitsi_room': meeting.jitsi_room}
 
     @http.route('/devops/meetings/update', type='json', auth='user')
     def meetings_update(self, meeting_id, notes=None, state=None, meet_url=None, duration=None):
