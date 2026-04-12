@@ -307,6 +307,11 @@
                                     🔧 TOOLS
                                 </span>
                                 <span class="px-3 py-2 cursor-pointer"
+                                      t-att-style="state.activeContentTab === 'meet' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
+                                      t-on-click="() => this._onContentTabChange('meet')">
+                                    🎥 MEET
+                                </span>
+                                <span class="px-3 py-2 cursor-pointer"
                                       t-att-style="state.activeContentTab === 'docs' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
                                       t-on-click="() => this._onContentTabChange('docs')">
                                     📖 DOCS
@@ -1230,6 +1235,104 @@
                                 </div>
                             </div>
 
+                            <!-- MEET tab -->
+                            <div t-if="state.activeContentTab === 'meet'" class="p-4" style="color: #cdd6f4; overflow-y: auto; flex: 1 1 0; min-height: 0;">
+                                <div class="d-flex align-items-center justify-content-between mb-3">
+                                    <h5 class="mb-0" style="color: #89b4fa;">🎥 Reuniones</h5>
+                                    <button class="btn btn-sm" style="background: #a6e3a1; color: #1e1e2e; font-weight: 600;"
+                                            t-on-click="_meetCreate">+ Nueva reunion</button>
+                                </div>
+
+                                <!-- Create form -->
+                                <t t-if="state.meetCreating">
+                                    <div class="mb-3 p-3" style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px;">
+                                        <input type="text" class="form-control form-control-sm mb-2"
+                                               style="background: #11111b; border-color: #313244; color: #cdd6f4;"
+                                               placeholder="Titulo de la reunion"
+                                               t-att-value="state.meetNewName"
+                                               t-on-input="_onMeetNameInput"/>
+                                        <input type="text" class="form-control form-control-sm mb-2"
+                                               style="background: #11111b; border-color: #313244; color: #cdd6f4; font-size: 11px;"
+                                               placeholder="URL de Meet (dejar vacio para crear nueva)"
+                                               t-att-value="state.meetNewUrl"
+                                               t-on-input="_onMeetUrlInput"/>
+                                        <div class="d-flex gap-2">
+                                            <button class="btn btn-sm" style="background: #89b4fa; color: #1e1e2e; font-weight: 600;"
+                                                    t-on-click="_meetSave">Crear</button>
+                                            <button class="btn btn-sm" style="background: #313244; color: #6c7086;"
+                                                    t-on-click="_meetCancelCreate">Cancelar</button>
+                                        </div>
+                                    </div>
+                                </t>
+
+                                <!-- Meetings list -->
+                                <t t-if="state.meetings.length === 0 and !state.meetCreating">
+                                    <div style="color: #6c7086; font-size: 12px; text-align: center; padding: 40px;">
+                                        No hay reuniones. Crea una para empezar.
+                                    </div>
+                                </t>
+                                <t t-foreach="state.meetings" t-as="m" t-key="m.id">
+                                    <div class="mb-2 p-3" style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px;">
+                                        <div class="d-flex align-items-center justify-content-between mb-2">
+                                            <div>
+                                                <span style="color: #cdd6f4; font-weight: 600;"><t t-esc="m.name"/></span>
+                                                <span t-att-style="'font-size: 10px; padding: 1px 6px; border-radius: 4px; margin-left: 8px; background:' + (m.state === 'transcribed' ? '#a6e3a1' : m.state === 'done' ? '#89b4fa' : m.state === 'in_progress' ? '#f9e2af' : '#6c7086') + ';color:#1e1e2e;'">
+                                                    <t t-esc="m.state"/>
+                                                </span>
+                                            </div>
+                                            <div class="d-flex gap-1">
+                                                <a t-if="m.meet_url" t-att-href="m.meet_url" target="_blank" class="btn btn-sm"
+                                                   style="background: #a6e3a1; color: #1e1e2e; font-size: 11px; font-weight: 600;">
+                                                    Unirse
+                                                </a>
+                                                <button class="btn btn-sm" style="background: #313244; color: #f38ba8; font-size: 11px;"
+                                                        t-att-data-mid="m.id" t-on-click="_meetDelete">&#10005;</button>
+                                            </div>
+                                        </div>
+                                        <div style="color: #6c7086; font-size: 11px;">
+                                            <t t-esc="m.date"/> · <t t-esc="m.user"/>
+                                            <span t-if="m.duration"> · <t t-esc="m.duration"/> min</span>
+                                        </div>
+
+                                        <!-- Notes -->
+                                        <div class="mt-2">
+                                            <textarea class="form-control form-control-sm"
+                                                      style="background: #11111b; border-color: #313244; color: #cdd6f4; font-size: 11px; min-height: 60px;"
+                                                      placeholder="Notas de la reunion..."
+                                                      t-att-data-mid="m.id"
+                                                      t-on-blur="_meetSaveNotes"><t t-esc="m.notes"/></textarea>
+                                        </div>
+
+                                        <!-- Audio upload + transcription -->
+                                        <div class="mt-2 d-flex align-items-center gap-2 flex-wrap">
+                                            <label class="btn btn-sm" style="background: #313244; color: #cdd6f4; font-size: 11px; cursor: pointer;">
+                                                <t t-if="m.has_audio">🔊 Audio subido</t>
+                                                <t t-else="">📎 Subir audio</t>
+                                                <input type="file" accept="audio/*,video/*" style="display: none;"
+                                                       t-att-data-mid="m.id" t-on-change="_meetUploadAudio"/>
+                                            </label>
+                                            <button t-if="m.has_audio and !m.has_transcription" class="btn btn-sm"
+                                                    style="background: #cba6f7; color: #1e1e2e; font-size: 11px; font-weight: 600;"
+                                                    t-att-data-mid="m.id" t-on-click="_meetTranscribe">
+                                                🎙 Transcribir (Groq)
+                                            </button>
+                                            <button t-if="m.has_transcription" class="btn btn-sm"
+                                                    style="background: #89b4fa; color: #1e1e2e; font-size: 11px;"
+                                                    t-att-data-mid="m.id" t-on-click="_meetShowTranscription">
+                                                📝 Ver transcripcion
+                                            </button>
+                                        </div>
+
+                                        <!-- Transcription viewer -->
+                                        <t t-if="state.meetTranscriptionId === m.id and state.meetTranscription">
+                                            <div class="mt-2 p-2" style="background: #11111b; border: 1px solid #313244; border-radius: 6px; max-height: 200px; overflow-y: auto;">
+                                                <pre style="color: #a6adc8; font-size: 11px; white-space: pre-wrap; margin: 0;"><t t-esc="state.meetTranscription"/></pre>
+                                            </div>
+                                        </t>
+                                    </div>
+                                </t>
+                            </div>
+
                             <!-- DOCS tab -->
                             <div t-if="state.activeContentTab === 'docs'" class="p-4" style="color: #cdd6f4; overflow-y: auto; flex: 1 1 0; min-height: 0;">
                                 <h5 class="mb-4" style="color: #89b4fa;">
@@ -1661,6 +1764,26 @@
                                                        min="0" t-att-value="state.settingsProject.auto_destroy_hours"
                                                        t-on-change="_onSettingsInput" data-field="auto_destroy_hours" data-type="int"/>
                                                 <span style="color: #6c7086; font-size: 10px;">0 = nunca destruir</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Groq API Key (global) -->
+                                <div class="row mt-3" t-if="state.isAdmin">
+                                    <div class="col-md-6">
+                                        <div style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
+                                            <h6 style="color: #cba6f7; margin-bottom: 12px;">Groq API (Transcripcion)</h6>
+                                            <div class="mb-2">
+                                                <label style="color: #6c7086; font-size: 11px;">API Key de Groq</label>
+                                                <input type="password" class="form-control form-control-sm"
+                                                       style="background: #11111b; border-color: #313244; color: #cdd6f4;"
+                                                       placeholder="gsk_..."
+                                                       t-att-value="state.groqApiKey || ''"
+                                                       t-on-change="_onGroqKeyChange"/>
+                                            </div>
+                                            <div style="color: #6c7086; font-size: 10px;">
+                                                Obtener en <a href="https://console.groq.com/keys" target="_blank" style="color: #89b4fa;">console.groq.com/keys</a> (gratis)
                                             </div>
                                         </div>
                                     </div>

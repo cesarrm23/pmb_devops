@@ -76,6 +76,13 @@ class PmbDevopsApp extends Component {
             gitDiffStaged: false,       // is the diff for a staged file
             diagnoseResult: null,       // diagnostics output
             fixResult: null,            // fix result
+            meetings: [],               // meetings list
+            meetCreating: false,
+            meetNewName: '',
+            meetNewUrl: '',
+            meetTranscriptionId: null,
+            meetTranscription: '',
+            groqApiKey: '',
             gitPanelWidth: 280,         // resizable panel width (px)
             gitResizing: false,         // drag in progress
             claudeSessions: [],         // list of claude sessions
@@ -482,6 +489,8 @@ class PmbDevopsApp extends Component {
             await this._loadUpgradeRepos();
         } else if (tab === 'backups') {
             await this._loadBackups();
+        } else if (tab === 'meet') {
+            await this._loadMeetings();
         } else if (httpTermTabs.includes(tab)) {
             const sessionType = tab === 'shell' ? 'shell' : (this.state.logType === 'odoo' ? 'odoo_log' : 'logs');
             if (this._termConnected && this._terminalType === sessionType && this._term) {
@@ -1549,6 +1558,99 @@ class PmbDevopsApp extends Component {
             setTimeout(() => this._pollDeploy(deployId), 3000);
         }
     }
+
+    // ---- Meetings ----
+
+    async _loadMeetings() {
+        if (!this.state.currentProjectId) return;
+        try {
+            const result = await rpc('/devops/meetings/list', { project_id: this.state.currentProjectId });
+            this.state.meetings = result.meetings || [];
+        } catch (e) { this.state.meetings = []; }
+    }
+
+    _meetCreate() { this.state.meetCreating = true; this.state.meetNewName = ''; this.state.meetNewUrl = ''; }
+    _meetCancelCreate() { this.state.meetCreating = false; }
+    _onMeetNameInput(ev) { this.state.meetNewName = ev.target.value; }
+    _onMeetUrlInput(ev) { this.state.meetNewUrl = ev.target.value; }
+
+    async _meetSave() {
+        if (!this.state.meetNewName.trim()) return;
+        await rpc('/devops/meetings/create', {
+            project_id: this.state.currentProjectId,
+            name: this.state.meetNewName,
+            meet_url: this.state.meetNewUrl,
+            instance_id: this.state.selectedInstance ? this.state.selectedInstance.id : null,
+        });
+        this.state.meetCreating = false;
+        await this._loadMeetings();
+    }
+
+    async _meetDelete(ev) {
+        const mid = parseInt(ev.currentTarget.dataset.mid);
+        if (!confirm('Eliminar esta reunion?')) return;
+        await rpc('/devops/meetings/delete', { meeting_id: mid });
+        await this._loadMeetings();
+    }
+
+    async _meetSaveNotes(ev) {
+        const mid = parseInt(ev.target.dataset.mid);
+        if (!mid) return;
+        await rpc('/devops/meetings/update', { meeting_id: mid, notes: ev.target.value });
+    }
+
+    async _meetUploadAudio(ev) {
+        const mid = parseInt(ev.target.dataset.mid);
+        const file = ev.target.files && ev.target.files[0];
+        if (!mid || !file) return;
+        const reader = new FileReader();
+        reader.onload = async () => {
+            const base64 = reader.result.split(',')[1];
+            await rpc('/devops/meetings/upload_audio', {
+                meeting_id: mid,
+                audio_data: base64,
+                filename: file.name,
+            });
+            await this._loadMeetings();
+        };
+        reader.readAsDataURL(file);
+    }
+
+    async _meetTranscribe(ev) {
+        const mid = parseInt(ev.currentTarget.dataset.mid);
+        ev.currentTarget.disabled = true;
+        ev.currentTarget.textContent = 'Transcribiendo...';
+        try {
+            const result = await rpc('/devops/meetings/transcribe', { meeting_id: mid });
+            if (result.error) {
+                alert('Error: ' + result.error);
+            } else {
+                this.state.meetTranscriptionId = mid;
+                this.state.meetTranscription = result.transcription;
+            }
+            await this._loadMeetings();
+        } catch (e) { alert('Error: ' + e.message); }
+    }
+
+    async _meetShowTranscription(ev) {
+        const mid = parseInt(ev.currentTarget.dataset.mid);
+        if (this.state.meetTranscriptionId === mid) {
+            this.state.meetTranscriptionId = null;
+            this.state.meetTranscription = '';
+            return;
+        }
+        const result = await rpc('/devops/meetings/transcription', { meeting_id: mid });
+        this.state.meetTranscriptionId = mid;
+        this.state.meetTranscription = result.transcription || '';
+    }
+
+    async _onGroqKeyChange(ev) {
+        const key = ev.target.value;
+        this.state.groqApiKey = key;
+        await rpc('/devops/settings/groq_key', { key });
+    }
+
+    // ---- Diagnostics ----
 
     async _runDiagnose() {
         if (!this.state.selectedInstance) return;

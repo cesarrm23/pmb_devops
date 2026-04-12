@@ -1346,6 +1346,149 @@ echo "done" > {status_file}
         os.remove(filepath)
         return {'status': 'ok'}
 
+    # ---- Meetings ----
+
+    @http.route('/devops/meetings/list', type='json', auth='user')
+    def meetings_list(self, project_id):
+        """List meetings for a project."""
+        meetings = request.env['devops.meeting'].sudo().search([
+            ('project_id', '=', project_id),
+        ], order='date desc', limit=50)
+        return {'meetings': [{
+            'id': m.id,
+            'name': m.name,
+            'date': m.date.isoformat() if m.date else '',
+            'meet_url': m.meet_url or '',
+            'state': m.state,
+            'user': m.user_id.name,
+            'notes': m.notes or '',
+            'has_transcription': bool(m.transcription),
+            'has_audio': bool(m.audio_file),
+            'duration': m.duration_minutes or 0,
+        } for m in meetings]}
+
+    @http.route('/devops/meetings/create', type='json', auth='user')
+    def meetings_create(self, project_id, name='', meet_url='', instance_id=None):
+        """Create a new meeting."""
+        if not name:
+            return {'error': 'Nombre requerido'}
+        vals = {
+            'name': name,
+            'project_id': project_id,
+            'meet_url': meet_url or f'https://meet.google.com/new',
+            'state': 'scheduled',
+        }
+        if instance_id:
+            vals['instance_id'] = instance_id
+        meeting = request.env['devops.meeting'].create(vals)
+        return {'status': 'ok', 'id': meeting.id, 'meet_url': meeting.meet_url}
+
+    @http.route('/devops/meetings/update', type='json', auth='user')
+    def meetings_update(self, meeting_id, notes=None, state=None, meet_url=None, duration=None):
+        """Update meeting notes, state, url."""
+        meeting = request.env['devops.meeting'].browse(meeting_id)
+        if not meeting.exists():
+            return {'error': 'Reunion no encontrada'}
+        vals = {}
+        if notes is not None:
+            vals['notes'] = notes
+        if state:
+            vals['state'] = state
+        if meet_url:
+            vals['meet_url'] = meet_url
+        if duration is not None:
+            vals['duration_minutes'] = duration
+        if vals:
+            meeting.write(vals)
+        return {'status': 'ok'}
+
+    @http.route('/devops/meetings/transcription', type='json', auth='user')
+    def meetings_get_transcription(self, meeting_id):
+        """Get meeting transcription."""
+        meeting = request.env['devops.meeting'].browse(meeting_id)
+        if not meeting.exists():
+            return {'error': 'Reunion no encontrada'}
+        return {'transcription': meeting.transcription or '', 'notes': meeting.notes or ''}
+
+    @http.route('/devops/meetings/upload_audio', type='json', auth='user')
+    def meetings_upload_audio(self, meeting_id, audio_data='', filename=''):
+        """Upload audio file for a meeting (base64 encoded)."""
+        meeting = request.env['devops.meeting'].browse(meeting_id)
+        if not meeting.exists():
+            return {'error': 'Reunion no encontrada'}
+        if not audio_data:
+            return {'error': 'Audio requerido'}
+        meeting.write({
+            'audio_file': audio_data,
+            'audio_filename': filename or 'recording.webm',
+        })
+        return {'status': 'ok'}
+
+    @http.route('/devops/meetings/transcribe', type='json', auth='user')
+    def meetings_transcribe(self, meeting_id):
+        """Transcribe meeting audio using Groq Whisper API."""
+        meeting = request.env['devops.meeting'].sudo().browse(meeting_id)
+        if not meeting.exists():
+            return {'error': 'Reunion no encontrada'}
+        if not meeting.audio_file:
+            return {'error': 'No hay audio para transcribir'}
+
+        groq_key = request.env['ir.config_parameter'].sudo().get_param('pmb_devops.groq_api_key', '')
+        if not groq_key:
+            return {'error': 'API key de Groq no configurada. Ve a Settings del proyecto.'}
+
+        import base64
+        import tempfile
+        import requests as http_requests
+
+        # Save audio to temp file
+        audio_bytes = base64.b64decode(meeting.audio_file)
+        ext = (meeting.audio_filename or 'audio.webm').split('.')[-1]
+        with tempfile.NamedTemporaryFile(suffix=f'.{ext}', delete=False) as tmp:
+            tmp.write(audio_bytes)
+            tmp_path = tmp.name
+
+        try:
+            # Call Groq Whisper API
+            resp = http_requests.post(
+                'https://api.groq.com/openai/v1/audio/transcriptions',
+                headers={'Authorization': f'Bearer {groq_key}'},
+                files={'file': (meeting.audio_filename or 'audio.webm', open(tmp_path, 'rb'))},
+                data={'model': 'whisper-large-v3', 'language': 'es'},
+                timeout=120,
+            )
+            if resp.status_code == 200:
+                result = resp.json()
+                transcription = result.get('text', '')
+                meeting.write({
+                    'transcription': transcription,
+                    'state': 'transcribed',
+                })
+                return {'status': 'ok', 'transcription': transcription}
+            else:
+                return {'error': f'Groq API error {resp.status_code}: {resp.text[:200]}'}
+        except Exception as e:
+            return {'error': str(e)}
+        finally:
+            os.unlink(tmp_path)
+
+    @http.route('/devops/meetings/delete', type='json', auth='user')
+    def meetings_delete(self, meeting_id):
+        """Delete a meeting."""
+        meeting = request.env['devops.meeting'].browse(meeting_id)
+        if not meeting.exists():
+            return {'error': 'Reunion no encontrada'}
+        meeting.unlink()
+        return {'status': 'ok'}
+
+    @http.route('/devops/settings/groq_key', type='json', auth='user')
+    def settings_groq_key(self, key=''):
+        """Save Groq API key."""
+        if not request.env.user.has_group('pmb_devops.group_devops_admin'):
+            return {'error': 'Solo administradores'}
+        request.env['ir.config_parameter'].sudo().set_param('pmb_devops.groq_api_key', key)
+        return {'status': 'ok'}
+
     @http.route('/devops/user/prefs', type='json', auth='user')
     def user_prefs_get(self):
         """Get user UI preferences."""
