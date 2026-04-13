@@ -5,7 +5,7 @@ access_project_viewer,devops.project.viewer,model_devops_project,pmb_devops.grou
 access_member_admin,devops.project.member.admin,model_devops_project_member,pmb_devops.group_devops_admin,1,1,1,1
 access_member_viewer,devops.project.member.viewer,model_devops_project_member,pmb_devops.group_devops_viewer,1,0,0,0
 access_branch_admin,devops.branch.admin,model_devops_branch,pmb_devops.group_devops_admin,1,1,1,1
-access_branch_developer,devops.branch.developer,model_devops_branch,pmb_devops.group_devops_developer,1,1,0,0
+access_branch_developer,devops.branch.developer,model_devops_branch,pmb_devops.group_devops_developer,1,1,1,0
 access_branch_viewer,devops.branch.viewer,model_devops_branch,pmb_devops.group_devops_viewer,1,0,0,0
 access_build_admin,devops.build.admin,model_devops_build,pmb_devops.group_devops_admin,1,1,1,1
 access_build_developer,devops.build.developer,model_devops_build,pmb_devops.group_devops_developer,1,1,1,0
