@@ -2130,6 +2130,8 @@ class PmbDevopsApp extends Component {
     // ------------------------------------------------------------------
 
     async _loadSettings() {
+        // Skip if creating a new project (form already set to empty)
+        if (this.state.settingsProject && !this.state.settingsProject.id) return;
         if (!this.state.currentProjectId) return;
         this.state.settingsSaved = false;
         this.state.sshPublicKey = '';
