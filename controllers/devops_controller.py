@@ -1749,10 +1749,86 @@ Texto:
     # ---- Project Members ----
 
     @http.route('/devops/project/autodetect', type='json', auth='user')
-    def project_autodetect(self, service_name):
-        """Auto-detect all project config from a systemd service name."""
-        detected = self.instance_detect_service(service_name)
-        return detected
+    def project_autodetect(self, service_name, project_id=None):
+        """Auto-detect all project config from a systemd service name.
+        Uses SSH if the project has connection_type='ssh'.
+        """
+        import subprocess, re
+
+        project = None
+        if project_id:
+            project = request.env['devops.project'].browse(project_id)
+            if not project.exists():
+                project = None
+
+        # Helper to run commands (local or SSH)
+        def run_cmd(cmd_str):
+            if project and project.connection_type == 'ssh' and project.ssh_host:
+                ssh_cmd = ['ssh', '-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=10']
+                if project.ssh_key_path and os.path.isfile(project.ssh_key_path):
+                    ssh_cmd += ['-i', project.ssh_key_path]
+                if project.ssh_port and project.ssh_port != 22:
+                    ssh_cmd += ['-p', str(project.ssh_port)]
+                ssh_cmd += [f'{project.ssh_user or "root"}@{project.ssh_host}', cmd_str]
+                r = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=15)
+            else:
+                r = subprocess.run(cmd_str, shell=True, capture_output=True, text=True, timeout=10)
+            return r.stdout.strip() if r.returncode == 0 else ''
+
+        result = {'service_name': service_name}
+        try:
+            # Service status
+            status = run_cmd(f'systemctl is-active {service_name}.service')
+            result['active'] = status == 'active'
+
+            # ExecStart
+            exec_line = run_cmd(f'systemctl show {service_name}.service --property=ExecStart')
+            m = re.search(r'-c\s+(\S+)', exec_line)
+            config_path = m.group(1) if m else f'/etc/odoo/{service_name}.conf'
+            m2 = re.search(r'(\S+)/odoo/odoo-bin', exec_line)
+            if m2:
+                result['instance_path'] = m2.group(1)
+
+            # Read config
+            config_content = run_cmd(f'cat {config_path}')
+            if config_content:
+                result['config_path'] = config_path
+                for line in config_content.split('\n'):
+                    line = line.strip()
+                    if '=' not in line or line.startswith('#') or line.startswith('['):
+                        continue
+                    key, _, val = line.partition('=')
+                    key, val = key.strip(), val.strip()
+                    if key == 'http_port':
+                        result['port'] = int(val)
+                    elif key == 'gevent_port':
+                        result['gevent_port'] = int(val)
+                    elif key == 'db_name':
+                        result['database_name'] = val
+                    elif key == 'addons_path':
+                        result['addons_path'] = val
+                        for p in val.split(','):
+                            p = p.strip()
+                            if 'enterprise' in p.lower():
+                                result['enterprise_path'] = p
+                            elif p and '/odoo/' not in p:
+                                # Custom addons (not odoo core)
+                                result['repo_path'] = p
+
+            # Domain from nginx
+            nginx_output = run_cmd(f'grep -r "server_name" /etc/nginx/sites-enabled/ 2>/dev/null || true')
+            if nginx_output:
+                port = result.get('port', 0)
+                for line in nginx_output.split('\n'):
+                    m_d = re.search(r'server_name\s+([^\s;]+)', line)
+                    if m_d and m_d.group(1) != '_':
+                        result['domain'] = m_d.group(1)
+                        break
+
+        except Exception as e:
+            result['error'] = str(e)
+
+        return result
 
     @http.route('/devops/project/members', type='json', auth='user')
     def project_members(self, project_id):

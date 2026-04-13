@@ -406,6 +406,7 @@ class PmbDevopsApp extends Component {
         try {
             const result = await rpc('/devops/project/autodetect', {
                 service_name: this.state.autodetectService,
+                project_id: this.state.currentProjectId || null,
             });
             this.state.autodetectResult = result;
             // Auto-fill settings form
