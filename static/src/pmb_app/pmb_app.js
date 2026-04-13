@@ -98,6 +98,8 @@ class PmbDevopsApp extends Component {
             memberNewLogin: '',
             memberNewRole: 'developer',
             memberError: '',
+            autodetectService: '',
+            autodetectResult: null,
             gitPanelWidth: 280,         // resizable panel width (px)
             gitResizing: false,         // drag in progress
             claudeSessions: [],         // list of claude sessions
@@ -389,6 +391,31 @@ class PmbDevopsApp extends Component {
 
     _onProjectSelectorChange(ev) {
         this._onProjectChange(ev);
+    }
+
+    _onAutodetectInput(ev) { this.state.autodetectService = ev.target.value; }
+
+    async _autodetectProject() {
+        if (!this.state.autodetectService) return;
+        this.state.autodetectResult = null;
+        try {
+            const result = await rpc('/devops/project/autodetect', {
+                service_name: this.state.autodetectService,
+            });
+            this.state.autodetectResult = result;
+            // Auto-fill settings form
+            if (!result.error && this.state.settingsProject) {
+                const p = this.state.settingsProject;
+                if (result.database_name) p.database_name = result.database_name;
+                if (result.domain) p.domain = result.domain;
+                if (result.repo_path) p.repo_path = result.repo_path;
+                if (result.enterprise_path) p.enterprise_path = result.enterprise_path;
+                if (result.instance_path && !p.name) p.name = result.database_name || this.state.autodetectService;
+                p.odoo_service_name = this.state.autodetectService;
+            }
+        } catch (e) {
+            this.state.autodetectResult = { error: e.message };
+        }
     }
 
     async _newProject() {

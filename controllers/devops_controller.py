@@ -236,6 +236,21 @@ class DevopsController(http.Controller):
             )
             result['active'] = proc2.stdout.strip() == 'active'
 
+            # Auto-detect domain from nginx configs
+            try:
+                import glob
+                for conf in glob.glob('/etc/nginx/sites-enabled/*'):
+                    with open(conf) as f:
+                        content = f.read()
+                    port = result.get('port', 0)
+                    if port and f':{port}' in content:
+                        m_domain = re.search(r'server_name\s+([^\s;]+)', content)
+                        if m_domain and m_domain.group(1) != '_':
+                            result['domain'] = m_domain.group(1)
+                            break
+            except Exception:
+                pass
+
         except Exception as e:
             result['error'] = str(e)
 
@@ -1732,6 +1747,12 @@ Texto:
         }
 
     # ---- Project Members ----
+
+    @http.route('/devops/project/autodetect', type='json', auth='user')
+    def project_autodetect(self, service_name):
+        """Auto-detect all project config from a systemd service name."""
+        detected = self.instance_detect_service(service_name)
+        return detected
 
     @http.route('/devops/project/members', type='json', auth='user')
     def project_members(self, project_id):

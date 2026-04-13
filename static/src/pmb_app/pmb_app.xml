@@ -1940,10 +1940,38 @@
 
                     <!-- SETTINGS nav tab -->
                     <div t-if="state.activeNavTab === 'settings'" class="p-4" style="color: #cdd6f4; overflow-y: auto; flex: 1 1 0; min-height: 0;">
-                        <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-4">
                             <h4 class="mb-0">Ajustes del Proyecto</h4>
                             <button class="btn btn-sm" style="background: #a6e3a1; color: #1e1e2e; font-weight: 600;"
                                     t-on-click="_newProject">+ Nuevo Proyecto</button>
+                        </div>
+
+                        <!-- Quick setup: auto-detect from service -->
+                        <div t-if="state.settingsProject and !state.settingsProject.id" class="mb-4 p-3" style="background: #1e1e2e; border: 2px solid #89b4fa; border-radius: 8px;">
+                            <h6 style="color: #89b4fa;">Configuracion rapida</h6>
+                            <p style="color: #6c7086; font-size: 12px;">Ingresa el nombre del servicio systemd y detectaremos todo automaticamente.</p>
+                            <div class="d-flex gap-2 mb-2">
+                                <input type="text" class="form-control form-control-sm flex-grow-1"
+                                       style="background: #11111b; border-color: #313244; color: #cdd6f4;"
+                                       placeholder="Nombre del servicio (ej: odoo19, odooAL)"
+                                       t-att-value="state.autodetectService || ''"
+                                       t-on-input="_onAutodetectInput"/>
+                                <button class="btn btn-sm" style="background: #89b4fa; color: #1e1e2e; font-weight: 600;"
+                                        t-on-click="_autodetectProject">Detectar</button>
+                            </div>
+                            <div t-if="state.autodetectResult" style="font-size: 11px; color: #a6adc8;">
+                                <t t-if="state.autodetectResult.error">
+                                    <span style="color: #f38ba8;"><t t-esc="state.autodetectResult.error"/></span>
+                                </t>
+                                <t t-else="">
+                                    <div style="color: #a6e3a1;">Detectado:</div>
+                                    <div t-if="state.autodetectResult.database_name">BD: <strong><t t-esc="state.autodetectResult.database_name"/></strong></div>
+                                    <div t-if="state.autodetectResult.domain">Dominio: <strong><t t-esc="state.autodetectResult.domain"/></strong></div>
+                                    <div t-if="state.autodetectResult.repo_path">Repo: <strong><t t-esc="state.autodetectResult.repo_path"/></strong></div>
+                                    <div t-if="state.autodetectResult.enterprise_path">Enterprise: <strong><t t-esc="state.autodetectResult.enterprise_path"/></strong></div>
+                                    <div t-if="state.autodetectResult.port">Puerto: <strong><t t-esc="state.autodetectResult.port"/></strong></div>
+                                </t>
+                            </div>
                         </div>
 
                         <t t-if="state.settingsProject" t-key="state.settingsProject.id || 'new'">
