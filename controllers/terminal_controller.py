@@ -152,10 +152,12 @@ class DevopsTerminalController(http.Controller):
                 elif instance.project_id.repo_path and os.path.isdir(instance.project_id.repo_path):
                     cwd = instance.project_id.repo_path
 
-                # Ensure unique cwd per instance (avoid HOME collision)
+                # Ensure unique cwd per instance (avoid HOME collision) — local only
                 if cwd == os.path.expanduser('~') and instance.instance_path:
-                    os.makedirs(instance.instance_path, exist_ok=True)
-                    cwd = instance.instance_path
+                    proj = instance.project_id
+                    if not (proj.connection_type == 'ssh' and proj.ssh_host):
+                        os.makedirs(instance.instance_path, exist_ok=True)
+                        cwd = instance.instance_path
 
                 # For logs, get service name from instance
                 if session_type == 'logs' and instance.service_name:
