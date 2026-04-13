@@ -2439,11 +2439,17 @@ class PmbDevopsApp extends Component {
     }
 
     _resumeClaudeSession(sessionId) {
-        // Send "claude --resume <id>" command to the terminal
-        const cmd = `claude --resume ${sessionId}\n`;
-        if (this._aiWs && this._aiWs.readyState === WebSocket.OPEN) {
-            this._aiWs.send(JSON.stringify({ type: 'input', data: cmd }));
-        }
+        if (!this._aiWs || this._aiWs.readyState !== WebSocket.OPEN) return;
+        const ws = this._aiWs;
+        // Step 1: Exit current Claude session (Ctrl+C to cancel, then /exit)
+        ws.send(JSON.stringify({ type: 'input', data: '\x03' }));  // Ctrl+C
+        setTimeout(() => {
+            ws.send(JSON.stringify({ type: 'input', data: '/exit\n' }));
+            // Step 2: Wait for Claude to exit, then resume
+            setTimeout(() => {
+                ws.send(JSON.stringify({ type: 'input', data: `claude --resume ${sessionId}\n` }));
+            }, 1500);
+        }, 500);
         this.state.claudeSessionsVisible = false;
         if (this._aiTerm) this._aiTerm.focus();
     }
