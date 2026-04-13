@@ -62,7 +62,7 @@
                      style="width: 48px; min-width: 48px; background: #1e1e2e; border-right: 1px solid #313244; overflow-y: auto;">
                     <!-- Expand toggle -->
                     <div class="cursor-pointer mb-3 px-1" style="color: #6c7086; font-size: 14px;"
-                         t-on-click="() => { this.state.sidebarMinimized = false; }" title="Expandir sidebar">
+                         t-on-click="_expandSidebar" title="Expandir sidebar">
                         &#9654;
                     </div>
                     <!-- Production icons -->
@@ -107,7 +107,7 @@
                                style="background: #313244; color: #cdd6f4; border-color: #45475a; font-size: 12px;"
                                t-model="state.sidebarFilter"/>
                         <button class="btn btn-sm px-1" style="color: #6c7086; font-size: 12px;"
-                                t-on-click="() => { this.state.sidebarMinimized = true; }" title="Contraer sidebar">
+                                t-on-click="_minimizeSidebar" title="Contraer sidebar">
                             &#9664;
                         </button>
                     </div>
@@ -1357,7 +1357,7 @@
                                                         <input type="file" accept="audio/*,video/*" style="display:none;"
                                                                t-att-data-mid="m.id" t-on-change="_meetUploadAudio"/>
                                                     </label>
-                                                    <span t-if="m.has_audio" style="color: #a6e3a1; font-size: 11px;">🔊 Audio listo</span>
+                                                    <span t-if="m.recording_count > 0" style="color: #a6e3a1; font-size: 11px;">🔊 <t t-esc="m.recording_count"/> grabacion(es)</span>
                                                     <button t-if="m.has_audio and !m.has_transcription" class="btn btn-sm"
                                                             style="background: #cba6f7; color: #1e1e2e; font-size: 11px; font-weight: 600;"
                                                             t-att-data-mid="m.id" t-on-click="_meetTranscribe">

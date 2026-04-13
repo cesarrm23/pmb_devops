@@ -32,3 +32,6 @@ access_instance_viewer,devops.instance.viewer,model_devops_instance,pmb_devops.g
 access_meeting_admin,devops.meeting.admin,model_devops_meeting,pmb_devops.group_devops_admin,1,1,1,1
 access_meeting_developer,devops.meeting.developer,model_devops_meeting,pmb_devops.group_devops_developer,1,1,1,0
 access_meeting_viewer,devops.meeting.viewer,model_devops_meeting,pmb_devops.group_devops_viewer,1,0,0,0
+access_recording_admin,devops.meeting.recording.admin,model_devops_meeting_recording,pmb_devops.group_devops_admin,1,1,1,1
+access_recording_developer,devops.meeting.recording.developer,model_devops_meeting_recording,pmb_devops.group_devops_developer,1,1,1,0
+access_recording_viewer,devops.meeting.recording.viewer,model_devops_meeting_recording,pmb_devops.group_devops_viewer,1,0,0,0

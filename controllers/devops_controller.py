@@ -1367,6 +1367,15 @@ echo "done" > {status_file}
             'has_transcription': bool(m.transcription),
             'has_audio': bool(m.audio_file),
             'duration': m.duration_minutes or 0,
+            'recordings': [{
+                'id': r.id,
+                'name': r.name,
+                'duration': r.duration_minutes or 0,
+                'has_transcription': bool(r.transcription),
+                'state': r.state,
+            } for r in m.recording_ids],
+            'recording_count': len(m.recording_ids),
+            'task_count': len(m.task_ids),
         } for m in meetings]}
 
     @http.route('/devops/meetings/create', type='json', auth='user')
@@ -1423,18 +1432,27 @@ echo "done" > {status_file}
         return {'transcription': meeting.transcription or '', 'notes': meeting.notes or ''}
 
     @http.route('/devops/meetings/upload_audio', type='json', auth='user')
-    def meetings_upload_audio(self, meeting_id, audio_data='', filename=''):
-        """Upload audio file for a meeting (base64 encoded)."""
+    def meetings_upload_audio(self, meeting_id, audio_data='', filename='', duration=0):
+        """Upload audio file as a new recording for a meeting."""
         meeting = request.env['devops.meeting'].browse(meeting_id)
         if not meeting.exists():
             return {'error': 'Reunion no encontrada'}
         if not audio_data:
             return {'error': 'Audio requerido'}
+        # Also keep backward compat on meeting level
         meeting.write({
             'audio_file': audio_data,
             'audio_filename': filename or 'recording.webm',
         })
-        return {'status': 'ok'}
+        # Create recording record
+        rec = request.env['devops.meeting.recording'].create({
+            'meeting_id': meeting_id,
+            'name': filename or f'Grabacion {fields.Datetime.now()}',
+            'audio_file': audio_data,
+            'audio_filename': filename or 'recording.webm',
+            'duration_minutes': duration or 0,
+        })
+        return {'status': 'ok', 'recording_id': rec.id}
 
     @http.route('/devops/meetings/transcribe', type='json', auth='user')
     def meetings_transcribe(self, meeting_id):
@@ -1654,13 +1672,24 @@ Texto:
     def user_prefs_get(self):
         """Get user UI preferences."""
         user = request.env.user
-        return {'git_panel_width': user.devops_git_panel_width or 280}
+        return {
+            'git_panel_width': user.devops_git_panel_width or 280,
+            'sidebar_minimized': user.devops_sidebar_minimized,
+            'git_collapsed': user.devops_git_collapsed,
+        }
 
     @http.route('/devops/user/prefs/save', type='json', auth='user')
-    def user_prefs_save(self, git_panel_width=280):
+    def user_prefs_save(self, git_panel_width=None, sidebar_minimized=None, git_collapsed=None):
         """Save user UI preferences."""
-        width = max(150, min(600, int(git_panel_width)))
-        request.env.user.sudo().write({'devops_git_panel_width': width})
+        vals = {}
+        if git_panel_width is not None:
+            vals['devops_git_panel_width'] = max(150, min(600, int(git_panel_width)))
+        if sidebar_minimized is not None:
+            vals['devops_sidebar_minimized'] = bool(sidebar_minimized)
+        if git_collapsed is not None:
+            vals['devops_git_collapsed'] = bool(git_collapsed)
+        if vals:
+            request.env.user.sudo().write(vals)
         return {'status': 'ok'}
 
     @http.route('/devops/git/stage', type='json', auth='user')

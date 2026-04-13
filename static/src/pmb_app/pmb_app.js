@@ -150,6 +150,13 @@ class PmbDevopsApp extends Component {
         this._termPollTimeout = null;
 
         onMounted(async () => {
+            // Load persisted UI preferences
+            try {
+                const prefs = await rpc('/devops/user/prefs');
+                if (prefs.git_panel_width) this.state.gitPanelWidth = prefs.git_panel_width;
+                if (prefs.sidebar_minimized) this.state.sidebarMinimized = true;
+                if (prefs.git_collapsed) this.state.gitPanelCollapsed = true;
+            } catch (e) { /* ignore */ }
             await this._loadProjects();
             if (this.state.projects.length > 0) {
                 this.state.currentProjectId = this.state.projects[0].id;
@@ -487,8 +494,7 @@ class PmbDevopsApp extends Component {
             await this._loadHistoryRepos();
             await this._loadHistory();
         } else if (tab === 'ai') {
-            this.state.gitPanelCollapsed = false;
-            await this._loadGitPanelWidth();
+            // Don't override user's persisted collapse preference
             await this._checkGitAuth();
             await this._refreshGitStatus();
             this._loadClaudeSessions();
@@ -1124,6 +1130,17 @@ class PmbDevopsApp extends Component {
 
     _toggleGitPanel() {
         this.state.gitPanelCollapsed = !this.state.gitPanelCollapsed;
+        rpc('/devops/user/prefs/save', { git_collapsed: this.state.gitPanelCollapsed }).catch(() => {});
+    }
+
+    _minimizeSidebar() {
+        this.state.sidebarMinimized = true;
+        rpc('/devops/user/prefs/save', { sidebar_minimized: true }).catch(() => {});
+    }
+
+    _expandSidebar() {
+        this.state.sidebarMinimized = false;
+        rpc('/devops/user/prefs/save', { sidebar_minimized: false }).catch(() => {});
     }
 
     _onGitRepoChange(ev) {

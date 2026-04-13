@@ -28,4 +28,22 @@ class DevopsMeeting(models.Model):
         ('transcribed', 'Transcrita'),
     ], default='scheduled', string='Estado')
     duration_minutes = fields.Integer(string='Duracion (min)')
+    recording_ids = fields.One2many('devops.meeting.recording', 'meeting_id', string='Grabaciones')
     task_ids = fields.Many2many('project.task', string='Tareas creadas')
+
+
+class DevopsMeetingRecording(models.Model):
+    _name = 'devops.meeting.recording'
+    _description = 'Meeting Recording'
+    _order = 'create_date desc'
+
+    meeting_id = fields.Many2one('devops.meeting', string='Reunion', required=True, ondelete='cascade')
+    name = fields.Char(string='Nombre', default=lambda self: f'Grabacion {fields.Datetime.now()}')
+    audio_file = fields.Binary(string='Audio', attachment=True)
+    audio_filename = fields.Char(string='Filename')
+    duration_minutes = fields.Integer(string='Duracion (min)')
+    transcription = fields.Text(string='Transcripcion')
+    state = fields.Selection([
+        ('recorded', 'Grabado'),
+        ('transcribed', 'Transcrito'),
+    ], default='recorded')
