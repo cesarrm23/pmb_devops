@@ -927,7 +927,10 @@ echo "done" > {status_file}
         if not repo_path:
             repo_path = project.repo_path or ''
 
-        if not repo_path or not os.path.isdir(repo_path):
+        is_ssh = project.connection_type == 'ssh' and project.ssh_host
+        if not repo_path:
+            return {'commits': []}
+        if not is_ssh and not os.path.isdir(repo_path):
             return {'commits': []}
 
         from ..utils import git_utils
