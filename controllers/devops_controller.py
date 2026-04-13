@@ -556,8 +556,9 @@ echo "done" > {status_file}
         repos = []
         config_path = ''
 
-        # For SSH projects, use autodetect to get addons_path info
+        # For SSH projects, detect repos via SSH
         if project.connection_type == 'ssh' and project.ssh_host:
+            import subprocess, re
             svc = project.odoo_service_name or ''
             if instance_id:
                 inst = request.env['devops.instance'].browse(instance_id)
@@ -567,23 +568,59 @@ echo "done" > {status_file}
                 detected = self.project_autodetect(svc, project_id)
                 addons_path = detected.get('addons_path', '')
                 if addons_path:
-                    for p in addons_path.split(','):
-                        p = p.strip()
-                        if not p:
+                    # Build SSH command helper
+                    def ssh_run(cmd_str):
+                        ssh_cmd = ['ssh', '-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=10']
+                        if project.ssh_key_path and os.path.isfile(project.ssh_key_path):
+                            ssh_cmd += ['-i', project.ssh_key_path]
+                        if project.ssh_port and project.ssh_port != 22:
+                            ssh_cmd += ['-p', str(project.ssh_port)]
+                        ssh_cmd += [f'{project.ssh_user or "root"}@{project.ssh_host}', cmd_str]
+                        r = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=15)
+                        return r.stdout.strip() if r.returncode == 0 else ''
+
+                    # Collect unique paths (dedup parent/child)
+                    paths = [p.strip() for p in addons_path.split(',') if p.strip()]
+
+                    # Find git repos: check each path + parent + children
+                    script = 'for p in ' + ' '.join(paths) + '; do '
+                    script += 'if [ -d "$p/.git" ]; then echo "REPO:$p"; fi; '
+                    script += 'parent=$(dirname "$p"); '
+                    script += 'if [ -d "$parent/.git" ]; then echo "REPO:$parent"; fi; '
+                    script += 'if [ -d "$p" ]; then for c in "$p"/*/; do '
+                    script += 'if [ -d "$c/.git" ]; then echo "REPO:${c%/}"; fi; done; fi; '
+                    script += 'done | sort -u'
+                    git_paths_raw = ssh_run(script)
+
+                    seen = set()
+                    for line in git_paths_raw.split('\n'):
+                        if not line.startswith('REPO:'):
                             continue
-                        name = os.path.basename(p)
+                        git_path = line[5:].strip()
+                        if git_path in seen:
+                            continue
+                        seen.add(git_path)
+
+                        name = os.path.basename(git_path)
+                        # Get branch
+                        branch = ssh_run(f'git -C {git_path} branch --show-current 2>/dev/null') or 'HEAD'
+                        # Get dirty status
+                        dirty = bool(ssh_run(f'git -C {git_path} status --porcelain 2>/dev/null'))
+                        # Classify
                         repo_type = 'custom'
-                        if 'enterprise' in p.lower():
-                            repo_type = 'enterprise'
-                        elif '/odoo/' in p:
+                        if ssh_run(f'test -f {git_path}/odoo-bin && echo yes') == 'yes':
                             repo_type = 'odoo'
+                        elif 'enterprise' in git_path.lower():
+                            repo_type = 'enterprise'
+
                         repos.append({
-                            'path': p, 'name': name, 'branch': '', 'ahead': 0, 'behind': 0,
-                            'remote': '', 'dirty': False, 'shallow': False, 'owned': True,
-                            'repo_type': repo_type,
+                            'path': git_path, 'name': name, 'branch': branch,
+                            'ahead': 0, 'behind': 0, 'remote': '', 'dirty': dirty,
+                            'shallow': False, 'owned': True, 'repo_type': repo_type,
                             'merge_target': '', 'merge_pending': 0, 'merge_pending_commits': [],
                             'sync_pending': 0, 'sync_pending_commits': [],
                         })
+
             is_admin = request.env.user.has_group('pmb_devops.group_devops_admin')
             return {'repos': repos, 'is_admin': is_admin}
 
