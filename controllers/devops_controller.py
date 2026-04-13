@@ -2210,6 +2210,7 @@ Texto:
             'id': project.id,
             'name': project.name,
             'domain': project.domain,
+            'subdomain_base': project.subdomain_base or '',
             'repo_path': project.repo_path,
             'repo_url': project.repo_url,
             'enterprise_path': project.enterprise_path or '',
@@ -2232,7 +2233,7 @@ Texto:
     def project_save(self, project_id=None, **vals):
         """Create or update a project."""
         allowed_fields = [
-            'name', 'domain', 'repo_path', 'enterprise_path', 'database_name',
+            'name', 'domain', 'subdomain_base', 'repo_path', 'enterprise_path', 'database_name',
             'connection_type', 'ssh_host', 'ssh_user', 'ssh_port',
             'max_staging', 'max_development', 'auto_destroy_hours',
             'production_branch', 'odoo_project_id',

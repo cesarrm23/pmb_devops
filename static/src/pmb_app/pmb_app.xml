@@ -1940,8 +1940,8 @@
 
                     <!-- SETTINGS nav tab -->
                     <div t-if="state.activeNavTab === 'settings'" class="p-4" style="color: #cdd6f4; overflow-y: auto; flex: 1 1 0; min-height: 0;">
-                        <div class="d-flex justify-content-between align-items-center mb-4">
-                            <h4 class="mb-0">Ajustes del Proyecto</h4>
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h4 class="mb-0" style="color: #89b4fa;">⚙ Ajustes del Proyecto</h4>
                             <button class="btn btn-sm" style="background: #a6e3a1; color: #1e1e2e; font-weight: 600;"
                                     t-on-click="_newProject">+ Nuevo Proyecto</button>
                         </div>
@@ -1975,11 +1975,74 @@
                         </div>
 
                         <t t-if="state.settingsProject" t-key="state.settingsProject.id || 'new'">
+
+                            <!-- Connection + Service (first row, full width) -->
+                            <div class="mb-3" style="background: #1e1e2e; border: 1px solid #89b4fa; border-radius: 8px; padding: 16px;">
+                                <div class="d-flex align-items-center gap-3 flex-wrap">
+                                    <div>
+                                        <label style="color: #6c7086; font-size: 10px;">Conexion</label>
+                                        <div class="d-flex gap-1">
+                                            <button class="btn btn-sm"
+                                                    t-att-style="state.settingsProject.connection_type === 'local' ? 'background: #89b4fa; color: #1e1e2e; font-weight: 600;' : 'background: #313244; color: #6c7086;'"
+                                                    t-on-click="() => { this.state.settingsProject.connection_type = 'local'; }">Local</button>
+                                            <button class="btn btn-sm"
+                                                    t-att-style="state.settingsProject.connection_type === 'ssh' ? 'background: #89b4fa; color: #1e1e2e; font-weight: 600;' : 'background: #313244; color: #6c7086;'"
+                                                    t-on-click="() => { this.state.settingsProject.connection_type = 'ssh'; }">SSH</button>
+                                        </div>
+                                    </div>
+                                    <t t-if="state.settingsProject.connection_type === 'ssh'">
+                                        <div class="flex-grow-1" style="max-width: 200px;">
+                                            <label style="color: #6c7086; font-size: 10px;">Host</label>
+                                            <input type="text" class="form-control form-control-sm"
+                                                   style="background: #11111b; border-color: #313244; color: #cdd6f4; font-size: 11px;"
+                                                   placeholder="server.com"
+                                                   t-att-value="state.settingsProject.ssh_host"
+                                                   t-on-change="_onSettingsInput" data-field="ssh_host"/>
+                                        </div>
+                                        <div style="width: 80px;">
+                                            <label style="color: #6c7086; font-size: 10px;">User</label>
+                                            <input type="text" class="form-control form-control-sm"
+                                                   style="background: #11111b; border-color: #313244; color: #cdd6f4; font-size: 11px;"
+                                                   placeholder="root"
+                                                   t-att-value="state.settingsProject.ssh_user"
+                                                   t-on-change="_onSettingsInput" data-field="ssh_user"/>
+                                        </div>
+                                        <div style="width: 60px;">
+                                            <label style="color: #6c7086; font-size: 10px;">Puerto</label>
+                                            <input type="number" class="form-control form-control-sm"
+                                                   style="background: #11111b; border-color: #313244; color: #cdd6f4; font-size: 11px;"
+                                                   t-att-value="state.settingsProject.ssh_port"
+                                                   t-on-change="_onSettingsInput" data-field="ssh_port" data-type="int"/>
+                                        </div>
+                                    </t>
+                                    <div class="flex-grow-1" style="max-width: 180px;">
+                                        <label style="color: #6c7086; font-size: 10px;">Servicio systemd</label>
+                                        <div class="d-flex gap-1">
+                                            <input type="text" class="form-control form-control-sm"
+                                                   style="background: #11111b; border-color: #313244; color: #cdd6f4; font-size: 11px;"
+                                                   placeholder="odoo19"
+                                                   t-att-value="state.autodetectService || state.settingsProject.odoo_service_name || ''"
+                                                   t-on-input="_onAutodetectInput"/>
+                                            <button class="btn btn-sm px-2" style="background: #a6e3a1; color: #1e1e2e; font-size: 10px; white-space: nowrap;"
+                                                    t-on-click="_autodetectProject">Detectar</button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <t t-if="state.autodetectResult and !state.autodetectResult.error">
+                                    <div class="mt-2 d-flex gap-3 flex-wrap" style="font-size: 10px; color: #a6e3a1;">
+                                        <span t-if="state.autodetectResult.active">✓ Activo</span>
+                                        <span t-if="state.autodetectResult.database_name">BD: <t t-esc="state.autodetectResult.database_name"/></span>
+                                        <span t-if="state.autodetectResult.port">Puerto: <t t-esc="state.autodetectResult.port"/></span>
+                                        <span t-if="state.autodetectResult.domain">Dominio: <t t-esc="state.autodetectResult.domain"/></span>
+                                    </div>
+                                </t>
+                            </div>
+
                             <div class="row g-3">
                                 <!-- Column 1: General -->
                                 <div class="col-md-6">
                                     <div style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
-                                        <h6 style="color: #89b4fa; margin-bottom: 12px;">General</h6>
+                                        <h6 style="color: #cba6f7; margin-bottom: 12px;">Proyecto</h6>
                                         <div class="mb-2">
                                             <label style="color: #6c7086; font-size: 11px;">Nombre</label>
                                             <input type="text" class="form-control form-control-sm"
@@ -1987,13 +2050,23 @@
                                                    t-att-value="state.settingsProject.name"
                                                    t-on-change="_onSettingsInput" data-field="name"/>
                                         </div>
-                                        <div class="mb-2">
-                                            <label style="color: #6c7086; font-size: 11px;">Dominio</label>
-                                            <input type="text" class="form-control form-control-sm"
-                                                   style="background: #11111b; border-color: #313244; color: #cdd6f4;"
-                                                   placeholder="ejemplo.com"
-                                                   t-att-value="state.settingsProject.domain"
-                                                   t-on-change="_onSettingsInput" data-field="domain"/>
+                                        <div class="d-flex gap-2 mb-2">
+                                            <div class="flex-grow-1">
+                                                <label style="color: #6c7086; font-size: 11px;">Dominio produccion</label>
+                                                <input type="text" class="form-control form-control-sm"
+                                                       style="background: #11111b; border-color: #313244; color: #cdd6f4;"
+                                                       placeholder="ejemplo.com"
+                                                       t-att-value="state.settingsProject.domain"
+                                                       t-on-change="_onSettingsInput" data-field="domain"/>
+                                            </div>
+                                            <div class="flex-grow-1">
+                                                <label style="color: #6c7086; font-size: 11px;">Dominio subdominios (staging/dev)</label>
+                                                <input type="text" class="form-control form-control-sm"
+                                                       style="background: #11111b; border-color: #313244; color: #cdd6f4;"
+                                                       placeholder="vacio = usa dominio produccion"
+                                                       t-att-value="state.settingsProject.subdomain_base"
+                                                       t-on-change="_onSettingsInput" data-field="subdomain_base"/>
+                                            </div>
                                         </div>
                                         <div class="mb-2">
                                             <label style="color: #6c7086; font-size: 11px;">Ruta Repositorio</label>

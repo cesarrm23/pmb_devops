@@ -50,9 +50,11 @@ class DevopsInstanceInfra(models.Model):
             subdomain = f"{safe_name}"
         instance_path = f"/opt/instances/{service_name}"
         config_path = f"/etc/{service_name}.conf"
+        # Use subdomain_base for staging/dev if configured, else fall back to domain
         domain = project.domain or ''
-        if subdomain and domain:
-            full_domain = f"{subdomain}.{domain}"
+        sub_base = project.subdomain_base or domain
+        if subdomain and sub_base:
+            full_domain = f"{subdomain}.{sub_base}"
         elif domain:
             full_domain = domain
         else:

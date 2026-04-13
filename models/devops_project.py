@@ -35,6 +35,8 @@ class DevopsProject(models.Model):
 
     # ---- Domain & Instances ----
     domain = fields.Char(string='Dominio', help='ej: cremara.com')
+    subdomain_base = fields.Char(string='Dominio para subdominios',
+        help='Dominio base para staging/dev. Ej: maha.com.mx. Si vacío, usa el dominio principal.')
     instance_ids = fields.One2many('devops.instance', 'project_id', string='Instancias')
     production_instance_id = fields.Many2one('devops.instance', string='Instancia Producción')
     max_staging = fields.Integer(string='Max Staging', default=3)
