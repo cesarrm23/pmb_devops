@@ -474,9 +474,7 @@ echo "done" > {status_file}
                     if run(f'test -f {conf} && echo ok') == 'ok':
                         info.append({'type': 'ok', 'msg': f'Config {conf} existe'})
                     else:
-                            issues.append({'type': 'error', 'msg': f'Config {conf} NO existe'})
-            except Exception:
-                pass
+                        issues.append({'type': 'error', 'msg': f'Config {conf} NO existe'})
         else:
             issues.append({'type': 'error', 'msg': 'No hay servicio systemd configurado'})
 
@@ -506,8 +504,6 @@ echo "done" > {status_file}
         elif fix_type == 'enable_service' and instance.service_name:
             run(f'sudo systemctl enable {instance.service_name}.service')
             return {'status': 'ok', 'msg': f'Servicio {instance.service_name} habilitado'}
-            except Exception as e:
-                return {'error': str(e)}
         return {'error': f'Fix type desconocido: {fix_type}'}
 
     @http.route('/devops/instance/start', type='json', auth='user')
