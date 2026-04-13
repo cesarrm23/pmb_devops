@@ -1543,7 +1543,8 @@ Texto:
             finally:
                 os.unlink(prompt_file)
             if result.returncode != 0:
-                return {'error': f'Claude CLI error: {result.stderr[:200]}'}
+                err = result.stderr.strip() or result.stdout.strip()
+                return {'error': f'Claude CLI error (code {result.returncode}): {err[:300]}'}
 
             content = result.stdout.strip()
             start = content.find('[')
