@@ -266,7 +266,7 @@ class DevopsController(http.Controller):
         # Enforce .gitignore on the production repo
         if repo_path:
             from ..utils.git_utils import ensure_gitignore
-            ensure_gitignore(repo_path)
+            ensure_gitignore(repo_path, project=project)
 
         return {
             'status': 'ok',
@@ -878,11 +878,11 @@ echo "done" > {status_file}
             if os.path.isdir(os.path.join(project.repo_path, '.git')):
                 repos.append({'path': project.repo_path, 'name': os.path.basename(project.repo_path), 'branch': 'HEAD', 'owned': True, 'repo_type': 'custom'})
 
-        # Enforce .gitignore on all discovered repos (idempotent)
+        # Enforce .gitignore on all discovered repos (idempotent, SSH-aware)
         from ..utils.git_utils import ensure_gitignore
         for repo in repos:
             try:
-                ensure_gitignore(repo['path'])
+                ensure_gitignore(repo['path'], project=project)
             except Exception:
                 pass
 
@@ -1010,66 +1010,51 @@ echo "done" > {status_file}
         return {'diff': result.stdout if result.returncode == 0 else 'No diff available'}
 
     def _get_editor_allowed_paths(self, project, instance_id=None):
-        """Return the instance root + any external addons paths."""
-        import subprocess, re
+        """Return the instance root + any external addons paths (SSH-aware)."""
 
-        # Determine instance root path
+        # Determine instance root and service name
         inst_root = ''
+        service_name = ''
         if instance_id:
             inst = project.env['devops.instance'].browse(instance_id)
-            if inst.exists() and inst.instance_path:
-                inst_root = inst.instance_path
+            if inst.exists():
+                inst_root = inst.instance_path or ''
+                service_name = inst.service_name or ''
         if not inst_root:
             if project.production_instance_id and project.production_instance_id.instance_path:
                 inst_root = project.production_instance_id.instance_path
             elif project.repo_path:
                 inst_root = os.path.dirname(project.repo_path)
+        if not service_name:
+            service_name = project.odoo_service_name or ''
 
-        # Parse addons_path from service config to find external paths
-        config_path = ''
-        service_name = ''
-        if instance_id:
-            inst = project.env['devops.instance'].browse(instance_id)
-            if inst.exists() and inst.service_name:
-                service_name = inst.service_name
-        if not service_name and project.odoo_service_name:
-            service_name = project.odoo_service_name
-
+        # Use autodetect to get addons_path (works for both local and SSH)
+        addons_paths = []
         if service_name:
             try:
-                proc = subprocess.run(
-                    ['systemctl', 'show', f'{service_name}.service', '--property=ExecStart'],
-                    capture_output=True, text=True, timeout=5,
-                )
-                m = re.search(r'-c\s+(\S+)', proc.stdout)
-                if m:
-                    config_path = m.group(1)
+                detected = self.project_autodetect(service_name, project.id)
+                ap = detected.get('addons_path', '')
+                if ap:
+                    addons_paths = [p.strip() for p in ap.split(',') if p.strip()]
             except Exception:
                 pass
 
-        addons_paths = []
-        if config_path and os.path.exists(config_path):
-            try:
-                with open(config_path, 'r') as f:
-                    for line in f:
-                        line = line.strip()
-                        if line.startswith('addons_path'):
-                            _, _, val = line.partition('=')
-                            addons_paths = [p.strip() for p in val.strip().split(',') if p.strip() and os.path.isdir(p.strip())]
-                            break
-            except Exception:
-                pass
+        # For local projects, verify paths exist
+        is_ssh = project.connection_type == 'ssh' and project.ssh_host
+        if not is_ssh:
+            addons_paths = [p for p in addons_paths if os.path.isdir(p)]
 
         # Build allowed paths: instance root + external addons paths
         allowed = []
-        if inst_root and os.path.isdir(inst_root):
-            allowed.append(inst_root)
-        # Add addons paths that are OUTSIDE the instance root (shared paths)
+        if inst_root:
+            if is_ssh or os.path.isdir(inst_root):
+                allowed.append(inst_root)
         for p in addons_paths:
             if inst_root and p.startswith(inst_root + '/'):
-                continue  # inside instance root, already browsable
-            if p not in allowed and os.path.isdir(p):
-                allowed.append(p)
+                continue
+            if p not in allowed:
+                if is_ssh or os.path.isdir(p):
+                    allowed.append(p)
         return allowed
 
     @http.route('/devops/files/list', type='json', auth='user')
@@ -1161,7 +1146,7 @@ echo "done" > {status_file}
 
         result = ssh_utils.execute_command(project, [
             'head', '-c', '500000', full_path,
-        ], cwd=base_dir, timeout=10)
+        ], timeout=10)
 
         if result.returncode != 0:
             return {'error': result.stderr or 'Error leyendo archivo'}

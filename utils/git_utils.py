@@ -45,86 +45,68 @@ sessions/
 """
 
 
-def ensure_gitignore(repo_path):
+def ensure_gitignore(repo_path, project=None):
     """Ensure a proper .gitignore exists in a git repository.
 
-    - If .gitignore doesn't exist, create it with the standard template.
-    - If it exists, append any missing rules from the template.
-    - Remove any tracked files that should now be ignored.
+    Supports local and SSH projects. For SSH, all operations run remotely.
     Returns True if changes were made, False otherwise.
     """
-    if not repo_path or not os.path.isdir(os.path.join(repo_path, '.git')):
+    if not repo_path:
         return False
 
-    gitignore_path = os.path.join(repo_path, '.gitignore')
-    changed = False
+    from . import ssh_utils
 
-    # Read existing content or start fresh
-    existing = ''
-    if os.path.isfile(gitignore_path):
-        try:
-            with open(gitignore_path, 'r') as f:
-                existing = f.read()
-        except Exception:
-            pass
+    def _run(cmd_list):
+        if project and project.connection_type == 'ssh' and project.ssh_host:
+            return ssh_utils.execute_command(project, cmd_list, cwd=repo_path, timeout=15)
+        return subprocess.run(cmd_list, capture_output=True, text=True, timeout=15, cwd=repo_path)
 
-    # Collect rules from template that are missing
+    def _shell(cmd_str):
+        if project and project.connection_type == 'ssh' and project.ssh_host:
+            return ssh_utils.execute_command_shell(project, cmd_str, cwd=repo_path, timeout=15)
+        return subprocess.run(cmd_str, shell=True, capture_output=True, text=True, timeout=15, cwd=repo_path if not project else None)
+
+    # Check if .git exists
+    r = _run(['test', '-d', '.git'])
+    if r.returncode != 0:
+        return False
+
+    # Read existing .gitignore
+    r = _shell('cat .gitignore 2>/dev/null || true')
+    existing = r.stdout if r.returncode == 0 else ''
+
     existing_lines = set(l.strip() for l in existing.splitlines() if l.strip() and not l.startswith('#'))
     template_lines = [l for l in GITIGNORE_TEMPLATE.splitlines() if l.strip() and not l.startswith('#')]
     missing = [l for l in template_lines if l.strip() not in existing_lines]
 
+    changed = False
     if missing:
-        with open(gitignore_path, 'a' if existing else 'w') as f:
-            if existing and not existing.endswith('\n'):
-                f.write('\n')
-            if existing:
-                f.write('\n# Auto-added by pmb_devops\n')
-            else:
-                f.write(GITIGNORE_TEMPLATE)
-                missing = []  # Already wrote the full template
-            for rule in missing:
-                f.write(rule + '\n')
+        if existing:
+            append = '\n# Auto-added by pmb_devops\n' + '\n'.join(missing) + '\n'
+            _shell(f'printf %s "{append}" >> .gitignore')
+        else:
+            escaped = GITIGNORE_TEMPLATE.replace('"', '\\"')
+            _shell(f'printf "%s" "{escaped}" > .gitignore')
         changed = True
 
-    # Remove tracked files that match .gitignore patterns
+    # Remove tracked files that match .gitignore
     try:
-        result = subprocess.run(
-            ['git', 'ls-files', '-ci', '--exclude-standard'],
-            capture_output=True, text=True, timeout=10, cwd=repo_path,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            tracked_ignored = result.stdout.strip().split('\n')
-            if tracked_ignored:
-                subprocess.run(
-                    ['git', 'rm', '--cached'] + tracked_ignored,
-                    capture_output=True, text=True, timeout=30, cwd=repo_path,
-                )
-                changed = True
-                _logger.info("Removed %d tracked-but-ignored files from %s",
-                             len(tracked_ignored), repo_path)
-    except Exception as e:
-        _logger.warning("Error cleaning tracked ignored files in %s: %s", repo_path, e)
+        r = _run(['git', 'ls-files', '-ci', '--exclude-standard'])
+        if r.returncode == 0 and r.stdout.strip():
+            files = r.stdout.strip().split('\n')
+            _run(['git', 'rm', '--cached'] + files)
+            changed = True
+    except Exception:
+        pass
 
-    # Auto-commit if changes were made
     if changed:
         try:
-            subprocess.run(
-                ['git', 'add', '.gitignore'],
-                capture_output=True, text=True, timeout=5, cwd=repo_path,
-            )
-            # Check if there's anything to commit
-            status = subprocess.run(
-                ['git', 'diff', '--cached', '--quiet'],
-                capture_output=True, text=True, timeout=5, cwd=repo_path,
-            )
-            if status.returncode != 0:  # There are staged changes
-                subprocess.run(
-                    ['git', 'commit', '-m', 'chore: enforce .gitignore — remove tracked artifacts'],
-                    capture_output=True, text=True, timeout=15, cwd=repo_path,
-                )
-                _logger.info("Auto-committed .gitignore enforcement in %s", repo_path)
-        except Exception as e:
-            _logger.warning("Error auto-committing .gitignore in %s: %s", repo_path, e)
+            _run(['git', 'add', '.gitignore'])
+            status = _run(['git', 'diff', '--cached', '--quiet'])
+            if status.returncode != 0:
+                _run(['git', 'commit', '-m', 'chore: enforce .gitignore — remove tracked artifacts'])
+        except Exception:
+            pass
 
     return changed
 

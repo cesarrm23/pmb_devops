@@ -1,7 +1,7 @@
 """Infrastructure utilities for automated Odoo instance management.
 
-Handles nginx, systemd, database, and filesystem operations
-for creating and destroying Odoo instances.
+Handles nginx, systemd, database, and filesystem operations.
+All functions support both local and SSH execution via optional `project` param.
 """
 import logging
 import subprocess
@@ -29,57 +29,44 @@ server {{
    listen 443 ssl;
    server_name {domain};
 
-   access_log /var/log/nginx/{instance_name}.access.log;
-   error_log /var/log/nginx/{instance_name}.error.log;
-
-   proxy_buffers 16 64k;
-   proxy_buffer_size 128k;
-   client_max_body_size 4000M;
-   proxy_connect_timeout 1800;
-   proxy_send_timeout 1800;
-   proxy_read_timeout 1800;
-   send_timeout 1800;
-
    ssl_certificate /etc/letsencrypt/live/{domain}/fullchain.pem;
    ssl_certificate_key /etc/letsencrypt/live/{domain}/privkey.pem;
-   include /etc/letsencrypt/options-ssl-nginx.conf;
-   ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
-   add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+   proxy_read_timeout 720s;
+   proxy_connect_timeout 720s;
+   proxy_send_timeout 720s;
 
-   location / {{
-       proxy_pass http://odoo_{instance_id};
-       proxy_next_upstream error timeout invalid_header http_500 http_502 http_503 http_504;
-       proxy_redirect off;
-       proxy_set_header Host $host;
-       proxy_set_header X-Real-IP $remote_addr;
-       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-       proxy_set_header X-Forwarded-Proto https;
-   }}
+   proxy_set_header X-Forwarded-Host $host;
+   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+   proxy_set_header X-Forwarded-Proto $scheme;
+   proxy_set_header X-Real-IP $remote_addr;
 
    location /websocket {{
        proxy_pass http://odoochat_{instance_id};
+       proxy_http_version 1.1;
        proxy_set_header Upgrade $http_upgrade;
-       proxy_set_header Connection $connection_upgrade;
-       proxy_set_header X-Forwarded-Host $http_host;
-       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-       proxy_set_header X-Forwarded-Proto $scheme;
-       proxy_set_header X-Real-IP $remote_addr;
-       proxy_buffering off;
-       proxy_cache_bypass $http_upgrade;
-       proxy_read_timeout 3600s;
+       proxy_set_header Connection "upgrade";
    }}
+
+   location / {{
+       proxy_redirect off;
+       proxy_pass http://odoo_{instance_id};
+   }}
+
+   # Enable gzip
+   gzip_types text/css text/plain text/xml application/xml application/javascript application/json;
+   gzip on;
+   client_max_body_size 200m;
 }}
 """
 
 SYSTEMD_TEMPLATE = """\
 [Unit]
 Description=Odoo {service_name}
-After=network.target postgresql.service
+After=postgresql.service network.target
 
 [Service]
 Type=simple
-SyslogIdentifier={service_name}
 User=odooal
 Group=odooal
 WorkingDirectory={instance_path}
@@ -106,31 +93,35 @@ logfile = /var/log/odoo/{service_name}.log
 """
 
 # ---------------------------------------------------------------------------
-# Utility
+# Core: run command locally or via SSH
 # ---------------------------------------------------------------------------
 
 
-def sudo_run(command, timeout=60):
-    """Run a command with sudo, capturing output.
+def _run(cmd_str, project=None, timeout=60):
+    """Run a shell command locally or via SSH based on project type.
 
-    Args:
-        command: string or list -- the command to execute.
-        timeout: seconds before TimeoutExpired.
+    This is the single entry point — ALL infra operations go through here.
+    """
+    if project and project.connection_type == 'ssh' and project.ssh_host:
+        from . import ssh_utils
+        return ssh_utils.execute_command_shell(project, cmd_str, timeout=timeout)
+    # Local: use sudo
+    return subprocess.run(
+        f"sudo {cmd_str}", shell=True,
+        capture_output=True, text=True, timeout=timeout,
+    )
 
-    Returns:
-        subprocess.CompletedProcess
+
+def sudo_run(command, timeout=60, project=None):
+    """Run a command with sudo (local) or via SSH (remote).
+
+    Backward compatible: existing calls without project= still work locally.
     """
     if isinstance(command, str):
-        full_cmd = f"sudo {command}"
-        return subprocess.run(
-            full_cmd, shell=True,
-            capture_output=True, text=True, timeout=timeout,
-        )
+        return _run(command, project, timeout)
     else:
-        return subprocess.run(
-            ['sudo'] + list(command),
-            capture_output=True, text=True, timeout=timeout,
-        )
+        cmd_str = ' '.join(command)
+        return _run(cmd_str, project, timeout)
 
 
 # ---------------------------------------------------------------------------
@@ -138,49 +129,36 @@ def sudo_run(command, timeout=60):
 # ---------------------------------------------------------------------------
 
 
-def create_nginx_vhost(domain, port, gevent_port, instance_id, instance_name):
-    """Write nginx vhost config and reload nginx.
-
-    Returns:
-        str: path to the created config file.
-    """
+def create_nginx_vhost(domain, port, gevent_port, instance_id, instance_name, project=None):
+    """Write nginx vhost config and reload nginx."""
     config_content = NGINX_TEMPLATE.format(
-        domain=domain,
-        port=port,
-        gevent_port=gevent_port,
-        instance_id=instance_id,
-        instance_name=instance_name,
+        domain=domain, port=port, gevent_port=gevent_port,
+        instance_id=instance_id, instance_name=instance_name,
     )
     path = f"/etc/nginx/sites-enabled/{domain}"
-    result = sudo_run(f"tee {path} <<'NGINX_EOF'\n{config_content}\nNGINX_EOF")
+    result = sudo_run(f"tee {path} <<'NGINX_EOF'\n{config_content}\nNGINX_EOF", project=project)
     if result.returncode != 0:
         raise RuntimeError(f"Error writing nginx config: {result.stderr}")
-
-    # Validate nginx config
-    test = sudo_run("nginx -t")
+    test = sudo_run("nginx -t", project=project)
     if test.returncode != 0:
-        # Rollback: remove bad config
-        sudo_run(f"rm -f {path}")
+        sudo_run(f"rm -f {path}", project=project)
         raise RuntimeError(f"Nginx config test failed: {test.stderr}")
-
     return path
 
 
-def remove_nginx_vhost(path):
+def remove_nginx_vhost(path, project=None):
     """Remove nginx vhost config and reload nginx."""
-    sudo_run(f"rm -f {path}")
-    test = sudo_run("nginx -t")
-    if test.returncode != 0:
-        _logger.warning("Nginx config test failed after removing %s: %s", path, test.stderr)
-    sudo_run("systemctl reload nginx")
+    sudo_run(f"rm -f {path}", project=project)
+    sudo_run("nginx -t", project=project)
+    sudo_run("systemctl reload nginx", project=project)
 
 
-def reload_nginx():
+def reload_nginx(project=None):
     """Test and reload nginx."""
-    test = sudo_run("nginx -t")
+    test = sudo_run("nginx -t", project=project)
     if test.returncode != 0:
         raise RuntimeError(f"Nginx config test failed: {test.stderr}")
-    result = sudo_run("systemctl reload nginx")
+    result = sudo_run("systemctl reload nginx", project=project)
     if result.returncode != 0:
         raise RuntimeError(f"Nginx reload failed: {result.stderr}")
 
@@ -190,13 +168,12 @@ def reload_nginx():
 # ---------------------------------------------------------------------------
 
 
-def obtain_ssl_cert(domain):
-    """Obtain SSL certificate via certbot for the given domain."""
+def obtain_ssl_cert(domain, project=None):
+    """Obtain SSL certificate via certbot."""
     result = sudo_run(
-        f"certbot --nginx -d {domain} "
-        f"--non-interactive --agree-tos "
+        f"certbot --nginx -d {domain} --non-interactive --agree-tos "
         f"--email admin@patchmybyte.com --redirect",
-        timeout=120,
+        timeout=120, project=project,
     )
     if result.returncode != 0:
         _logger.warning("Certbot failed for %s: %s", domain, result.stderr)
@@ -209,64 +186,54 @@ def obtain_ssl_cert(domain):
 # ---------------------------------------------------------------------------
 
 
-def create_systemd_service(service_name, config_path, instance_path):
-    """Create and enable a systemd service unit.
-
-    Returns:
-        str: path to the created service file.
-    """
+def create_systemd_service(service_name, config_path, instance_path, project=None):
+    """Create and enable a systemd service unit."""
     content = SYSTEMD_TEMPLATE.format(
-        service_name=service_name,
-        config_path=config_path,
+        service_name=service_name, config_path=config_path,
         instance_path=instance_path,
     )
     path = f"/etc/systemd/system/{service_name}.service"
-    result = sudo_run(f"tee {path} <<'SYSTEMD_EOF'\n{content}\nSYSTEMD_EOF")
+    result = sudo_run(f"tee {path} <<'SYSTEMD_EOF'\n{content}\nSYSTEMD_EOF", project=project)
     if result.returncode != 0:
         raise RuntimeError(f"Error writing systemd service: {result.stderr}")
-
-    sudo_run("systemctl daemon-reload")
-    sudo_run(f"systemctl enable {service_name}")
+    sudo_run("systemctl daemon-reload", project=project)
+    sudo_run(f"systemctl enable {service_name}", project=project)
     return path
 
 
-def remove_systemd_service(service_name):
+def remove_systemd_service(service_name, project=None):
     """Stop, disable, and remove a systemd service."""
-    sudo_run(f"systemctl stop {service_name}", timeout=30)
-    sudo_run(f"systemctl disable {service_name}")
+    sudo_run(f"systemctl stop {service_name}", timeout=30, project=project)
+    sudo_run(f"systemctl disable {service_name}", project=project)
     path = f"/etc/systemd/system/{service_name}.service"
-    sudo_run(f"rm -f {path}")
-    sudo_run("systemctl daemon-reload")
+    sudo_run(f"rm -f {path}", project=project)
+    sudo_run("systemctl daemon-reload", project=project)
 
 
-def start_service(service_name, timeout=30):
+def start_service(service_name, timeout=30, project=None):
     """Start a systemd service."""
-    result = sudo_run(f"systemctl start {service_name}", timeout=timeout)
+    result = sudo_run(f"systemctl start {service_name}", timeout=timeout, project=project)
     if result.returncode != 0:
         raise RuntimeError(f"Error starting {service_name}: {result.stderr}")
 
 
-def stop_service(service_name, timeout=30):
+def stop_service(service_name, timeout=30, project=None):
     """Stop a systemd service."""
-    result = sudo_run(f"systemctl stop {service_name}", timeout=timeout)
+    result = sudo_run(f"systemctl stop {service_name}", timeout=timeout, project=project)
     if result.returncode != 0:
         raise RuntimeError(f"Error stopping {service_name}: {result.stderr}")
 
 
-def restart_service(service_name, timeout=30):
+def restart_service(service_name, timeout=30, project=None):
     """Restart a systemd service."""
-    result = sudo_run(f"systemctl restart {service_name}", timeout=timeout)
+    result = sudo_run(f"systemctl restart {service_name}", timeout=timeout, project=project)
     if result.returncode != 0:
         raise RuntimeError(f"Error restarting {service_name}: {result.stderr}")
 
 
-def is_service_active(service_name):
-    """Check if a systemd service is active.
-
-    Returns:
-        str: 'active', 'inactive', 'failed', etc.
-    """
-    result = sudo_run(f"systemctl is-active {service_name}", timeout=10)
+def is_service_active(service_name, project=None):
+    """Check if a systemd service is active."""
+    result = sudo_run(f"systemctl is-active {service_name}", timeout=10, project=project)
     return result.stdout.strip()
 
 
@@ -276,27 +243,18 @@ def is_service_active(service_name):
 
 
 def create_odoo_config(service_name, db_name, port, gevent_port,
-                       instance_path, addons_path):
-    """Write Odoo configuration file.
-
-    Returns:
-        str: path to the created config file.
-    """
+                       instance_path, addons_path, project=None):
+    """Write Odoo configuration file."""
     content = ODOO_CONFIG_TEMPLATE.format(
-        service_name=service_name,
-        db_name=db_name,
-        port=port,
-        gevent_port=gevent_port,
-        addons_path=addons_path,
+        service_name=service_name, db_name=db_name,
+        port=port, gevent_port=gevent_port, addons_path=addons_path,
     )
     path = f"/etc/{service_name}.conf"
-    result = sudo_run(f"tee {path} <<'CONF_EOF'\n{content}\nCONF_EOF")
+    result = sudo_run(f"tee {path} <<'CONF_EOF'\n{content}\nCONF_EOF", project=project)
     if result.returncode != 0:
         raise RuntimeError(f"Error writing Odoo config: {result.stderr}")
-
-    # Restrict permissions
-    sudo_run(f"chmod 640 {path}")
-    sudo_run(f"chown odooal:odooal {path}")
+    sudo_run(f"chmod 640 {path}", project=project)
+    sudo_run(f"chown odooal:odooal {path}", project=project)
     return path
 
 
@@ -305,55 +263,25 @@ def create_odoo_config(service_name, db_name, port, gevent_port,
 # ---------------------------------------------------------------------------
 
 
-def clone_database(source_db, target_db, timeout=1800):
-    """Clone a PostgreSQL database using pg_dump | psql in background.
-
-    NEVER terminates connections on production databases.
-    Uses pg_dump | psql which works while source DB is active.
-    """
-    _logger.info("Cloning database %s -> %s (pg_dump|psql)", source_db, target_db)
-
-    # Create empty target database
-    result = subprocess.run(
-        ['createdb', '-O', 'odooal', target_db],
-        capture_output=True, text=True, timeout=60,
-    )
+def clone_database(source_db, target_db, timeout=1800, project=None):
+    """Clone a PostgreSQL database using pg_dump | psql."""
+    _logger.info("Cloning database %s -> %s", source_db, target_db)
+    result = _run(f"createdb -O odooal {target_db}", project, timeout=60)
     if result.returncode != 0:
         raise RuntimeError(f"Error creating database {target_db}: {result.stderr}")
-
-    # pg_dump | psql — safe for active databases
-    result = subprocess.run(
-        f'pg_dump {source_db} | psql -q {target_db}',
-        shell=True, capture_output=True, text=True, timeout=timeout,
-    )
+    result = _run(f"pg_dump {source_db} | psql -q {target_db}", project, timeout=timeout)
     if result.returncode != 0:
-        subprocess.run(['dropdb', '--if-exists', target_db],
-                       capture_output=True, text=True)
+        _run(f"dropdb --if-exists {target_db}", project, timeout=60)
         raise RuntimeError(f"Error cloning database: {result.stderr}")
-
-    _logger.info("Database %s cloned from %s successfully", target_db, source_db)
-
-    _logger.info("Database %s cloned from %s via pg_dump|psql", target_db, source_db)
+    _logger.info("Database %s cloned from %s", target_db, source_db)
 
 
-def drop_database(db_name):
-    """Terminate connections on the target DB and drop it.
-
-    ONLY terminates connections on the DB being dropped (staging/dev),
-    NEVER on production databases.
-    """
-    # Terminate connections on THIS database only (safe — it's being destroyed)
-    subprocess.run(
-        ['psql', '-c',
-         f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-         f"WHERE datname = '{db_name}' AND pid <> pg_backend_pid();",
-         'odooal'],
-        capture_output=True, text=True, timeout=30,
-    )
-    result = subprocess.run(
-        ['dropdb', '--if-exists', db_name],
-        capture_output=True, text=True, timeout=60,
-    )
+def drop_database(db_name, project=None):
+    """Terminate connections and drop a database."""
+    _run(f"psql -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+         f"WHERE datname = '{db_name}' AND pid <> pg_backend_pid();\" odooal",
+         project, timeout=30)
+    result = _run(f"dropdb --if-exists {db_name}", project, timeout=60)
     if result.returncode != 0:
         raise RuntimeError(f"Error dropping database {db_name}: {result.stderr}")
     _logger.info("Database %s dropped", db_name)
@@ -364,18 +292,18 @@ def drop_database(db_name):
 # ---------------------------------------------------------------------------
 
 
-def create_instance_directory(instance_path):
+def create_instance_directory(instance_path, project=None):
     """Create the instance directory structure with proper ownership."""
-    sudo_run(f"mkdir -p {instance_path}/.local/share/Odoo")
-    sudo_run(f"chown -R odooal:odooal {instance_path}")
+    sudo_run(f"mkdir -p {instance_path}/.local/share/Odoo", project=project)
+    sudo_run(f"chown -R odooal:odooal {instance_path}", project=project)
 
 
-def remove_instance_directory(instance_path):
+def remove_instance_directory(instance_path, project=None):
     """Remove an instance directory (with safety check)."""
     if not instance_path or not instance_path.startswith('/opt/instances/'):
         raise RuntimeError(
             f"Safety check failed: refusing to remove '{instance_path}'. "
             f"Path must start with /opt/instances/"
         )
-    sudo_run(f"rm -rf {instance_path}")
+    sudo_run(f"rm -rf {instance_path}", project=project)
     _logger.info("Instance directory %s removed", instance_path)
