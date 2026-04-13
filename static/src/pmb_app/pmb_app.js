@@ -158,6 +158,9 @@ class PmbDevopsApp extends Component {
         this._termPollTimeout = null;
 
         onMounted(async () => {
+            // Set DevOps favicon
+            this._setDevOpsFavicon();
+
             // Load persisted UI preferences
             try {
                 const prefs = await rpc('/devops/user/prefs');
@@ -189,6 +192,8 @@ class PmbDevopsApp extends Component {
         });
 
         onWillUnmount(() => {
+            // Restore original favicon
+            this._restoreFavicon();
             if (this._pollTimer) {
                 clearInterval(this._pollTimer);
                 this._pollTimer = null;
@@ -1222,6 +1227,35 @@ class PmbDevopsApp extends Component {
     // ------------------------------------------------------------------
     // Git changes (AI tab panel) — loaded once on tab enter + manual refresh
     // ------------------------------------------------------------------
+
+    _setDevOpsFavicon() {
+        // Save original favicon and set DevOps ⚡ icon
+        const existing = document.querySelector('link[rel="icon"], link[rel="shortcut icon"]');
+        if (existing) {
+            this._originalFavicon = existing.href;
+        }
+        let link = document.querySelector('link[rel="icon"]');
+        if (!link) {
+            link = document.createElement('link');
+            link.rel = 'icon';
+            document.head.appendChild(link);
+        }
+        link.href = '/pmb_devops/static/src/img/favicon.svg';
+        link.type = 'image/svg+xml';
+        // Also set page title
+        this._originalTitle = document.title;
+        document.title = '⚡ PMB DevOps';
+    }
+
+    _restoreFavicon() {
+        const link = document.querySelector('link[rel="icon"]');
+        if (link && this._originalFavicon) {
+            link.href = this._originalFavicon;
+        }
+        if (this._originalTitle) {
+            document.title = this._originalTitle;
+        }
+    }
 
     _toggleGitPanel() {
         this.state.gitPanelCollapsed = !this.state.gitPanelCollapsed;
