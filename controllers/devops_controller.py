@@ -69,6 +69,10 @@ class DevopsController(http.Controller):
         """Create a new staging/development instance (admin or developer)."""
         if not request.env.user.has_group('pmb_devops.group_devops_developer'):
             return {'error': 'Se requiere rol Developer o Admin para crear instancias'}
+        # SSH projects: instances must be created on the remote server
+        project = request.env['devops.project'].sudo().browse(project_id)
+        if project.exists() and project.connection_type == 'ssh' and project.ssh_host:
+            return {'error': 'Para proyectos remotos (SSH), las instancias staging/dev deben crearse directamente en el servidor remoto. Usa el Shell para configurarlas.'}
         # Use sudo for internal operations (developer may not see production via record rules)
         Project = request.env['devops.project'].sudo()
         Instance = request.env['devops.instance'].sudo()
@@ -2235,7 +2239,7 @@ Texto:
         allowed_fields = [
             'name', 'domain', 'subdomain_base', 'repo_path', 'enterprise_path', 'database_name',
             'connection_type', 'ssh_host', 'ssh_user', 'ssh_port',
-            'max_staging', 'max_development', 'auto_destroy_hours',
+            'max_staging', 'max_development', 'auto_destroy_hours', 'odoo_service_name',
             'production_branch', 'odoo_project_id',
         ]
         write_vals = {k: v for k, v in vals.items() if k in allowed_fields}

@@ -429,7 +429,7 @@ class PmbDevopsApp extends Component {
     async _newProject() {
         // Switch to settings tab with empty project form
         this.state.settingsProject = {
-            id: null, name: '', domain: '', repo_path: '', enterprise_path: '',
+            id: null, name: '', domain: '', subdomain_base: '', repo_path: '', enterprise_path: '',
             database_name: '', connection_type: 'local', ssh_host: '', ssh_user: '',
             ssh_port: 22, max_staging: 3, max_development: 5, auto_destroy_hours: 24,
             production_branch: 'main',
@@ -2323,10 +2323,12 @@ class PmbDevopsApp extends Component {
                 project_id: p.id || null,
                 name: p.name,
                 domain: p.domain,
+                subdomain_base: p.subdomain_base,
                 repo_path: p.repo_path,
                 enterprise_path: p.enterprise_path,
                 database_name: p.database_name,
                 connection_type: p.connection_type,
+                odoo_service_name: p.odoo_service_name || this.state.autodetectService || '',
                 ssh_host: p.ssh_host,
                 ssh_user: p.ssh_user,
                 ssh_port: p.ssh_port,
