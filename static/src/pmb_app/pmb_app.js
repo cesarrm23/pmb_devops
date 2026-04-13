@@ -403,7 +403,7 @@ class PmbDevopsApp extends Component {
         await this._onNavTabChange('settings');
     }
 
-    _onProjectChange(ev) {
+    async _onProjectChange(ev) {
         const val = parseInt(ev.target.value, 10);
         this.state.currentProjectId = val || false;
         this.state.currentProject =
@@ -412,7 +412,24 @@ class PmbDevopsApp extends Component {
         this.state.selectedBranch = null;
         this.state.claudeSessions = [];
         this.state.claudeSessionsVisible = false;
-        this._loadProjectData();
+        this.state.settingsProject = null;
+        this.state.dashboard = null;
+        await this._loadProjectData();
+        // Reload current nav tab data
+        const tab = this.state.activeNavTab;
+        if (tab === 'settings') {
+            await this._loadSettings();
+            await this._loadMembers();
+            await this._loadAvailableUsers();
+        } else if (tab === 'status') {
+            await this._loadMetrics();
+            await this._loadDashboard();
+        } else if (tab === 'builds') {
+            await this._loadAllBuilds();
+        } else if (tab !== 'branches') {
+            // Go to branches for other tabs
+            this.state.activeNavTab = 'branches';
+        }
     }
 
     // ------------------------------------------------------------------
