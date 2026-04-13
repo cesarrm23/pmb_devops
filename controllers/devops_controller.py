@@ -2121,8 +2121,9 @@ Texto:
 
             r = ssh_utils.execute_command(project, git_cmd + ['rev-parse', '--abbrev-ref', 'HEAD'], cwd=repo_path, timeout=5)
             original_branch = r.stdout.strip() if r.returncode == 0 else ''
-            # Stash untracked files to avoid "would be overwritten" errors
+            # Clean untracked files and stash changes to avoid merge conflicts
             ssh_utils.execute_command(project, git_cmd + ['stash', '--include-untracked'], cwd=repo_path, timeout=15)
+            ssh_utils.execute_command(project, git_cmd + ['clean', '-fd'], cwd=repo_path, timeout=15)
             r = ssh_utils.execute_command(project, git_cmd + ['checkout', target_branch], cwd=repo_path, timeout=15)
             if r.returncode != 0:
                 ssh_utils.execute_command(project, git_cmd + ['stash', 'pop'], cwd=repo_path, timeout=15)
