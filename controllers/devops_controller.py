@@ -1757,7 +1757,7 @@ Texto:
             # Fallback: all internal users
             users = request.env['res.users'].sudo().search([('share', '=', False), ('active', '=', True)])
         else:
-            users = devops_groups.mapped('users')
+            users = devops_groups.mapped('user_ids')
         return {'users': [{
             'id': u.id,
             'name': u.name,
