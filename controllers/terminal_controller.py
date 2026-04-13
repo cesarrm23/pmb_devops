@@ -197,7 +197,22 @@ class DevopsTerminalController(http.Controller):
                 cmd = ssh_cmd_prefix + [f'journalctl -u {svc}.service -f -n 200 --no-pager --output=short-iso']
             elif session_type == 'odoo_log':
                 svc = service or (inst.service_name if inst else '')
-                cmd = ssh_cmd_prefix + [f'tail -f -n 200 /var/log/odoo/{svc}.log 2>/dev/null || journalctl -u {svc}.service -f -n 200']
+                # Detect logfile from remote config
+                from ..utils import ssh_utils
+                import re as _re
+                _exec = ssh_utils.execute_command_shell(
+                    proj, f'systemctl show {svc}.service --property=ExecStart', timeout=10,
+                ).stdout.strip()
+                _m = _re.search(r'-c\s+(\S+)', _exec)
+                _conf = _m.group(1) if _m else ''
+                _logfile = ''
+                if _conf:
+                    _cc = ssh_utils.execute_command_shell(proj, f'grep "^logfile" {_conf} 2>/dev/null', timeout=5).stdout.strip()
+                    if _cc and '=' in _cc:
+                        _logfile = _cc.partition('=')[2].strip()
+                if not _logfile:
+                    _logfile = f'/var/log/odoo/{svc}.log'
+                cmd = ssh_cmd_prefix + [f'tail -f -n 200 {_logfile} 2>/dev/null || journalctl -u {svc}.service -f -n 200']
             else:
                 return {'error': f'Unknown session type: {session_type}'}
         elif session_type == 'claude':
@@ -212,13 +227,50 @@ class DevopsTerminalController(http.Controller):
                 '-f', '-n', '200', '--no-pager', '--output=short-iso',
             ]
         elif session_type == 'odoo_log':
-            logfile = f'/var/log/odoo/{service}.log' if service else ''
+            # Auto-detect logfile from service config
+            import re as _re
+            logfile = ''
+            svc_name = service
+            proj = None
             if instance_id:
                 inst = request.env['devops.instance'].browse(instance_id)
-                if inst.exists() and inst.service_name:
-                    logfile = f'/var/log/odoo/{inst.service_name}.log'
-            if not logfile or not os.path.exists(logfile):
-                return {'error': f'Log file not found: {logfile}'}
+                if inst.exists():
+                    svc_name = inst.service_name or svc_name
+                    proj = inst.project_id
+            if svc_name:
+                # Read config path from systemd, then logfile from config
+                from ..utils import ssh_utils
+                if proj:
+                    exec_out = ssh_utils.execute_command_shell(
+                        proj, f'systemctl show {svc_name}.service --property=ExecStart', timeout=10,
+                    ).stdout.strip()
+                else:
+                    exec_out = subprocess.run(
+                        f'systemctl show {svc_name}.service --property=ExecStart',
+                        shell=True, capture_output=True, text=True, timeout=5,
+                    ).stdout.strip()
+                m = _re.search(r'-c\s+(\S+)', exec_out)
+                conf_path = m.group(1) if m else f'/etc/odoo/{svc_name}.conf'
+                if proj:
+                    conf_content = ssh_utils.execute_command_shell(
+                        proj, f'cat {conf_path} 2>/dev/null', timeout=10,
+                    ).stdout
+                else:
+                    try:
+                        with open(conf_path, 'r') as _f:
+                            conf_content = _f.read()
+                    except Exception:
+                        conf_content = ''
+                for line in conf_content.split('\n'):
+                    line = line.strip()
+                    if line.startswith('logfile') and '=' in line:
+                        _, _, val = line.partition('=')
+                        logfile = val.strip()
+                        break
+            if not logfile:
+                logfile = f'/var/log/odoo/{svc_name}.log' if svc_name else ''
+            if not logfile:
+                return {'error': 'No se encontró archivo de log'}
             cmd = ['tail', '-f', '-n', '200', logfile]
         else:
             return {'error': f'Unknown session type: {session_type}'}

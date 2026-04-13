@@ -1824,6 +1824,8 @@ Texto:
                         result['gevent_port'] = int(val)
                     elif key == 'db_name':
                         result['database_name'] = val
+                    elif key == 'logfile':
+                        result['logfile'] = val
                     elif key == 'addons_path':
                         result['addons_path'] = val
                         for p in val.split(','):
