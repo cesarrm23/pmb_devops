@@ -409,66 +409,71 @@ echo "done" > {status_file}
         except Exception as e:
             return {'status': 'error', 'error': str(e)}
 
+    def _cmd_on_project(self, project, cmd_str):
+        """Run a shell command locally or via SSH depending on project type."""
+        import subprocess
+        if project.connection_type == 'ssh' and project.ssh_host:
+            ssh_cmd = ['ssh', '-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=10']
+            if project.ssh_key_path and os.path.isfile(project.ssh_key_path):
+                ssh_cmd += ['-i', project.ssh_key_path]
+            if project.ssh_port and project.ssh_port != 22:
+                ssh_cmd += ['-p', str(project.ssh_port)]
+            ssh_cmd += [f'{project.ssh_user or "root"}@{project.ssh_host}', cmd_str]
+            r = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=15)
+        else:
+            r = subprocess.run(cmd_str, shell=True, capture_output=True, text=True, timeout=10)
+        return r.stdout.strip() if r.returncode == 0 else ''
+
     @http.route('/devops/instance/diagnose', type='json', auth='user')
     def instance_diagnose(self, instance_id):
         """Diagnose an instance's health: check paths, service, config."""
-        import subprocess
         instance = request.env['devops.instance'].browse(instance_id)
         if not instance.exists():
             return {'error': 'Instancia no encontrada'}
 
+        project = instance.project_id
+        run = lambda cmd: self._cmd_on_project(project, cmd)
         issues = []
         info = []
 
         # Check instance_path
         if instance.instance_path:
-            if os.path.isdir(instance.instance_path):
+            if run(f'test -d {instance.instance_path} && echo ok') == 'ok':
                 info.append({'type': 'ok', 'msg': f'Directorio {instance.instance_path} existe'})
             else:
                 issues.append({'type': 'error', 'msg': f'Directorio {instance.instance_path} NO existe', 'fix': 'create_dir'})
 
         # Check repo_path
-        repo = instance.project_id.repo_path
+        repo = project.repo_path
         if repo:
-            if os.path.isdir(repo):
+            if run(f'test -d {repo} && echo ok') == 'ok':
                 info.append({'type': 'ok', 'msg': f'Repo {repo} existe'})
             else:
                 issues.append({'type': 'warning', 'msg': f'Repo {repo} NO existe'})
 
         # Check service
         if instance.service_name:
-            try:
-                r = subprocess.run(['systemctl', 'is-active', f'{instance.service_name}.service'],
-                                   capture_output=True, text=True, timeout=5)
-                status = r.stdout.strip()
-                if status == 'active':
-                    info.append({'type': 'ok', 'msg': f'Servicio {instance.service_name} activo'})
-                else:
-                    issues.append({'type': 'error', 'msg': f'Servicio {instance.service_name}: {status}', 'fix': 'start_service'})
-            except Exception:
-                issues.append({'type': 'error', 'msg': f'No se puede verificar servicio {instance.service_name}'})
+            status = run(f'systemctl is-active {instance.service_name}.service')
+            if status == 'active':
+                info.append({'type': 'ok', 'msg': f'Servicio {instance.service_name} activo'})
+            else:
+                issues.append({'type': 'error', 'msg': f'Servicio {instance.service_name}: {status or "desconocido"}', 'fix': 'start_service'})
 
             # Check if enabled
-            try:
-                r = subprocess.run(['systemctl', 'is-enabled', f'{instance.service_name}.service'],
-                                   capture_output=True, text=True, timeout=5)
-                if r.stdout.strip() != 'enabled':
-                    issues.append({'type': 'warning', 'msg': f'Servicio {instance.service_name} no está habilitado (disabled)', 'fix': 'enable_service'})
-            except Exception:
-                pass
+            enabled = run(f'systemctl is-enabled {instance.service_name}.service')
+            if enabled and enabled != 'enabled':
+                issues.append({'type': 'warning', 'msg': f'Servicio {instance.service_name} no habilitado ({enabled})', 'fix': 'enable_service'})
 
-            # Check service config exists
-            try:
-                r = subprocess.run(['systemctl', 'show', f'{instance.service_name}.service', '--property=ExecStart'],
-                                   capture_output=True, text=True, timeout=5)
-                if r.stdout.strip():
-                    import re
-                    m = re.search(r'-c\s+(\S+)', r.stdout)
-                    if m:
-                        conf = m.group(1)
-                        if os.path.isfile(conf):
-                            info.append({'type': 'ok', 'msg': f'Config {conf} existe'})
-                        else:
+            # Check config
+            import re
+            exec_line = run(f'systemctl show {instance.service_name}.service --property=ExecStart')
+            if exec_line:
+                m = re.search(r'-c\s+(\S+)', exec_line)
+                if m:
+                    conf = m.group(1)
+                    if run(f'test -f {conf} && echo ok') == 'ok':
+                        info.append({'type': 'ok', 'msg': f'Config {conf} existe'})
+                    else:
                             issues.append({'type': 'error', 'msg': f'Config {conf} NO existe'})
             except Exception:
                 pass
@@ -479,43 +484,44 @@ echo "done" > {status_file}
 
     @http.route('/devops/instance/fix', type='json', auth='user')
     def instance_fix(self, instance_id, fix_type=''):
-        """Attempt to fix a diagnosed issue."""
-        import subprocess
+        """Attempt to fix a diagnosed issue (local or SSH)."""
         instance = request.env['devops.instance'].browse(instance_id)
         if not instance.exists():
             return {'error': 'Instancia no encontrada'}
         if not request.env.user.has_group('pmb_devops.group_devops_admin'):
             return {'error': 'Solo administradores pueden reparar'}
 
+        project = instance.project_id
+        run = lambda cmd: self._cmd_on_project(project, cmd)
+
         if fix_type == 'create_dir' and instance.instance_path:
-            try:
-                os.makedirs(instance.instance_path, exist_ok=True)
+            result = run(f'mkdir -p {instance.instance_path} && echo ok')
+            if result == 'ok':
                 return {'status': 'ok', 'msg': f'Directorio {instance.instance_path} creado'}
-            except Exception as e:
-                return {'error': str(e)}
+            return {'error': 'No se pudo crear el directorio'}
         elif fix_type == 'start_service' and instance.service_name:
-            try:
-                subprocess.run(['sudo', '-n', 'systemctl', 'start', f'{instance.service_name}.service'],
-                               capture_output=True, timeout=15)
-                instance._check_service_status()
-                return {'status': 'ok', 'msg': f'Servicio {instance.service_name} iniciado', 'state': instance.state}
-            except Exception as e:
-                return {'error': str(e)}
+            run(f'sudo systemctl start {instance.service_name}.service')
+            status = run(f'systemctl is-active {instance.service_name}.service')
+            return {'status': 'ok', 'msg': f'Servicio {instance.service_name}: {status}', 'state': status}
         elif fix_type == 'enable_service' and instance.service_name:
-            try:
-                subprocess.run(['sudo', '-n', 'systemctl', 'enable', f'{instance.service_name}.service'],
-                               capture_output=True, timeout=10)
-                return {'status': 'ok', 'msg': f'Servicio {instance.service_name} habilitado'}
+            run(f'sudo systemctl enable {instance.service_name}.service')
+            return {'status': 'ok', 'msg': f'Servicio {instance.service_name} habilitado'}
             except Exception as e:
                 return {'error': str(e)}
         return {'error': f'Fix type desconocido: {fix_type}'}
 
     @http.route('/devops/instance/start', type='json', auth='user')
     def instance_start(self, instance_id):
-        """Start an instance."""
+        """Start an instance (local or SSH)."""
         instance = request.env['devops.instance'].browse(instance_id)
         if not instance.exists():
             return {'error': 'Instancia no encontrada'}
+        project = instance.project_id
+        if project.connection_type == 'ssh' and project.ssh_host:
+            self._cmd_on_project(project, f'sudo systemctl start {instance.service_name}.service')
+            status = self._cmd_on_project(project, f'systemctl is-active {instance.service_name}.service')
+            instance.sudo().write({'state': 'running' if status == 'active' else 'stopped'})
+            return {'status': 'ok', 'state': instance.state}
         try:
             instance.action_start()
             return {'status': 'ok', 'state': instance.state}
@@ -524,10 +530,15 @@ echo "done" > {status_file}
 
     @http.route('/devops/instance/stop', type='json', auth='user')
     def instance_stop(self, instance_id):
-        """Stop an instance."""
+        """Stop an instance (local or SSH)."""
         instance = request.env['devops.instance'].browse(instance_id)
         if not instance.exists():
             return {'error': 'Instancia no encontrada'}
+        project = instance.project_id
+        if project.connection_type == 'ssh' and project.ssh_host:
+            self._cmd_on_project(project, f'sudo systemctl stop {instance.service_name}.service')
+            instance.sudo().write({'state': 'stopped'})
+            return {'status': 'ok', 'state': 'stopped'}
         try:
             instance.action_stop()
             return {'status': 'ok', 'state': instance.state}
@@ -536,10 +547,16 @@ echo "done" > {status_file}
 
     @http.route('/devops/instance/restart', type='json', auth='user')
     def instance_restart(self, instance_id):
-        """Restart an instance."""
+        """Restart an instance (local or SSH)."""
         instance = request.env['devops.instance'].browse(instance_id)
         if not instance.exists():
             return {'error': 'Instancia no encontrada'}
+        project = instance.project_id
+        if project.connection_type == 'ssh' and project.ssh_host:
+            self._cmd_on_project(project, f'sudo systemctl restart {instance.service_name}.service')
+            status = self._cmd_on_project(project, f'systemctl is-active {instance.service_name}.service')
+            instance.sudo().write({'state': 'running' if status == 'active' else 'error'})
+            return {'status': 'ok', 'state': instance.state}
         try:
             instance.action_restart()
             return {'status': 'ok', 'state': instance.state}
