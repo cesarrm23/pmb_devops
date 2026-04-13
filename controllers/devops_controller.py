@@ -170,91 +170,11 @@ class DevopsController(http.Controller):
         }
 
     @http.route('/devops/instance/detect_service', type='json', auth='user')
-    def instance_detect_service(self, service_name):
-        """Auto-detect Odoo config from a systemd service name."""
-        import subprocess
-        import re
-
-        result = {'service_name': service_name}
-
-        try:
-            # Read ExecStart from systemd unit to find config path
-            proc = subprocess.run(
-                ['systemctl', 'show', f'{service_name}.service', '--property=ExecStart'],
-                capture_output=True, text=True, timeout=5,
-            )
-            exec_line = proc.stdout.strip()
-            # Extract -c /path/to/config
-            m = re.search(r'-c\s+(\S+)', exec_line)
-            config_path = m.group(1) if m else f'/etc/odoo/{service_name}.conf'
-
-            # Also extract instance path from ExecStart (WorkingDirectory or odoo-bin path)
-            m2 = re.search(r'(\S+)/odoo/odoo-bin', exec_line)
-            if m2:
-                result['instance_path'] = m2.group(1)
-
-            # Read Odoo config
-            if os.path.exists(config_path):
-                with open(config_path, 'r') as f:
-                    config_content = f.read()
-
-                for line in config_content.split('\n'):
-                    line = line.strip()
-                    if '=' not in line or line.startswith('#') or line.startswith('['):
-                        continue
-                    key, _, val = line.partition('=')
-                    key = key.strip()
-                    val = val.strip()
-                    if key == 'http_port':
-                        result['port'] = int(val)
-                    elif key == 'gevent_port':
-                        result['gevent_port'] = int(val)
-                    elif key == 'db_name':
-                        result['database_name'] = val
-                    elif key == 'data_dir':
-                        result['data_dir'] = val
-                    elif key == 'addons_path':
-                        result['addons_path'] = val
-                        # Auto-detect repo_path and enterprise_path from addons_path
-                        for addon_dir in val.split(','):
-                            addon_dir = addon_dir.strip()
-                            if not addon_dir:
-                                continue
-                            # Enterprise: contains 'enterprise' in path
-                            if 'enterprise' in addon_dir.lower() and os.path.isdir(addon_dir):
-                                result['enterprise_path'] = addon_dir
-                            # Custom addons repo: has .git directory (not odoo core)
-                            elif os.path.isdir(os.path.join(addon_dir, '.git')):
-                                result['repo_path'] = addon_dir
-
-                result['config_path'] = config_path
-
-            # Check if service is active
-            proc2 = subprocess.run(
-                ['systemctl', 'is-active', f'{service_name}.service'],
-                capture_output=True, text=True, timeout=5,
-            )
-            result['active'] = proc2.stdout.strip() == 'active'
-
-            # Auto-detect domain from nginx configs
-            try:
-                import glob
-                for conf in glob.glob('/etc/nginx/sites-enabled/*'):
-                    with open(conf) as f:
-                        content = f.read()
-                    port = result.get('port', 0)
-                    if port and f':{port}' in content:
-                        m_domain = re.search(r'server_name\s+([^\s;]+)', content)
-                        if m_domain and m_domain.group(1) != '_':
-                            result['domain'] = m_domain.group(1)
-                            break
-            except Exception:
-                pass
-
-        except Exception as e:
-            result['error'] = str(e)
-
-        return result
+    def instance_detect_service(self, service_name, project_id=None):
+        """Auto-detect Odoo config from a systemd service name.
+        Supports SSH projects — runs commands on remote server if needed.
+        """
+        return self.project_autodetect(service_name, project_id)
 
     @http.route('/devops/instance/register_production', type='json', auth='user')
     def instance_register_production(self, project_id, service_name, database_name, port=8069, instance_path=''):
@@ -274,7 +194,7 @@ class DevopsController(http.Controller):
             return {'error': 'Ya existe una instancia de produccion para este proyecto.'}
 
         # Auto-detect everything from the service config
-        detected = self.instance_detect_service(service_name)
+        detected = self.instance_detect_service(service_name, project_id=project_id)
         if not instance_path:
             instance_path = detected.get('instance_path', f'/opt/{service_name}')
         if not database_name:
@@ -636,7 +556,38 @@ echo "done" > {status_file}
         repos = []
         config_path = ''
 
-        # Find config path from instance or project
+        # For SSH projects, use autodetect to get addons_path info
+        if project.connection_type == 'ssh' and project.ssh_host:
+            svc = project.odoo_service_name or ''
+            if instance_id:
+                inst = request.env['devops.instance'].browse(instance_id)
+                if inst.exists() and inst.service_name:
+                    svc = inst.service_name
+            if svc:
+                detected = self.project_autodetect(svc, project_id)
+                addons_path = detected.get('addons_path', '')
+                if addons_path:
+                    for p in addons_path.split(','):
+                        p = p.strip()
+                        if not p:
+                            continue
+                        name = os.path.basename(p)
+                        repo_type = 'custom'
+                        if 'enterprise' in p.lower():
+                            repo_type = 'enterprise'
+                        elif '/odoo/' in p:
+                            repo_type = 'odoo'
+                        repos.append({
+                            'path': p, 'name': name, 'branch': '', 'ahead': 0, 'behind': 0,
+                            'remote': '', 'dirty': False, 'shallow': False, 'owned': True,
+                            'repo_type': repo_type,
+                            'merge_target': '', 'merge_pending': 0, 'merge_pending_commits': [],
+                            'sync_pending': 0, 'sync_pending_commits': [],
+                        })
+            is_admin = request.env.user.has_group('pmb_devops.group_devops_admin')
+            return {'repos': repos, 'is_admin': is_admin}
+
+        # Find config path from instance or project (local)
         if instance_id:
             inst = request.env['devops.instance'].browse(instance_id)
             if inst.exists() and inst.service_name:
