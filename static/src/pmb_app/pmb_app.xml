@@ -186,8 +186,8 @@
                 </div>
                 </t>
 
-                <!-- MAIN CONTENT (only in branches tab) -->
-                <div t-if="state.activeNavTab === 'branches'" class="pmb-main flex-grow-1 d-flex flex-column" style="background: #181825; overflow-y: auto; min-height: 0;">
+                <!-- MAIN CONTENT -->
+                <div class="pmb-main flex-grow-1 d-flex flex-column" style="background: #181825; overflow-y: auto; min-height: 0;">
                     <t t-if="state.activeNavTab === 'branches' and state.selectedInstance">
                         <!-- Back button (mobile, when sidebar collapsed) -->
                         <div t-if="state.sidebarCollapsed" class="px-3 pt-2 pmb-instance-header">
