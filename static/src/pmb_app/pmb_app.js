@@ -94,6 +94,7 @@ class PmbDevopsApp extends Component {
             meetTasks: [],              // created Odoo tasks
             groqApiKey: '',
             projectMembers: [],
+            availableUsers: [],
             memberNewLogin: '',
             memberNewRole: 'developer',
             memberError: '',
@@ -2152,8 +2153,16 @@ class PmbDevopsApp extends Component {
         } catch (e) {
             this.state.settingsProject = null;
         }
-        // Load members
+        // Load members and available users
         await this._loadMembers();
+        await this._loadAvailableUsers();
+    }
+
+    async _loadAvailableUsers() {
+        try {
+            const result = await rpc('/devops/users/list');
+            this.state.availableUsers = result.users || [];
+        } catch (e) { this.state.availableUsers = []; }
     }
 
     async _loadMembers() {
@@ -2164,7 +2173,7 @@ class PmbDevopsApp extends Component {
         } catch (e) { this.state.projectMembers = []; }
     }
 
-    _onMemberLoginInput(ev) { this.state.memberNewLogin = ev.target.value; }
+    _onMemberUserSelect(ev) { this.state.memberNewLogin = ev.target.value; }
     _onMemberRoleInput(ev) { this.state.memberNewRole = ev.target.value; }
 
     async _addMember() {

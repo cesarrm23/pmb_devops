@@ -2017,11 +2017,14 @@
                                             <h6 style="color: #89b4fa; margin-bottom: 12px;">Miembros del Proyecto</h6>
                                             <!-- Add member form -->
                                             <div class="d-flex gap-2 mb-3">
-                                                <input type="text" class="form-control form-control-sm"
-                                                       style="background: #11111b; border-color: #313244; color: #cdd6f4; flex: 1;"
-                                                       placeholder="Login del usuario (email)"
-                                                       t-att-value="state.memberNewLogin || ''"
-                                                       t-on-input="_onMemberLoginInput"/>
+                                                <select class="form-select form-select-sm"
+                                                        style="background: #11111b; border-color: #313244; color: #cdd6f4; flex: 1;"
+                                                        t-on-change="_onMemberUserSelect">
+                                                    <option value="">Seleccionar usuario...</option>
+                                                    <t t-foreach="state.availableUsers || []" t-as="u" t-key="u.id">
+                                                        <option t-att-value="u.login"><t t-esc="u.name"/> (<t t-esc="u.login"/>)</option>
+                                                    </t>
+                                                </select>
                                                 <select class="form-select form-select-sm"
                                                         style="background: #11111b; border-color: #313244; color: #cdd6f4; width: 130px;"
                                                         t-on-change="_onMemberRoleInput">

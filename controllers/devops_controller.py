@@ -1747,6 +1747,23 @@ Texto:
             'role': m.role,
         } for m in members]}
 
+    @http.route('/devops/users/list', type='json', auth='user')
+    def users_list(self):
+        """List Odoo users that have any DevOps group (potential project members)."""
+        devops_groups = request.env['res.groups'].sudo().search([
+            ('privilege_id.name', 'ilike', 'PatchMyByte DevOps'),
+        ])
+        if not devops_groups:
+            # Fallback: all internal users
+            users = request.env['res.users'].sudo().search([('share', '=', False), ('active', '=', True)])
+        else:
+            users = devops_groups.mapped('users')
+        return {'users': [{
+            'id': u.id,
+            'name': u.name,
+            'login': u.login,
+        } for u in users.sorted('name')]}
+
     @http.route('/devops/project/members/add', type='json', auth='user')
     def project_member_add(self, project_id, user_login='', role='developer'):
         """Add a member to a project by login."""
