@@ -224,7 +224,7 @@
                                     t-on-click="() => this._onAction('Clone')">
                                 Clone
                             </button>
-                            <button t-if="canModify" class="btn btn-sm"
+                            <button t-if="state.isAdmin" class="btn btn-sm"
                                     style="background: #313244; color: #cdd6f4; border: 1px solid #45475a; font-size: 12px;"
                                     t-on-click="() => this._onAction('Fork')">
                                 Fork

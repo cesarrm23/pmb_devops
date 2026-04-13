@@ -60,7 +60,9 @@ class DevopsController(http.Controller):
 
     @http.route('/devops/instance/create', type='json', auth='user')
     def instance_create(self, project_id, name, instance_type, branch_from='main', clone_from_id=False):
-        """Create a new staging/development instance."""
+        """Create a new staging/development instance (admin only)."""
+        if not request.env.user.has_group('pmb_devops.group_devops_admin'):
+            return {'error': 'Solo administradores pueden crear instancias'}
         project = request.env['devops.project'].browse(project_id)
         if not project.exists():
             return {'error': 'Proyecto no encontrado'}
@@ -595,44 +597,59 @@ echo "done" > {status_file}
                     # Collect unique paths (dedup parent/child)
                     paths = [p.strip() for p in addons_path.split(',') if p.strip()]
 
-                    # Find git repos: check each path + parent + children
+                    # Find git repos + custom addons dirs
+                    # Script: for each path, check .git (self, parent, children)
+                    # Also output ADDON: for paths that are custom addons without .git
                     script = 'for p in ' + ' '.join(paths) + '; do '
-                    script += 'if [ -d "$p/.git" ]; then echo "REPO:$p"; fi; '
-                    script += 'parent=$(dirname "$p"); '
-                    script += 'if [ -d "$parent/.git" ]; then echo "REPO:$parent"; fi; '
-                    script += 'if [ -d "$p" ]; then for c in "$p"/*/; do '
-                    script += 'if [ -d "$c/.git" ]; then echo "REPO:${c%/}"; fi; done; fi; '
+                    script += 'if [ -d "$p/.git" ]; then echo "REPO:$p"; '
+                    script += 'else parent=$(dirname "$p"); '
+                    script += 'if [ -d "$parent/.git" ]; then echo "REPO:$parent"; '
+                    script += 'elif [ -d "$p" ]; then '
+                    # Check children for .git
+                    script += 'found=0; for c in "$p"/*/; do '
+                    script += 'if [ -d "$c/.git" ]; then echo "REPO:${c%/}"; found=1; fi; done; '
+                    # If no .git found and it's not an odoo core path, list as addon dir
+                    script += 'if [ "$found" = "0" ] && ! echo "$p" | grep -q "/odoo/"; then echo "ADDON:$p"; fi; '
+                    script += 'fi; fi; '
                     script += 'done | sort -u'
-                    git_paths_raw = ssh_run(script)
+                    raw = ssh_run(script)
 
                     seen = set()
-                    for line in git_paths_raw.split('\n'):
-                        if not line.startswith('REPO:'):
-                            continue
-                        git_path = line[5:].strip()
-                        if git_path in seen:
-                            continue
-                        seen.add(git_path)
-
-                        name = os.path.basename(git_path)
-                        # Get branch
-                        branch = ssh_run(f'git -C {git_path} branch --show-current 2>/dev/null') or 'HEAD'
-                        # Get dirty status
-                        dirty = bool(ssh_run(f'git -C {git_path} status --porcelain 2>/dev/null'))
-                        # Classify
-                        repo_type = 'custom'
-                        if ssh_run(f'test -f {git_path}/odoo-bin && echo yes') == 'yes':
-                            repo_type = 'odoo'
-                        elif 'enterprise' in git_path.lower():
-                            repo_type = 'enterprise'
-
-                        repos.append({
-                            'path': git_path, 'name': name, 'branch': branch,
-                            'ahead': 0, 'behind': 0, 'remote': '', 'dirty': dirty,
-                            'shallow': False, 'owned': True, 'repo_type': repo_type,
-                            'merge_target': '', 'merge_pending': 0, 'merge_pending_commits': [],
-                            'sync_pending': 0, 'sync_pending_commits': [],
-                        })
+                    for line in raw.split('\n'):
+                        line = line.strip()
+                        if line.startswith('REPO:'):
+                            git_path = line[5:]
+                            if git_path in seen:
+                                continue
+                            seen.add(git_path)
+                            name = os.path.basename(git_path)
+                            branch = ssh_run(f'git -C {git_path} branch --show-current 2>/dev/null') or 'HEAD'
+                            dirty = bool(ssh_run(f'git -C {git_path} status --porcelain 2>/dev/null'))
+                            repo_type = 'custom'
+                            if ssh_run(f'test -f {git_path}/odoo-bin && echo yes') == 'yes':
+                                repo_type = 'odoo'
+                            elif 'enterprise' in git_path.lower():
+                                repo_type = 'enterprise'
+                            repos.append({
+                                'path': git_path, 'name': name, 'branch': branch,
+                                'ahead': 0, 'behind': 0, 'remote': '', 'dirty': dirty,
+                                'shallow': False, 'owned': True, 'repo_type': repo_type,
+                                'merge_target': '', 'merge_pending': 0, 'merge_pending_commits': [],
+                                'sync_pending': 0, 'sync_pending_commits': [],
+                            })
+                        elif line.startswith('ADDON:'):
+                            addon_path = line[6:]
+                            if addon_path in seen:
+                                continue
+                            seen.add(addon_path)
+                            name = os.path.basename(addon_path)
+                            repos.append({
+                                'path': addon_path, 'name': name, 'branch': '',
+                                'ahead': 0, 'behind': 0, 'remote': '', 'dirty': False,
+                                'shallow': False, 'owned': True, 'repo_type': 'custom',
+                                'merge_target': '', 'merge_pending': 0, 'merge_pending_commits': [],
+                                'sync_pending': 0, 'sync_pending_commits': [],
+                            })
 
             is_admin = request.env.user.has_group('pmb_devops.group_devops_admin')
             return {'repos': repos, 'is_admin': is_admin}

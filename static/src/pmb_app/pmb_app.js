@@ -628,6 +628,7 @@ class PmbDevopsApp extends Component {
     // ------------------------------------------------------------------
 
     _showCreateDialog(type) {
+        if (!this.state.isAdmin) return;
         this.state.showCreateDialog = true;
         this.state.createDialogType = type;
         this.state.createName = "";
