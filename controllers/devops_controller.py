@@ -522,6 +522,24 @@ echo "done" > {status_file}
             return {'status': 'ok', 'msg': f'Servicio {instance.service_name} habilitado'}
         return {'error': f'Fix type desconocido: {fix_type}'}
 
+    @http.route('/devops/instance/cleanup', type='json', auth='user')
+    def instance_cleanup(self, instance_id):
+        """Delete a failed/error instance and its associated records."""
+        if not request.env.user.has_group('pmb_devops.group_devops_admin'):
+            return {'error': 'Solo administradores'}
+        instance = request.env['devops.instance'].sudo().browse(instance_id)
+        if not instance.exists():
+            return {'error': 'Instancia no encontrada'}
+        if instance.state not in ('error', 'creating'):
+            return {'error': 'Solo se pueden limpiar instancias en error o creando'}
+        name = instance.name
+        try:
+            instance.action_destroy()
+        except Exception:
+            # Force delete if destroy fails
+            instance.unlink()
+        return {'status': 'ok', 'msg': f'Instancia {name} eliminada'}
+
     @http.route('/devops/instance/start', type='json', auth='user')
     def instance_start(self, instance_id):
         """Start an instance (local or SSH)."""

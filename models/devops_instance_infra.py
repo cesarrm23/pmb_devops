@@ -861,3 +861,43 @@ fi
             ('service_name', '!=', False),
         ])
         instances._check_service_status()
+
+    @api.model
+    def _cron_cleanup_failed(self):
+        """Clean up instances stuck in 'creating' or 'error' state.
+
+        - creating > 1 hour with dead PID → mark as error
+        - error > 7 days for dev instances → destroy
+        """
+        from datetime import timedelta
+        # Stuck creating
+        stuck = self.search([
+            ('state', '=', 'creating'),
+            ('create_date', '<', fields.Datetime.now() - timedelta(hours=1)),
+        ])
+        for inst in stuck:
+            pid = inst.creation_pid
+            if pid and pid > 0:
+                try:
+                    os.kill(pid, 0)
+                    continue  # still alive
+                except (ProcessLookupError, PermissionError):
+                    pass
+            inst.sudo().write({
+                'state': 'error',
+                'creation_step': 'Timeout: creacion excedió 1 hora',
+            })
+            _logger.info("Cleanup: marked stuck instance %s as error", inst.name)
+
+        # Old error dev instances
+        old_errors = self.search([
+            ('state', '=', 'error'),
+            ('instance_type', '=', 'development'),
+            ('create_date', '<', fields.Datetime.now() - timedelta(days=7)),
+        ])
+        for inst in old_errors:
+            try:
+                inst.action_destroy()
+                _logger.info("Cleanup: destroyed old error dev instance %s", inst.name)
+            except Exception as e:
+                _logger.warning("Cleanup: failed to destroy %s: %s", inst.name, e)

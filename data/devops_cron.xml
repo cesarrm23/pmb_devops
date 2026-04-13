@@ -77,5 +77,15 @@ for p in model.search([('odoo_service_name', '!=', False)]):
             <field name="interval_type">minutes</field>
             <field name="active">True</field>
         </record>
+        <!-- Cleanup: failed/stuck instances every 6 hours -->
+        <record model="ir.cron" id="cron_cleanup_failed">
+            <field name="name">PMB DevOps: Limpiar instancias fallidas</field>
+            <field name="model_id" ref="pmb_devops.model_devops_instance"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_cleanup_failed()</field>
+            <field name="interval_number">6</field>
+            <field name="interval_type">hours</field>
+            <field name="active">True</field>
+        </record>
     </data>
 </odoo>
