@@ -449,6 +449,24 @@ class PmbDevopsApp extends Component {
         if (tab === 'branches' && window.innerWidth <= 768) {
             this.state.sidebarCollapsed = false;
         }
+        // Re-init terminal when returning to branches with AI tab active
+        // (t-if destroys/recreates DOM, xterm needs re-attaching)
+        if (tab === 'branches' && this.state.activeContentTab === 'ai') {
+            if (this.state.selectedInstance && this.state.selectedInstance.state === 'running') {
+                setTimeout(() => this._initAiTerminal(), 300);
+            }
+        }
+        if (tab === 'branches' && this.state.activeContentTab === 'shell') {
+            setTimeout(() => {
+                if (this._term) {
+                    const container = this._getTerminalContainer();
+                    if (container && !container.querySelector('.xterm')) {
+                        this._term.open(container);
+                        if (this._fitAddon) this._fitAddon.fit();
+                    }
+                }
+            }, 300);
+        }
         if (tab === 'settings') {
             await this._loadSettings();
         } else if (tab === 'status') {
