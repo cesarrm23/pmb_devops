@@ -756,11 +756,28 @@ fi
     # ------------------------------------------------------------------
 
     def _check_service_status(self):
-        """Check systemd service status and update state field."""
+        """Check systemd service status and update state field (local or SSH)."""
         for rec in self:
             if not rec.service_name:
                 continue
-            status = infra_utils.is_service_active(rec.service_name)
+            project = rec.project_id
+            if project.connection_type == 'ssh' and project.ssh_host:
+                # Check via SSH
+                import subprocess as sp
+                ssh_cmd = ['ssh', '-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=10']
+                if project.ssh_key_path and os.path.isfile(project.ssh_key_path):
+                    ssh_cmd += ['-i', project.ssh_key_path]
+                if project.ssh_port and project.ssh_port != 22:
+                    ssh_cmd += ['-p', str(project.ssh_port)]
+                ssh_cmd += [f'{project.ssh_user or "root"}@{project.ssh_host}',
+                            f'systemctl is-active {rec.service_name}.service']
+                try:
+                    r = sp.run(ssh_cmd, capture_output=True, text=True, timeout=15)
+                    status = r.stdout.strip()
+                except Exception:
+                    status = 'unknown'
+            else:
+                status = infra_utils.is_service_active(rec.service_name)
             if status == 'active':
                 rec.state = 'running'
             elif status in ('inactive', 'deactivating'):

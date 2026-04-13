@@ -28,6 +28,12 @@ class DevopsController(http.Controller):
         project = request.env['devops.project'].browse(project_id)
         if not project.exists():
             return {'error': 'Proyecto no encontrado'}
+        # Refresh service status for SSH projects
+        if project.connection_type == 'ssh' and project.ssh_host:
+            try:
+                project.instance_ids._check_service_status()
+            except Exception:
+                pass
 
         instances = request.env['devops.instance'].search_read(
             [('project_id', '=', project_id)],
