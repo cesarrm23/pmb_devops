@@ -2165,7 +2165,10 @@ class PmbDevopsApp extends Component {
         if (!name) return;
         this.state.prodSetup = { service: name, detected: false, error: '' };
         try {
-            const r = await rpc('/devops/instance/detect_service', { service_name: name });
+            const r = await rpc('/devops/instance/detect_service', {
+                service_name: name,
+                project_id: this.state.currentProjectId || null,
+            });
             if (r.error) {
                 this.state.prodSetup.error = r.error;
             } else {
