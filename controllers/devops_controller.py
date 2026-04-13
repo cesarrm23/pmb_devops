@@ -2121,8 +2121,11 @@ Texto:
 
             r = ssh_utils.execute_command(project, git_cmd + ['rev-parse', '--abbrev-ref', 'HEAD'], cwd=repo_path, timeout=5)
             original_branch = r.stdout.strip() if r.returncode == 0 else ''
+            # Stash untracked files to avoid "would be overwritten" errors
+            ssh_utils.execute_command(project, git_cmd + ['stash', '--include-untracked'], cwd=repo_path, timeout=15)
             r = ssh_utils.execute_command(project, git_cmd + ['checkout', target_branch], cwd=repo_path, timeout=15)
             if r.returncode != 0:
+                ssh_utils.execute_command(project, git_cmd + ['stash', 'pop'], cwd=repo_path, timeout=15)
                 return {'error': f'Error al cambiar a {target_branch}: {r.stderr.strip()}'}
             ssh_utils.execute_command(project, git_cmd + ['pull', 'origin', target_branch], cwd=repo_path, timeout=60)
             result = ssh_utils.execute_command(project, git_cmd + [
@@ -2138,9 +2141,10 @@ Texto:
                 return {'error': f'Conflicto de merge: {result.stderr.strip() or result.stdout.strip()}'}
             # Push
             push_r = ssh_utils.execute_command(project, git_cmd + ['push', 'origin', target_branch], cwd=repo_path, timeout=60)
-            # Return to original branch
+            # Return to original branch and restore stash
             if original_branch and original_branch != target_branch:
                 ssh_utils.execute_command(project, git_cmd + ['checkout', original_branch], cwd=repo_path, timeout=15)
+            ssh_utils.execute_command(project, git_cmd + ['stash', 'pop'], cwd=repo_path, timeout=15)
             if push_r.returncode != 0:
                 return {'error': f'Merge exitoso pero push falló: {push_r.stderr.strip()}'}
             return {'status': 'ok', 'output': f'Merge {source_branch} → {target_branch} exitoso y pusheado'}
