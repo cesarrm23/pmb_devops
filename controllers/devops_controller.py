@@ -66,9 +66,9 @@ class DevopsController(http.Controller):
 
     @http.route('/devops/instance/create', type='json', auth='user')
     def instance_create(self, project_id, name, instance_type, branch_from='main', clone_from_id=False):
-        """Create a new staging/development instance (admin only)."""
-        if not request.env.user.has_group('pmb_devops.group_devops_admin'):
-            return {'error': 'Solo administradores pueden crear instancias'}
+        """Create a new staging/development instance (admin or developer)."""
+        if not request.env.user.has_group('pmb_devops.group_devops_developer'):
+            return {'error': 'Se requiere rol Developer o Admin para crear instancias'}
         project = request.env['devops.project'].browse(project_id)
         if not project.exists():
             return {'error': 'Proyecto no encontrado'}
@@ -1255,8 +1255,10 @@ echo "done" > {status_file}
     def git_auth_check(self):
         """Check if current user needs git auth."""
         is_admin = request.env.user.has_group('pmb_devops.group_devops_admin')
+        is_developer = request.env.user.has_group('pmb_devops.group_devops_developer')
         return {
             'is_admin': is_admin,
+            'is_developer': is_developer,
             'authenticated': is_admin or request.session.get('pmb_git_authed') == request.env.uid,
             'user_name': request.env.user.name,
             'user_email': request.env.user.email or request.env.user.login,

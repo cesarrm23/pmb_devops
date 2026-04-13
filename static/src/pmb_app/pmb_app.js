@@ -39,6 +39,7 @@ class PmbDevopsApp extends Component {
             createBranchFrom: "main",
             createCloneFrom: "",
             isAdmin: false,
+            isDeveloper: false,
 
             // Terminal
             terminalConnected: false,
@@ -172,6 +173,7 @@ class PmbDevopsApp extends Component {
             try {
                 const authCheck = await rpc('/devops/git/auth/check');
                 this.state.isAdmin = authCheck.is_admin || false;
+                this.state.isDeveloper = authCheck.is_developer || false;
             } catch (e) {}
             await this._loadProjects();
             if (this.state.projects.length > 0) {
@@ -628,7 +630,7 @@ class PmbDevopsApp extends Component {
     // ------------------------------------------------------------------
 
     _showCreateDialog(type) {
-        if (!this.state.isAdmin) return;
+        if (!this.state.isAdmin && !this.state.isDeveloper) return;
         this.state.showCreateDialog = true;
         this.state.createDialogType = type;
         this.state.createName = "";

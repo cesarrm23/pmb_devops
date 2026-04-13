@@ -142,7 +142,7 @@
                             <span class="fw-bold small flex-grow-1" style="color: #fab387;">🧪 Staging</span>
                             <button class="btn btn-sm p-0" style="color: #fab387; font-size: 16px; line-height: 1;"
                                     t-on-click="() => this._showCreateDialog('staging')" title="Create staging"
-                                    t-if="state.isAdmin">+</button>
+                                    t-if="state.isAdmin or state.isDeveloper">+</button>
                         </div>
                         <t t-foreach="this._getFilteredInstances('staging')" t-as="inst" t-key="inst.id">
                             <div class="d-flex align-items-center px-2 py-1 rounded cursor-pointer mb-1"
@@ -167,7 +167,7 @@
                             <span class="fw-bold small flex-grow-1" style="color: #a6e3a1;">🛠 Development</span>
                             <button class="btn btn-sm p-0" style="color: #a6e3a1; font-size: 16px; line-height: 1;"
                                     t-on-click="() => this._showCreateDialog('development')" title="Create development"
-                                    t-if="state.isAdmin">+</button>
+                                    t-if="state.isAdmin or state.isDeveloper">+</button>
                         </div>
                         <t t-foreach="this._getFilteredInstances('development')" t-as="inst" t-key="inst.id">
                             <div class="d-flex align-items-center px-2 py-1 rounded cursor-pointer mb-1"
@@ -224,7 +224,7 @@
                                     t-on-click="() => this._onAction('Clone')">
                                 Clone
                             </button>
-                            <button t-if="state.isAdmin" class="btn btn-sm"
+                            <button t-if="state.isAdmin or state.isDeveloper" class="btn btn-sm"
                                     style="background: #313244; color: #cdd6f4; border: 1px solid #45475a; font-size: 12px;"
                                     t-on-click="() => this._onAction('Fork')">
                                 Fork
