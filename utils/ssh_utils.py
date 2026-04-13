@@ -62,7 +62,23 @@ def execute_command_shell(project, cmd_str, timeout=30, cwd=None):
             capture_output=True, text=True, timeout=timeout,
         )
     else:
-        return _execute_ssh(project, [cmd_str], timeout, cwd)
+        return _execute_ssh_shell(project, cmd_str, timeout, cwd)
+
+
+def _execute_ssh_shell(project, cmd_str, timeout=30, cwd=None):
+    """Execute a raw shell command string on remote server via SSH (no quoting)."""
+    ssh_args = ['ssh', '-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=10']
+    if project.ssh_key_path:
+        ssh_args += ['-i', project.ssh_key_path]
+    if project.ssh_port and project.ssh_port != 22:
+        ssh_args += ['-p', str(project.ssh_port)]
+    ssh_args.append(f'{project.ssh_user}@{project.ssh_host}')
+    if cwd:
+        cmd_str = f'cd {_shell_quote(cwd)} && {cmd_str}'
+    ssh_args.append(cmd_str)
+    return subprocess.run(
+        ssh_args, capture_output=True, text=True, timeout=timeout,
+    )
 
 
 def _shell_quote(s):
