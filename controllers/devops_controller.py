@@ -2068,10 +2068,11 @@ Texto:
         project = request.env['devops.project'].browse(project_id)
         if not project.exists():
             return {'error': 'Proyecto no encontrado'}
-        if not repo_path or not os.path.isdir(repo_path):
-            # Fallback to project repo_path
+        # For SSH projects, run merge on remote server
+        is_ssh = project.connection_type == 'ssh' and project.ssh_host
+        if not repo_path:
             repo_path = project.repo_path
-        if not repo_path or not os.path.isdir(repo_path):
+        if not is_ssh and (not repo_path or not os.path.isdir(repo_path)):
             return {'error': 'Repo path not found'}
 
         # Validate merge direction
@@ -2100,23 +2101,34 @@ Texto:
         try:
             # Fetch latest
             ssh_utils.execute_command(project, ['git', 'fetch', 'origin'], cwd=repo_path, timeout=60)
-            # Save current branch to return to it later
-            r = ssh_utils.execute_command(project, ['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=repo_path, timeout=5)
-            original_branch = r.stdout.strip() if r.returncode == 0 else ''
-            # Checkout target
-            r = ssh_utils.execute_command(project, ['git', 'checkout', target_branch], cwd=repo_path, timeout=15)
-            if r.returncode != 0:
-                return {'error': f'Error al cambiar a {target_branch}: {r.stderr.strip()}'}
-            # Pull target to ensure it's up to date
-            ssh_utils.execute_command(project, ['git', 'pull', 'origin', target_branch], cwd=repo_path, timeout=60)
-            # Merge source into target
-            result = ssh_utils.execute_command(project, [
-                'git', 'merge', f'origin/{source_branch}',
-                '-m', f'Merge {source_branch} into {target_branch}',
-            ], cwd=repo_path, timeout=60)
+
+            # Check if we can write to this repo
+            r_test = ssh_utils.execute_command(project, ['test', '-w', f'{repo_path}/.git', '&&', 'echo', 'writable'], cwd=repo_path, timeout=5)
+            can_write = 'writable' in (r_test.stdout if r_test.returncode == 0 else '')
+
+            if can_write:
+                # We have write access: checkout + merge (traditional)
+                r = ssh_utils.execute_command(project, ['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=repo_path, timeout=5)
+                original_branch = r.stdout.strip() if r.returncode == 0 else ''
+                r = ssh_utils.execute_command(project, ['git', 'checkout', target_branch], cwd=repo_path, timeout=15)
+                if r.returncode != 0:
+                    return {'error': f'Error al cambiar a {target_branch}: {r.stderr.strip()}'}
+                ssh_utils.execute_command(project, ['git', 'pull', 'origin', target_branch], cwd=repo_path, timeout=60)
+                result = ssh_utils.execute_command(project, [
+                    'git', 'merge', f'origin/{source_branch}',
+                    '-m', f'Merge {source_branch} into {target_branch}',
+                ], cwd=repo_path, timeout=60)
+                if result.returncode != 0:
+                    ssh_utils.execute_command(project, ['git', 'merge', '--abort'], cwd=repo_path, timeout=5)
+            else:
+                # No write access (e.g. production repo owned by different user)
+                # Use push to move branch pointer on remote
+                result = ssh_utils.execute_command(project, [
+                    'git', 'push', 'origin', f'origin/{source_branch}:refs/heads/{target_branch}',
+                ], cwd=repo_path, timeout=60)
+                original_branch = ''
+
             if result.returncode != 0:
-                # Abort merge on conflict
-                ssh_utils.execute_command(project, ['git', 'merge', '--abort'], cwd=repo_path, timeout=5)
                 if original_branch:
                     ssh_utils.execute_command(project, ['git', 'checkout', original_branch], cwd=repo_path, timeout=15)
                 return {'error': f'Conflicto de merge: {result.stderr.strip() or result.stdout.strip()}'}
