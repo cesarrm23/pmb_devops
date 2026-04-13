@@ -1731,6 +1731,62 @@ Texto:
             'tag_counts': tag_counts,
         }
 
+    # ---- Project Members ----
+
+    @http.route('/devops/project/members', type='json', auth='user')
+    def project_members(self, project_id):
+        """List project members."""
+        members = request.env['devops.project.member'].sudo().search([
+            ('project_id', '=', project_id),
+        ])
+        return {'members': [{
+            'id': m.id,
+            'user_id': m.user_id.id,
+            'user_name': m.user_id.name,
+            'user_login': m.user_id.login,
+            'role': m.role,
+        } for m in members]}
+
+    @http.route('/devops/project/members/add', type='json', auth='user')
+    def project_member_add(self, project_id, user_login='', role='developer'):
+        """Add a member to a project by login."""
+        if not request.env.user.has_group('pmb_devops.group_devops_admin'):
+            return {'error': 'Solo administradores'}
+        user = request.env['res.users'].sudo().search([('login', '=', user_login)], limit=1)
+        if not user:
+            return {'error': f'Usuario "{user_login}" no encontrado'}
+        existing = request.env['devops.project.member'].sudo().search([
+            ('project_id', '=', project_id), ('user_id', '=', user.id),
+        ], limit=1)
+        if existing:
+            return {'error': 'El usuario ya es miembro'}
+        request.env['devops.project.member'].sudo().create({
+            'project_id': project_id,
+            'user_id': user.id,
+            'role': role,
+        })
+        return {'status': 'ok'}
+
+    @http.route('/devops/project/members/remove', type='json', auth='user')
+    def project_member_remove(self, member_id):
+        """Remove a member from a project."""
+        if not request.env.user.has_group('pmb_devops.group_devops_admin'):
+            return {'error': 'Solo administradores'}
+        member = request.env['devops.project.member'].sudo().browse(member_id)
+        if member.exists():
+            member.unlink()
+        return {'status': 'ok'}
+
+    @http.route('/devops/project/members/update_role', type='json', auth='user')
+    def project_member_update_role(self, member_id, role):
+        """Change a member's role."""
+        if not request.env.user.has_group('pmb_devops.group_devops_admin'):
+            return {'error': 'Solo administradores'}
+        member = request.env['devops.project.member'].sudo().browse(member_id)
+        if member.exists():
+            member.write({'role': role})
+        return {'status': 'ok'}
+
     @http.route('/devops/settings/groq_key', type='json', auth='user')
     def settings_groq_key(self, key=''):
         """Save Groq API key."""

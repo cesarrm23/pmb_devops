@@ -2010,6 +2010,55 @@
                                     </div>
                                 </div>
 
+                                <!-- Project Members -->
+                                <div class="row mt-3" t-if="state.isAdmin and state.settingsProject and state.settingsProject.id">
+                                    <div class="col-md-8">
+                                        <div style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
+                                            <h6 style="color: #89b4fa; margin-bottom: 12px;">Miembros del Proyecto</h6>
+                                            <!-- Add member form -->
+                                            <div class="d-flex gap-2 mb-3">
+                                                <input type="text" class="form-control form-control-sm"
+                                                       style="background: #11111b; border-color: #313244; color: #cdd6f4; flex: 1;"
+                                                       placeholder="Login del usuario (email)"
+                                                       t-att-value="state.memberNewLogin || ''"
+                                                       t-on-input="_onMemberLoginInput"/>
+                                                <select class="form-select form-select-sm"
+                                                        style="background: #11111b; border-color: #313244; color: #cdd6f4; width: 130px;"
+                                                        t-on-change="_onMemberRoleInput">
+                                                    <option value="viewer">Viewer</option>
+                                                    <option value="developer" selected="">Developer</option>
+                                                    <option value="admin">Admin</option>
+                                                </select>
+                                                <button class="btn btn-sm" style="background: #a6e3a1; color: #1e1e2e; font-weight: 600; white-space: nowrap;"
+                                                        t-on-click="_addMember">+ Agregar</button>
+                                            </div>
+                                            <div t-if="state.memberError" style="color: #f38ba8; font-size: 11px; margin-bottom: 8px;">
+                                                <t t-esc="state.memberError"/>
+                                            </div>
+                                            <!-- Members list -->
+                                            <t t-if="state.projectMembers and state.projectMembers.length > 0">
+                                                <t t-foreach="state.projectMembers" t-as="m" t-key="m.id">
+                                                    <div class="d-flex align-items-center gap-2 py-2" style="border-bottom: 1px solid #313244; font-size: 12px;">
+                                                        <span style="color: #cdd6f4; flex: 1;"><t t-esc="m.user_name"/> <span style="color: #6c7086;">(<t t-esc="m.user_login"/>)</span></span>
+                                                        <select class="form-select form-select-sm"
+                                                                style="background: #11111b; border-color: #313244; color: #cdd6f4; width: 110px; font-size: 11px;"
+                                                                t-att-data-mid="m.id"
+                                                                t-on-change="_onMemberRoleChange">
+                                                            <option value="viewer" t-att-selected="m.role === 'viewer'">Viewer</option>
+                                                            <option value="developer" t-att-selected="m.role === 'developer'">Developer</option>
+                                                            <option value="admin" t-att-selected="m.role === 'admin'">Admin</option>
+                                                        </select>
+                                                        <button class="btn btn-sm p-0" style="color: #f38ba8; font-size: 14px;"
+                                                                t-att-data-mid="m.id" t-on-click="_removeMember">&#10005;</button>
+                                                    </div>
+                                                </t>
+                                            </t>
+                                            <div t-if="!state.projectMembers or state.projectMembers.length === 0"
+                                                 style="color: #6c7086; font-size: 11px;">Sin miembros asignados</div>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <!-- Groq API Key (global) -->
                                 <div class="row mt-3" t-if="state.isAdmin">
                                     <div class="col-md-6">

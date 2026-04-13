@@ -93,6 +93,10 @@ class PmbDevopsApp extends Component {
             meetTasksId: null,          // meeting showing created tasks
             meetTasks: [],              // created Odoo tasks
             groqApiKey: '',
+            projectMembers: [],
+            memberNewLogin: '',
+            memberNewRole: 'developer',
+            memberError: '',
             gitPanelWidth: 280,         // resizable panel width (px)
             gitResizing: false,         // drag in progress
             claudeSessions: [],         // list of claude sessions
@@ -2148,6 +2152,47 @@ class PmbDevopsApp extends Component {
         } catch (e) {
             this.state.settingsProject = null;
         }
+        // Load members
+        await this._loadMembers();
+    }
+
+    async _loadMembers() {
+        if (!this.state.currentProjectId) return;
+        try {
+            const result = await rpc('/devops/project/members', { project_id: this.state.currentProjectId });
+            this.state.projectMembers = result.members || [];
+        } catch (e) { this.state.projectMembers = []; }
+    }
+
+    _onMemberLoginInput(ev) { this.state.memberNewLogin = ev.target.value; }
+    _onMemberRoleInput(ev) { this.state.memberNewRole = ev.target.value; }
+
+    async _addMember() {
+        if (!this.state.memberNewLogin || !this.state.currentProjectId) return;
+        this.state.memberError = '';
+        const result = await rpc('/devops/project/members/add', {
+            project_id: this.state.currentProjectId,
+            user_login: this.state.memberNewLogin,
+            role: this.state.memberNewRole || 'developer',
+        });
+        if (result.error) {
+            this.state.memberError = result.error;
+        } else {
+            this.state.memberNewLogin = '';
+            await this._loadMembers();
+        }
+    }
+
+    async _removeMember(ev) {
+        const mid = parseInt(ev.currentTarget.dataset.mid);
+        await rpc('/devops/project/members/remove', { member_id: mid });
+        await this._loadMembers();
+    }
+
+    async _onMemberRoleChange(ev) {
+        const mid = parseInt(ev.target.dataset.mid);
+        await rpc('/devops/project/members/update_role', { member_id: mid, role: ev.target.value });
+        await this._loadMembers();
     }
 
     _newProject() {
