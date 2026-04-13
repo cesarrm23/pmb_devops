@@ -69,12 +69,17 @@ class DevopsController(http.Controller):
         """Create a new staging/development instance (admin or developer)."""
         if not request.env.user.has_group('pmb_devops.group_devops_developer'):
             return {'error': 'Se requiere rol Developer o Admin para crear instancias'}
-        project = request.env['devops.project'].browse(project_id)
+        # Use sudo for internal operations (developer may not see production via record rules)
+        Project = request.env['devops.project'].sudo()
+        Instance = request.env['devops.instance'].sudo()
+        Branch = request.env['devops.branch'].sudo()
+
+        project = Project.browse(project_id)
         if not project.exists():
             return {'error': 'Proyecto no encontrado'}
 
         # Check if instance with same name already exists
-        existing = request.env['devops.instance'].search([
+        existing = Instance.search([
             ('project_id', '=', project_id),
             ('name', '=', name),
         ], limit=1)
@@ -82,12 +87,12 @@ class DevopsController(http.Controller):
             return {'error': f'Ya existe una instancia "{name}" en este proyecto.'}
 
         # Find or create branch record
-        branch = request.env['devops.branch'].search([
+        branch = Branch.search([
             ('project_id', '=', project_id),
             ('name', '=', name),
         ], limit=1)
         if not branch:
-            branch = request.env['devops.branch'].create({
+            branch = Branch.create({
                 'project_id': project_id,
                 'name': name,
                 'branch_type': instance_type,
@@ -96,12 +101,11 @@ class DevopsController(http.Controller):
         # Determine clone source
         clone_from = False
         if clone_from_id:
-            clone_from = request.env['devops.instance'].browse(clone_from_id)
+            clone_from = Instance.browse(clone_from_id)
         elif instance_type == 'staging' and project.production_instance_id:
             clone_from = project.production_instance_id
         elif instance_type == 'development':
-            # Clone from first staging, or production
-            staging = request.env['devops.instance'].search([
+            staging = Instance.search([
                 ('project_id', '=', project_id),
                 ('instance_type', '=', 'staging'),
                 ('state', '=', 'running'),
@@ -109,7 +113,7 @@ class DevopsController(http.Controller):
             clone_from = staging or project.production_instance_id
 
         # Create instance
-        instance = request.env['devops.instance'].create({
+        instance = Instance.create({
             'project_id': project_id,
             'branch_id': branch.id,
             'name': name,
