@@ -149,6 +149,8 @@ def _blocking_read(fd):
 class Session:
     """A persistent PTY session that survives WebSocket disconnects."""
 
+    SCROLLBACK_SIZE = 64 * 1024  # 64KB scrollback buffer
+
     def __init__(self, key, master_fd, pid, cwd, cmd_type):
         self.key = key
         self.master_fd = master_fd
@@ -158,6 +160,7 @@ class Session:
         self.created = time.time()
         self.websocket = None
         self._read_task = None
+        self._scrollback = bytearray()
 
     def start_reader(self):
         """Start the background PTY reader. Runs forever until process dies."""
@@ -173,12 +176,15 @@ class Session:
                 data = await loop.run_in_executor(None, _blocking_read, self.master_fd)
                 if data is None:
                     break
+                # Save to scrollback buffer (ring buffer)
+                self._scrollback.extend(data)
+                if len(self._scrollback) > self.SCROLLBACK_SIZE:
+                    self._scrollback = self._scrollback[-self.SCROLLBACK_SIZE:]
                 ws = self.websocket
                 if ws:
                     try:
                         await ws.send(data)
                     except Exception:
-                        # WS gone, data is lost but session lives on
                         self.websocket = None
             except asyncio.CancelledError:
                 return
@@ -186,9 +192,15 @@ class Session:
                 break
         logger.info("Reader ended for session %s (pid %s)", self.key, self.pid)
 
-    def attach(self, websocket):
-        """Attach a new WebSocket to this session."""
+    async def attach(self, websocket):
+        """Attach a new WebSocket to this session. Send scrollback history."""
         self.websocket = websocket
+        # Send buffered scrollback so user sees prior conversation
+        if self._scrollback:
+            try:
+                await websocket.send(bytes(self._scrollback))
+            except Exception:
+                pass
         self.start_reader()
 
     def detach(self):
@@ -235,7 +247,7 @@ async def terminal_handler(websocket):
         session = persistent_sessions.get(key)
         if session and session.alive:
             # Reattach
-            session.attach(websocket)
+            await session.attach(websocket)
             logger.info("Reattach: key=%s, pid=%s", key, session.pid)
             await websocket.send(json.dumps({
                 'type': 'ready', 'pid': session.pid, 'reattached': True,
@@ -275,7 +287,7 @@ async def terminal_handler(websocket):
 
             session = Session(key, master_fd, child_pid, cwd, cmd_type)
             persistent_sessions[key] = session
-            session.attach(websocket)
+            await session.attach(websocket)
 
             logger.info("New session: key=%s, pid=%s, cwd=%s", key, child_pid, cwd)
             await websocket.send(json.dumps({'type': 'ready', 'pid': child_pid}))

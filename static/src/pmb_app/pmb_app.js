@@ -2313,7 +2313,8 @@ class PmbDevopsApp extends Component {
 
             // If WebSocket already connected, reattach and send resize
             if (this._aiWs && this._aiWs.readyState === WebSocket.OPEN) {
-                this._aiTerm.writeln('\x1b[32mClaude Code (reconectado)\x1b[0m\r\n');
+                // Clear terminal before scrollback replay to avoid duplicates
+                this._aiTerm.clear();
                 this._aiWs.onmessage = (event) => this._onAiWsMessage(event);
                 const dims = this._aiFitAddon.proposeDimensions();
                 if (dims) {
