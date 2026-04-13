@@ -2108,35 +2108,39 @@ Texto:
 
             if can_write:
                 # We have write access: checkout + merge (traditional)
-                r = ssh_utils.execute_command(project, ['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=repo_path, timeout=5)
-                original_branch = r.stdout.strip() if r.returncode == 0 else ''
-                r = ssh_utils.execute_command(project, ['git', 'checkout', target_branch], cwd=repo_path, timeout=15)
-                if r.returncode != 0:
-                    return {'error': f'Error al cambiar a {target_branch}: {r.stderr.strip()}'}
-                ssh_utils.execute_command(project, ['git', 'pull', 'origin', target_branch], cwd=repo_path, timeout=60)
-                result = ssh_utils.execute_command(project, [
-                    'git', 'merge', f'origin/{source_branch}',
-                    '-m', f'Merge {source_branch} into {target_branch}',
-                ], cwd=repo_path, timeout=60)
-                if result.returncode != 0:
-                    ssh_utils.execute_command(project, ['git', 'merge', '--abort'], cwd=repo_path, timeout=5)
+                git_cmd = ['git']
             else:
-                # No write access (e.g. production repo owned by different user)
-                # Use push to move branch pointer on remote
-                result = ssh_utils.execute_command(project, [
-                    'git', 'push', 'origin', f'origin/{source_branch}:refs/heads/{target_branch}',
-                ], cwd=repo_path, timeout=60)
-                original_branch = ''
+                # No write access — find repo owner and run as them via sudo
+                import subprocess as sp
+                stat_r = sp.run(['stat', '-c', '%U', f'{repo_path}/.git'], capture_output=True, text=True, timeout=5)
+                repo_owner = stat_r.stdout.strip() if stat_r.returncode == 0 else ''
+                if repo_owner and repo_owner != 'root':
+                    git_cmd = ['sudo', '-u', repo_owner, 'git']
+                else:
+                    git_cmd = ['sudo', 'git']
+
+            r = ssh_utils.execute_command(project, git_cmd + ['rev-parse', '--abbrev-ref', 'HEAD'], cwd=repo_path, timeout=5)
+            original_branch = r.stdout.strip() if r.returncode == 0 else ''
+            r = ssh_utils.execute_command(project, git_cmd + ['checkout', target_branch], cwd=repo_path, timeout=15)
+            if r.returncode != 0:
+                return {'error': f'Error al cambiar a {target_branch}: {r.stderr.strip()}'}
+            ssh_utils.execute_command(project, git_cmd + ['pull', 'origin', target_branch], cwd=repo_path, timeout=60)
+            result = ssh_utils.execute_command(project, git_cmd + [
+                'merge', f'origin/{source_branch}',
+                '-m', f'Merge {source_branch} into {target_branch}',
+            ], cwd=repo_path, timeout=60)
+            if result.returncode != 0:
+                ssh_utils.execute_command(project, git_cmd + ['merge', '--abort'], cwd=repo_path, timeout=5)
 
             if result.returncode != 0:
                 if original_branch:
-                    ssh_utils.execute_command(project, ['git', 'checkout', original_branch], cwd=repo_path, timeout=15)
+                    ssh_utils.execute_command(project, git_cmd + ['checkout', original_branch], cwd=repo_path, timeout=15)
                 return {'error': f'Conflicto de merge: {result.stderr.strip() or result.stdout.strip()}'}
             # Push
-            push_r = ssh_utils.execute_command(project, ['git', 'push', 'origin', target_branch], cwd=repo_path, timeout=60)
+            push_r = ssh_utils.execute_command(project, git_cmd + ['push', 'origin', target_branch], cwd=repo_path, timeout=60)
             # Return to original branch
             if original_branch and original_branch != target_branch:
-                ssh_utils.execute_command(project, ['git', 'checkout', original_branch], cwd=repo_path, timeout=15)
+                ssh_utils.execute_command(project, git_cmd + ['checkout', original_branch], cwd=repo_path, timeout=15)
             if push_r.returncode != 0:
                 return {'error': f'Merge exitoso pero push falló: {push_r.stderr.strip()}'}
             return {'status': 'ok', 'output': f'Merge {source_branch} → {target_branch} exitoso y pusheado'}
