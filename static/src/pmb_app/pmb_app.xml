@@ -141,7 +141,8 @@
                         <div class="d-flex align-items-center mb-1">
                             <span class="fw-bold small flex-grow-1" style="color: #fab387;">🧪 Staging</span>
                             <button class="btn btn-sm p-0" style="color: #fab387; font-size: 16px; line-height: 1;"
-                                    t-on-click="() => this._showCreateDialog('staging')" title="Create staging">+</button>
+                                    t-on-click="() => this._showCreateDialog('staging')" title="Create staging"
+                                    t-if="state.isAdmin">+</button>
                         </div>
                         <t t-foreach="this._getFilteredInstances('staging')" t-as="inst" t-key="inst.id">
                             <div class="d-flex align-items-center px-2 py-1 rounded cursor-pointer mb-1"
@@ -165,7 +166,8 @@
                         <div class="d-flex align-items-center mb-1">
                             <span class="fw-bold small flex-grow-1" style="color: #a6e3a1;">🛠 Development</span>
                             <button class="btn btn-sm p-0" style="color: #a6e3a1; font-size: 16px; line-height: 1;"
-                                    t-on-click="() => this._showCreateDialog('development')" title="Create development">+</button>
+                                    t-on-click="() => this._showCreateDialog('development')" title="Create development"
+                                    t-if="state.isAdmin">+</button>
                         </div>
                         <t t-foreach="this._getFilteredInstances('development')" t-as="inst" t-key="inst.id">
                             <div class="d-flex align-items-center px-2 py-1 rounded cursor-pointer mb-1"
@@ -214,14 +216,15 @@
                             </div>
                         </div>
 
-                        <!-- Action bar -->
+                        <!-- Action bar (restricted by role + instance type) -->
+                        <t t-set="canModify" t-value="state.isAdmin or (state.selectedInstance and state.selectedInstance.instance_type !== 'production')"/>
                         <div class="pmb-actions pmb-instance-header px-4 pb-2 d-flex gap-1">
-                            <button class="btn btn-sm"
+                            <button t-if="canModify" class="btn btn-sm"
                                     style="background: #313244; color: #cdd6f4; border: 1px solid #45475a; font-size: 12px;"
                                     t-on-click="() => this._onAction('Clone')">
                                 Clone
                             </button>
-                            <button class="btn btn-sm"
+                            <button t-if="canModify" class="btn btn-sm"
                                     style="background: #313244; color: #cdd6f4; border: 1px solid #45475a; font-size: 12px;"
                                     t-on-click="() => this._onAction('Fork')">
                                 Fork
@@ -231,12 +234,12 @@
                                     t-on-click="() => this._onAction('Merge')">
                                 Merge
                             </button>
-                            <button class="btn btn-sm"
+                            <button t-if="canModify" class="btn btn-sm"
                                     style="background: #313244; color: #cdd6f4; border: 1px solid #45475a; font-size: 12px;"
                                     t-on-click="() => this._onAction('SSH')">
                                 SSH
                             </button>
-                            <button class="btn btn-sm"
+                            <button t-if="canModify" class="btn btn-sm"
                                     style="background: #313244; color: #cdd6f4; border: 1px solid #45475a; font-size: 12px;"
                                     t-on-click="() => this._onAction('SQL')">
                                 SQL
@@ -244,7 +247,7 @@
                             <button class="btn btn-sm"
                                     style="background: #45475a; color: #f38ba8; border: 1px solid #f38ba8; font-size: 12px;"
                                     t-on-click="() => this._destroyInstance()"
-                                    t-if="state.selectedInstance.instance_type !== 'production'">
+                                    t-if="state.isAdmin and state.selectedInstance.instance_type !== 'production'">
                                 Delete
                             </button>
                         </div>
@@ -1113,21 +1116,23 @@
 
                             <!-- UPGRADE tab -->
                             <div t-if="state.activeContentTab === 'upgrade'" class="p-4" style="color: #cdd6f4; overflow-y: auto; flex: 1 1 0; min-height: 0;">
-                                <!-- Service controls -->
+                                <!-- Service controls (role-restricted) -->
+                                <t t-set="canControl" t-value="state.isAdmin or (state.selectedInstance and state.selectedInstance.instance_type !== 'production')"/>
                                 <h5 class="mb-3">Servicio</h5>
                                 <div class="d-flex gap-2 mb-3">
                                     <button class="btn btn-sm" style="background: #a6e3a1; color: #1e1e2e; font-weight: 600;" t-on-click="_startInstance"
-                                            t-if="state.selectedInstance and state.selectedInstance.state === 'stopped'">
+                                            t-if="canControl and state.selectedInstance and state.selectedInstance.state === 'stopped'">
                                         Iniciar
                                     </button>
                                     <button class="btn btn-sm" style="background: #f9e2af; color: #1e1e2e; font-weight: 600;" t-on-click="_stopInstance"
-                                            t-if="state.selectedInstance and state.selectedInstance.state === 'running' and state.selectedInstance.instance_type !== 'production'">
+                                            t-if="canControl and state.selectedInstance and state.selectedInstance.state === 'running' and state.selectedInstance.instance_type !== 'production'">
                                         Detener
                                     </button>
                                     <button class="btn btn-sm" style="background: #89b4fa; color: #1e1e2e; font-weight: 600;" t-on-click="_restartInstance"
-                                            t-if="state.selectedInstance and state.selectedInstance.state === 'running'">
+                                            t-if="canControl and state.selectedInstance and state.selectedInstance.state === 'running'">
                                         Reiniciar
                                     </button>
+                                    <span t-if="!canControl" style="color: #6c7086; font-size: 11px; align-self: center;">Solo admin puede controlar produccion</span>
                                 </div>
                                 <div class="mb-4" style="color: #6c7086; font-size: 12px;">
                                     <div>Servicio: <code style="color: #89b4fa;"><t t-esc="state.selectedInstance and state.selectedInstance.service_name || '-'"/></code></div>
