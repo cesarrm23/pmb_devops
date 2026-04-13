@@ -2246,6 +2246,9 @@ class PmbDevopsApp extends Component {
         if (this._aiTermInitializing) return;
         this._aiTermInitializing = true;
 
+        // Initialize client-side scrollback buffer if not exists
+        if (!this._aiScrollback) this._aiScrollback = [];
+
         try {
             // Dispose old xterm (DOM was destroyed by t-if)
             if (this._aiResizeObserver) { this._aiResizeObserver.disconnect(); this._aiResizeObserver = null; }
@@ -2329,10 +2332,14 @@ class PmbDevopsApp extends Component {
             // Also listen on document for when xterm has focus
             document.addEventListener('paste', this._aiPasteHandler, false);
 
-            // If WebSocket already connected, reattach and send resize
+            // If WebSocket already connected, replay client scrollback and reattach
             if (this._aiWs && this._aiWs.readyState === WebSocket.OPEN) {
-                // Clear terminal before scrollback replay to avoid duplicates
-                this._aiTerm.clear();
+                // Replay saved scrollback to new xterm
+                if (this._aiScrollback && this._aiScrollback.length > 0) {
+                    for (const chunk of this._aiScrollback) {
+                        this._aiTerm.write(chunk);
+                    }
+                }
                 this._aiWs.onmessage = (event) => this._onAiWsMessage(event);
                 const dims = this._aiFitAddon.proposeDimensions();
                 if (dims) {
@@ -2405,12 +2412,28 @@ class PmbDevopsApp extends Component {
                 }
             } catch (e) {}
         }
+        // Write to terminal and save to client scrollback
+        let chunk = event.data;
         if (event.data instanceof ArrayBuffer) {
-            this._aiTerm.write(new Uint8Array(event.data));
+            chunk = new Uint8Array(event.data);
+            this._aiTerm.write(chunk);
         } else if (event.data instanceof Blob) {
-            event.data.arrayBuffer().then(buf => { if (this._aiTerm) this._aiTerm.write(new Uint8Array(buf)); });
+            event.data.arrayBuffer().then(buf => {
+                const u8 = new Uint8Array(buf);
+                if (this._aiTerm) this._aiTerm.write(u8);
+                if (this._aiScrollback) this._aiScrollback.push(u8);
+            });
+            return;
         } else {
-            this._aiTerm.write(event.data);
+            this._aiTerm.write(chunk);
+        }
+        // Save to scrollback (keep max ~64KB worth of chunks)
+        if (this._aiScrollback) {
+            this._aiScrollback.push(chunk);
+            // Limit: keep last 200 chunks
+            if (this._aiScrollback.length > 200) {
+                this._aiScrollback = this._aiScrollback.slice(-150);
+            }
         }
     }
 
