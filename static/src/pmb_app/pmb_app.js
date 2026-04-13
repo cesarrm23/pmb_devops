@@ -892,6 +892,28 @@ class PmbDevopsApp extends Component {
         }
     }
 
+    async _pullHistoryRepo() {
+        if (!this.state.historyRepoPath || !this.state.currentProjectId) return;
+        try {
+            const result = await rpc('/devops/git/pull', {
+                project_id: this.state.currentProjectId,
+                repo_path: this.state.historyRepoPath,
+            });
+            if (result.error) {
+                if (result.auth_required) {
+                    this.state.gitAuthenticated = false;
+                    return;
+                }
+                alert('Pull error: ' + result.error);
+            } else {
+                await this._loadHistoryRepos();
+                await this._loadHistory();
+            }
+        } catch (e) {
+            alert('Error: ' + (e.message || e));
+        }
+    }
+
     _switchHistoryRepo(ev) {
         const btn = ev.target.closest('button[data-path]');
         const path = btn ? btn.dataset.path : '';
@@ -1701,6 +1723,7 @@ class PmbDevopsApp extends Component {
             const result = await rpc('/devops/instance/deploy_status', {
                 deploy_id: deployId,
                 log_pos: this._deployLogPos || 0,
+                instance_id: this.state.selectedInstance ? this.state.selectedInstance.id : null,
             });
             if (result.log) {
                 this.state.deployLog += result.log;

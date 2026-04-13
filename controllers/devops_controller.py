@@ -377,39 +377,90 @@ echo "done" > {status_file}
 '''
 
         script_path = f"/tmp/pmb_{deploy_id}.sh"
-        with open(script_path, 'w') as f:
-            f.write(script)
-        os.chmod(script_path, 0o755)
-        open(log_file, 'w').close()
+        is_ssh = project.connection_type == 'ssh' and project.ssh_host
 
-        subprocess.Popen(
-            ['/bin/bash', script_path],
-            start_new_session=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        if is_ssh:
+            # SSH: transfer script to remote and execute there
+            from ..utils import ssh_utils
+            # Write script locally first
+            with open(script_path, 'w') as f:
+                f.write(script)
+            # Transfer to remote
+            scp_cmd = ['scp', '-o', 'StrictHostKeyChecking=no']
+            if project.ssh_key_path and os.path.isfile(project.ssh_key_path):
+                scp_cmd += ['-i', project.ssh_key_path]
+            if project.ssh_port and project.ssh_port != 22:
+                scp_cmd += ['-P', str(project.ssh_port)]
+            scp_cmd += [script_path, f'{project.ssh_user or "root"}@{project.ssh_host}:{script_path}']
+            subprocess.run(scp_cmd, capture_output=True, timeout=30)
+            # Execute remotely, redirect output back via SSH tail
+            ssh_base = ['ssh', '-o', 'StrictHostKeyChecking=no']
+            if project.ssh_key_path and os.path.isfile(project.ssh_key_path):
+                ssh_base += ['-i', project.ssh_key_path]
+            if project.ssh_port and project.ssh_port != 22:
+                ssh_base += ['-p', str(project.ssh_port)]
+            ssh_base += [f'{project.ssh_user or "root"}@{project.ssh_host}']
+            # Run script on remote, pipe log back to local
+            remote_cmd = f'bash {script_path} && cat {log_file}'
+            subprocess.Popen(
+                ssh_base + [f'nohup bash {script_path} > /dev/null 2>&1 &'],
+                start_new_session=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            # Poll will read log from remote
+            open(log_file, 'w').write('Deploy iniciado en servidor remoto...\n')
+            open(status_file, 'w').write('running')
+        else:
+            # Local execution
+            with open(script_path, 'w') as f:
+                f.write(script)
+            os.chmod(script_path, 0o755)
+            open(log_file, 'w').close()
+            subprocess.Popen(
+                ['/bin/bash', script_path],
+                start_new_session=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
 
-        return {'status': 'started', 'deploy_id': deploy_id}
+        return {'status': 'started', 'deploy_id': deploy_id, 'is_ssh': is_ssh}
 
     @http.route('/devops/instance/deploy_status', type='json', auth='user')
-    def instance_deploy_status(self, deploy_id, log_pos=0):
-        """Poll deploy progress."""
+    def instance_deploy_status(self, deploy_id, log_pos=0, instance_id=None):
+        """Poll deploy progress (local or SSH)."""
         log_file = f"/tmp/pmb_{deploy_id}.log"
         status_file = f"/tmp/pmb_{deploy_id}.status"
 
-        status = 'running'
-        if os.path.exists(status_file):
-            with open(status_file, 'r') as f:
-                status = f.read().strip() or 'running'
+        # Check if this is an SSH deploy
+        is_ssh = False
+        project = None
+        if instance_id:
+            inst = request.env['devops.instance'].browse(instance_id)
+            if inst.exists():
+                project = inst.project_id
+                is_ssh = project.connection_type == 'ssh' and project.ssh_host
 
-        log = ''
-        new_pos = log_pos
-        if os.path.exists(log_file):
-            with open(log_file, 'rb') as f:
-                f.seek(log_pos)
-                data = f.read()
-                log = data.decode('utf-8', errors='replace')
-                new_pos = log_pos + len(data)
+        if is_ssh and project:
+            # Read log and status from remote
+            status_out = self._cmd_on_project(project, f'cat {status_file} 2>/dev/null || echo running')
+            status = status_out.strip() or 'running'
+            log_out = self._cmd_on_project(project, f'tail -c +{log_pos + 1} {log_file} 2>/dev/null')
+            log = log_out
+            new_pos = log_pos + len(log.encode('utf-8'))
+        else:
+            status = 'running'
+            if os.path.exists(status_file):
+                with open(status_file, 'r') as f:
+                    status = f.read().strip() or 'running'
+            log = ''
+            new_pos = log_pos
+            if os.path.exists(log_file):
+                with open(log_file, 'rb') as f:
+                    f.seek(log_pos)
+                    data = f.read()
+                    log = data.decode('utf-8', errors='replace')
+                    new_pos = log_pos + len(data)
 
         return {'status': status, 'log': log, 'log_pos': new_pos}
 
@@ -2059,7 +2110,10 @@ Texto:
         project = request.env['devops.project'].browse(project_id)
         if not project.exists():
             return {'error': 'Proyecto no encontrado'}
-        if not repo_path or not os.path.isdir(repo_path):
+        is_ssh = project.connection_type == 'ssh' and project.ssh_host
+        if not repo_path:
+            return {'error': 'Repo path not found'}
+        if not is_ssh and not os.path.isdir(repo_path):
             return {'error': 'Repo path not found'}
         from ..utils import ssh_utils
         # Ensure git user configured
