@@ -1815,7 +1815,6 @@
                                 </div>
                             </t>
                         </div>
-                    </div>
 
                         <!-- Project Reports (tasks, meetings) -->
                         <t t-if="state.dashboard">
@@ -1913,6 +1912,7 @@
                                 </div>
                             </t>
                         </t>
+                    </div>
 
                     <!-- LOGS nav tab -->
                     <div t-if="state.activeNavTab === 'logs'" class="p-4" style="color: #cdd6f4;">
