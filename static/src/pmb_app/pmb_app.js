@@ -74,6 +74,7 @@ class PmbDevopsApp extends Component {
             gitDiffFile: '',            // file currently showing diff
             gitDiffContent: '',         // diff content
             gitDiffStaged: false,       // is the diff for a staged file
+            dashboard: null,             // reports dashboard data
             diagnoseResult: null,       // diagnostics output
             fixResult: null,            // fix result
             meetings: [],               // meetings list
@@ -452,6 +453,7 @@ class PmbDevopsApp extends Component {
             await this._loadSettings();
         } else if (tab === 'status') {
             await this._loadMetrics();
+            await this._loadDashboard();
         } else if (tab === 'builds') {
             await this._loadAllBuilds();
         }
@@ -1586,6 +1588,13 @@ class PmbDevopsApp extends Component {
         } catch (e) {
             setTimeout(() => this._pollDeploy(deployId), 3000);
         }
+    }
+
+    async _loadDashboard() {
+        if (!this.state.currentProjectId) return;
+        try {
+            this.state.dashboard = await rpc('/devops/reports/dashboard', { project_id: this.state.currentProjectId });
+        } catch (e) { this.state.dashboard = null; }
     }
 
     // ---- Meetings ----

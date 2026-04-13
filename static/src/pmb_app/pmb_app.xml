@@ -1632,13 +1632,48 @@
                                     </div>
                                 </t>
 
+                                <!-- Meet + Recording -->
+                                <div class="mb-4" style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
+                                    <h6 style="color: #94e2d5;">Reuniones y Grabacion</h6>
+                                    <div style="font-size: 12px; color: #a6adc8;">
+                                        <div class="mb-1"><strong style="color: #cba6f7;">Jitsi (embebido):</strong> Videoconferencia directa en el panel, sin cuentas</div>
+                                        <div class="mb-1"><strong style="color: #a6e3a1;">Link externo:</strong> Google Meet, Zoom, Teams — abre en nueva pestaña</div>
+                                        <div class="mb-1"><strong style="color: #f38ba8;">🔴 Grabar:</strong> Desktop captura audio del tab, mobile usa microfono</div>
+                                        <div class="mb-1"><strong style="color: #cba6f7;">🎙 Transcribir:</strong> Groq Whisper convierte audio a texto</div>
+                                        <div class="mb-1"><strong style="color: #f9e2af;">🤖 Extraer tareas:</strong> Claude analiza transcripcion y crea tareas en Odoo</div>
+                                        <div class="mb-1">Multiples grabaciones por reunion, cada una con su transcripcion</div>
+                                    </div>
+                                </div>
+
+                                <!-- Tasks + Commits -->
+                                <div class="mb-4" style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
+                                    <h6 style="color: #f9e2af;">Tareas y Commits</h6>
+                                    <div style="font-size: 12px; color: #a6adc8;">
+                                        <div class="mb-1">Las tareas se crean en <strong>project.task</strong> de Odoo, vinculadas al proyecto DevOps</div>
+                                        <div class="mb-1">En commits usa <code style="color: #89b4fa;">closes #ID</code> o <code style="color: #89b4fa;">fixes #ID</code> para cerrar tareas automaticamente</div>
+                                        <div class="mb-1">Tab <strong>Status</strong> muestra dashboard: tareas por estado, tags, reuniones, instancias</div>
+                                        <div class="mb-1">Tab <strong>TOOLS</strong> → Diagnostico: detecta problemas y repara instancias</div>
+                                    </div>
+                                </div>
+
+                                <!-- Extras -->
+                                <div class="mb-4" style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
+                                    <h6 style="color: #89b4fa;">Extras</h6>
+                                    <div style="font-size: 12px; color: #a6adc8;">
+                                        <div class="mb-1"><strong>Hard Reset:</strong> Menu usuario → 🔄 Hard Reset (limpia cache de assets)</div>
+                                        <div class="mb-1"><strong>Resize:</strong> Arrastra el borde del panel Git para ajustar ancho (se guarda)</div>
+                                        <div class="mb-1"><strong>Persistencia:</strong> Sidebar contraido y Git panel se guardan entre recargas</div>
+                                        <div class="mb-1"><strong>Sesiones Claude:</strong> Boton 📋 para ver, buscar, resumir o eliminar sesiones</div>
+                                    </div>
+                                </div>
+
                                 <!-- Instances lifecycle -->
                                 <div class="mb-4" style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
-                                    <h6 style="color: #f38ba8;">Ciclo de Vida de Instancias</h6>
+                                    <h6 style="color: #f38ba8;">Ciclo de Vida</h6>
                                     <div style="font-size: 12px; color: #a6adc8;">
-                                        <div class="mb-2"><strong style="color: #f38ba8;">🏭 Production:</strong> Siempre activa. No se detiene ni destruye automaticamente.</div>
-                                        <div class="mb-2"><strong style="color: #fab387;">🧪 Staging:</strong> Se detiene automaticamente tras 1 hora de inactividad. No se destruye.</div>
-                                        <div><strong style="color: #a6e3a1;">🛠 Development:</strong> Se detiene tras 1 hora. Se destruye automaticamente tras N horas (configurable por proyecto, default 24h, 0 = nunca).</div>
+                                        <div class="mb-2"><strong style="color: #f38ba8;">🏭 Production:</strong> Siempre activa</div>
+                                        <div class="mb-2"><strong style="color: #fab387;">🧪 Staging:</strong> Auto-stop tras 1h de inactividad</div>
+                                        <div><strong style="color: #a6e3a1;">🛠 Development:</strong> Auto-stop 1h + auto-destroy configurable (default 24h, 0=nunca)</div>
                                     </div>
                                 </div>
                             </div>
@@ -1781,6 +1816,103 @@
                             </t>
                         </div>
                     </div>
+
+                        <!-- Project Reports (tasks, meetings) -->
+                        <t t-if="state.dashboard">
+                            <h4 class="mb-3 mt-4" style="color: #89b4fa;">Reportes del Proyecto</h4>
+
+                            <!-- Task stats cards -->
+                            <div class="row g-3 mb-4">
+                                <div class="col-md-3 col-6">
+                                    <div style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px; text-align: center;">
+                                        <div style="color: #6c7086; font-size: 11px;">TAREAS</div>
+                                        <div style="font-size: 28px; color: #cdd6f4;"><t t-esc="state.dashboard.task_stats.total"/></div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3 col-6">
+                                    <div style="background: #1e1e2e; border: 1px solid #a6e3a1; border-radius: 8px; padding: 16px; text-align: center;">
+                                        <div style="color: #6c7086; font-size: 11px;">COMPLETADAS</div>
+                                        <div style="font-size: 28px; color: #a6e3a1;"><t t-esc="state.dashboard.task_stats.done"/></div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3 col-6">
+                                    <div style="background: #1e1e2e; border: 1px solid #f9e2af; border-radius: 8px; padding: 16px; text-align: center;">
+                                        <div style="color: #6c7086; font-size: 11px;">EN PROGRESO</div>
+                                        <div style="font-size: 28px; color: #f9e2af;"><t t-esc="state.dashboard.task_stats.in_progress"/></div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3 col-6">
+                                    <div style="background: #1e1e2e; border: 1px solid #89b4fa; border-radius: 8px; padding: 16px; text-align: center;">
+                                        <div style="color: #6c7086; font-size: 11px;">REUNIONES</div>
+                                        <div style="font-size: 28px; color: #89b4fa;"><t t-esc="state.dashboard.meeting_stats.total"/></div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Tags distribution -->
+                            <t t-if="Object.keys(state.dashboard.tag_counts || {}).length > 0">
+                                <div class="mb-4" style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
+                                    <h6 style="color: #cba6f7;">Distribucion por tipo</h6>
+                                    <div class="d-flex gap-2 flex-wrap">
+                                        <t t-foreach="Object.entries(state.dashboard.tag_counts || {})" t-as="entry" t-key="entry[0]">
+                                            <span style="background: #313244; color: #cdd6f4; padding: 4px 10px; border-radius: 12px; font-size: 11px;">
+                                                <t t-esc="entry[0]"/> <strong><t t-esc="entry[1]"/></strong>
+                                            </span>
+                                        </t>
+                                    </div>
+                                </div>
+                            </t>
+
+                            <!-- Instances overview -->
+                            <div class="mb-4" style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
+                                <h6 style="color: #f38ba8;">Instancias</h6>
+                                <div class="d-flex gap-3 flex-wrap">
+                                    <t t-foreach="state.dashboard.instances || []" t-as="inst" t-key="inst.name">
+                                        <div style="font-size: 12px;">
+                                            <span t-att-style="'color:' + (inst.state === 'running' ? '#a6e3a1' : inst.state === 'stopped' ? '#f38ba8' : '#f9e2af')">&#9679;</span>
+                                            <span style="color: #cdd6f4;"><t t-esc="inst.name"/></span>
+                                            <span style="color: #6c7086; font-size: 10px;"> (<t t-esc="inst.type"/>/<t t-esc="inst.branch"/>)</span>
+                                        </div>
+                                    </t>
+                                </div>
+                            </div>
+
+                            <!-- Recent tasks table -->
+                            <t t-if="state.dashboard.tasks.length > 0">
+                                <div style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
+                                    <h6 style="color: #f9e2af;">Tareas recientes</h6>
+                                    <table class="table table-sm mb-0" style="color: #a6adc8; font-size: 11px;">
+                                        <thead style="border-color: #313244;">
+                                            <tr>
+                                                <th style="color: #6c7086;">#</th>
+                                                <th style="color: #6c7086;">Tarea</th>
+                                                <th style="color: #6c7086;">Estado</th>
+                                                <th style="color: #6c7086;">Tags</th>
+                                                <th style="color: #6c7086;">Fecha</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <t t-foreach="state.dashboard.tasks.slice(0, 15)" t-as="task" t-key="task.id">
+                                                <tr style="border-color: #313244;">
+                                                    <td><t t-esc="task.id"/></td>
+                                                    <td>
+                                                        <span t-if="task.priority === '1'" style="color: #f38ba8;">★ </span>
+                                                        <t t-esc="task.name"/>
+                                                    </td>
+                                                    <td>
+                                                        <span t-att-style="'padding: 1px 6px; border-radius: 4px; font-size: 9px; background:' + (task.state === '1_done' ? '#a6e3a1' : '#f9e2af') + ';color:#1e1e2e;'">
+                                                            <t t-esc="task.state === '1_done' ? 'done' : 'open'"/>
+                                                        </span>
+                                                    </td>
+                                                    <td style="color: #6c7086;"><t t-esc="task.tags.join(', ')"/></td>
+                                                    <td style="color: #6c7086;"><t t-esc="task.date ? task.date.substring(0, 10) : ''"/></td>
+                                                </tr>
+                                            </t>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </t>
+                        </t>
 
                     <!-- LOGS nav tab -->
                     <div t-if="state.activeNavTab === 'logs'" class="p-4" style="color: #cdd6f4;">

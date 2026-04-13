@@ -1668,6 +1668,69 @@ Texto:
         meeting.unlink()
         return {'status': 'ok'}
 
+    # ---- Reports / Dashboard ----
+
+    @http.route('/devops/reports/dashboard', type='json', auth='user')
+    def reports_dashboard(self, project_id):
+        """Get dashboard data: tasks, meetings, commits summary."""
+        project = request.env['devops.project'].browse(project_id)
+        if not project.exists():
+            return {}
+
+        # Tasks summary
+        tasks = []
+        task_stats = {'total': 0, 'done': 0, 'in_progress': 0, 'open': 0}
+        if project.odoo_project_id:
+            all_tasks = request.env['project.task'].sudo().search([
+                ('project_id', '=', project.odoo_project_id.id),
+            ], order='create_date desc', limit=50)
+            for t in all_tasks:
+                tasks.append({
+                    'id': t.id, 'name': t.name, 'state': t.state,
+                    'priority': t.priority, 'stage': t.stage_id.name if t.stage_id else '',
+                    'date': t.create_date.isoformat() if t.create_date else '',
+                    'user': t.user_ids[0].name if t.user_ids else '',
+                    'tags': [tag.name for tag in t.tag_ids],
+                })
+                task_stats['total'] += 1
+                if t.state == '1_done':
+                    task_stats['done'] += 1
+                elif t.state == '01_in_progress':
+                    task_stats['in_progress'] += 1
+                else:
+                    task_stats['open'] += 1
+
+        # Meetings summary
+        meetings = request.env['devops.meeting'].sudo().search([
+            ('project_id', '=', project_id),
+        ], order='date desc', limit=20)
+        meeting_stats = {
+            'total': len(meetings),
+            'transcribed': len(meetings.filtered(lambda m: m.transcription)),
+            'with_tasks': len(meetings.filtered(lambda m: m.task_ids)),
+        }
+
+        # Instance summary
+        instances = []
+        for inst in project.instance_ids:
+            instances.append({
+                'name': inst.name, 'type': inst.instance_type,
+                'state': inst.state, 'branch': inst.git_branch or '',
+            })
+
+        # Tag distribution
+        tag_counts = {}
+        for t in tasks:
+            for tag in t.get('tags', []):
+                tag_counts[tag] = tag_counts.get(tag, 0) + 1
+
+        return {
+            'tasks': tasks, 'task_stats': task_stats,
+            'meeting_stats': meeting_stats,
+            'instances': instances,
+            'tag_counts': tag_counts,
+        }
+
     @http.route('/devops/settings/groq_key', type='json', auth='user')
     def settings_groq_key(self, key=''):
         """Save Groq API key."""
