@@ -29,8 +29,8 @@
                       t-on-click="() => this._onNavTabChange('logs')">
                     📜 Logs
                 </span>
-                <!-- Settings -->
-                <span class="px-3 py-2 cursor-pointer"
+                <!-- Settings (admin only) -->
+                <span t-if="state.isAdmin" class="px-3 py-2 cursor-pointer"
                       t-att-style="state.activeNavTab === 'settings' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
                       t-on-click="() => this._onNavTabChange('settings')">
                     ⚙ Settings
