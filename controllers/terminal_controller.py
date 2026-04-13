@@ -163,8 +163,41 @@ class DevopsTerminalController(http.Controller):
                 # Update activity
                 instance._update_activity()
 
+        # Check if this is a remote SSH project
+        is_ssh = False
+        ssh_cmd_prefix = []
+        if instance_id:
+            inst = request.env['devops.instance'].browse(instance_id)
+            if inst.exists():
+                proj = inst.project_id
+                if proj.connection_type == 'ssh' and proj.ssh_host:
+                    is_ssh = True
+                    ssh_cmd_prefix = ['ssh', '-t', '-o', 'StrictHostKeyChecking=no']
+                    if proj.ssh_key_path and os.path.isfile(proj.ssh_key_path):
+                        ssh_cmd_prefix += ['-i', proj.ssh_key_path]
+                    if proj.ssh_port and proj.ssh_port != 22:
+                        ssh_cmd_prefix += ['-p', str(proj.ssh_port)]
+                    ssh_cmd_prefix += [f'{proj.ssh_user or "root"}@{proj.ssh_host}']
+                    # Use project-specific cwd to avoid collisions
+                    cwd = os.path.join(os.path.expanduser('~'), '.pmb_ssh', f'project_{proj.id}')
+                    os.makedirs(cwd, exist_ok=True)
+
         # Determine command based on session type
-        if session_type == 'claude':
+        if is_ssh:
+            remote_cwd = inst.project_id.repo_path or '/opt'
+            if session_type == 'claude':
+                cmd = ssh_cmd_prefix + [f'cd {remote_cwd} && claude']
+            elif session_type == 'shell':
+                cmd = ssh_cmd_prefix + [f'cd {remote_cwd} && bash -i']
+            elif session_type == 'logs':
+                svc = service or (inst.service_name if inst else '')
+                cmd = ssh_cmd_prefix + [f'journalctl -u {svc}.service -f -n 200 --no-pager --output=short-iso']
+            elif session_type == 'odoo_log':
+                svc = service or (inst.service_name if inst else '')
+                cmd = ssh_cmd_prefix + [f'tail -f -n 200 /var/log/odoo/{svc}.log 2>/dev/null || journalctl -u {svc}.service -f -n 200']
+            else:
+                return {'error': f'Unknown session type: {session_type}'}
+        elif session_type == 'claude':
             cmd = ['claude']
         elif session_type == 'shell':
             cmd = ['/bin/bash', '-i']
@@ -176,7 +209,6 @@ class DevopsTerminalController(http.Controller):
                 '-f', '-n', '200', '--no-pager', '--output=short-iso',
             ]
         elif session_type == 'odoo_log':
-            # Tail the Odoo logfile directly
             logfile = f'/var/log/odoo/{service}.log' if service else ''
             if instance_id:
                 inst = request.env['devops.instance'].browse(instance_id)

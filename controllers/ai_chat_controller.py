@@ -23,16 +23,19 @@ class DevopsAiChatController(http.Controller):
         uid = request.env.uid
         os.makedirs(TOKEN_DIR, exist_ok=True)
 
-        # Determine working directory
+        # Determine working directory and SSH config
         cwd = '/opt/odooAL'
+        ssh_config = None
+        project = None
         if instance_id:
             try:
                 instance = request.env['devops.instance'].browse(instance_id)
                 if instance.exists():
+                    project = instance.project_id
                     if instance.instance_path and os.path.isdir(instance.instance_path):
                         cwd = instance.instance_path
-                    elif instance.project_id.repo_path and os.path.isdir(instance.project_id.repo_path):
-                        cwd = instance.project_id.repo_path
+                    elif project.repo_path and os.path.isdir(project.repo_path):
+                        cwd = project.repo_path
             except Exception:
                 pass
         elif project_id:
@@ -42,6 +45,18 @@ class DevopsAiChatController(http.Controller):
                     cwd = project.repo_path
             except Exception:
                 pass
+
+        # SSH projects: unique cwd + pass SSH info to ws_terminal
+        if project and project.connection_type == 'ssh' and project.ssh_host:
+            cwd = os.path.join('/opt/odooAL/.pmb_ssh', f'project_{project.id}')
+            os.makedirs(cwd, exist_ok=True)
+            ssh_config = {
+                'host': project.ssh_host,
+                'user': project.ssh_user or 'root',
+                'port': project.ssh_port or 22,
+                'key': project.ssh_key_path or '',
+                'remote_cwd': project.repo_path or '/opt',
+            }
 
         # Determine instance type for isolation
         instance_type = 'production'
@@ -60,9 +75,11 @@ class DevopsAiChatController(http.Controller):
             'cmd': 'claude',
             'cwd': cwd,
             'instance_type': instance_type,
-            'allowed_path': cwd,  # Claude can only modify files inside this path
+            'allowed_path': cwd,
             'created': time.time(),
         }
+        if ssh_config:
+            token_data['ssh'] = ssh_config
 
         token_path = os.path.join(TOKEN_DIR, token)
         with open(token_path, 'w') as f:

@@ -259,7 +259,23 @@ async def terminal_handler(websocket):
                 del persistent_sessions[key]
 
             # New session
-            if cmd_type == 'claude':
+            # Check if this is an SSH project
+            ssh = token_data.get('ssh')
+            if ssh:
+                # Build SSH command to remote server
+                ssh_cmd = ['ssh', '-t', '-o', 'StrictHostKeyChecking=no']
+                if ssh.get('key') and os.path.isfile(ssh['key']):
+                    ssh_cmd += ['-i', ssh['key']]
+                if ssh.get('port', 22) != 22:
+                    ssh_cmd += ['-p', str(ssh['port'])]
+                ssh_cmd += [f"{ssh.get('user', 'root')}@{ssh['host']}"]
+                remote_cwd = ssh.get('remote_cwd', '/opt')
+                if cmd_type == 'claude':
+                    ssh_cmd += [f'cd {remote_cwd} && claude']
+                else:
+                    ssh_cmd += [f'cd {remote_cwd} && bash -i']
+                cmd = ssh_cmd
+            elif cmd_type == 'claude':
                 cmd = [CLAUDE_BIN]
             elif cmd_type == 'shell':
                 cmd = ['/bin/bash', '-i']
@@ -277,7 +293,8 @@ async def terminal_handler(websocket):
             # Security: create CLAUDE.md with isolation rules per instance type
             instance_type = token_data.get('instance_type', 'production')
             allowed_path = token_data.get('allowed_path', cwd)
-            _write_isolation_rules(cwd, instance_type, allowed_path)
+            if not ssh:
+                _write_isolation_rules(cwd, instance_type, allowed_path)
 
             master_fd, child_pid = spawn_pty(cmd, cwd, env)
 
