@@ -961,7 +961,8 @@ echo "done" > {status_file}
     @http.route('/devops/repo/fetch_deeper', type='json', auth='user')
     def repo_fetch_deeper(self, repo_path, count=50):
         """Deepen a shallow clone by N commits."""
-        if not repo_path or not os.path.isdir(repo_path):
+        is_ssh = project.connection_type == 'ssh' and project.ssh_host
+        if not repo_path or (not is_ssh and not os.path.isdir(repo_path)):
             return {'error': 'Repo not found'}
         import subprocess
         try:
@@ -1028,7 +1029,10 @@ echo "done" > {status_file}
             return {'error': 'Proyecto no encontrado'}
 
         cwd = repo_path or project.repo_path
-        if not cwd or not os.path.isdir(cwd):
+        is_ssh = project.connection_type == 'ssh' and project.ssh_host
+        if not cwd:
+            return {'error': 'Repo path not found'}
+        if not is_ssh and not os.path.isdir(cwd):
             return {'error': 'Repo path not found'}
 
         from ..utils import ssh_utils
@@ -1242,7 +1246,8 @@ echo "done" > {status_file}
                 if inst.exists() and inst.instance_path and inst.instance_type != 'production':
                     repo_path = f"{inst.instance_path}/cremara_addons"
 
-        if not repo_path or not os.path.isdir(repo_path):
+        is_ssh = project.connection_type == 'ssh' and project.ssh_host
+        if not repo_path or (not is_ssh and not os.path.isdir(repo_path)):
             return {'staged': [], 'unstaged': [], 'untracked': [], 'outgoing': []}
 
         # git status --porcelain=v1
@@ -1294,7 +1299,8 @@ echo "done" > {status_file}
         project = request.env['devops.project'].browse(project_id)
         if not project.exists():
             return {'error': 'Proyecto no encontrado'}
-        if not repo_path or not os.path.isdir(repo_path):
+        is_ssh = project.connection_type == 'ssh' and project.ssh_host
+        if not repo_path or (not is_ssh and not os.path.isdir(repo_path)):
             return {'error': 'Repo path not found'}
         if not file_path:
             return {'error': 'File path required'}
@@ -2032,7 +2038,8 @@ Texto:
         project = request.env['devops.project'].browse(project_id)
         if not project.exists():
             return {'error': 'Proyecto no encontrado'}
-        if not repo_path or not os.path.isdir(repo_path):
+        is_ssh = project.connection_type == 'ssh' and project.ssh_host
+        if not repo_path or (not is_ssh and not os.path.isdir(repo_path)):
             return {'error': 'Repo path not found'}
         from ..utils import ssh_utils
         result = ssh_utils.execute_command(project, ['git', 'add', '-A'], cwd=repo_path, timeout=15)
@@ -2048,7 +2055,8 @@ Texto:
         project = request.env['devops.project'].browse(project_id)
         if not project.exists():
             return {'error': 'Proyecto no encontrado'}
-        if not repo_path or not os.path.isdir(repo_path):
+        is_ssh = project.connection_type == 'ssh' and project.ssh_host
+        if not repo_path or (not is_ssh and not os.path.isdir(repo_path)):
             return {'error': 'Repo path not found'}
         if not message or not message.strip():
             return {'error': 'Commit message is required'}
@@ -2085,7 +2093,8 @@ Texto:
         project = request.env['devops.project'].browse(project_id)
         if not project.exists():
             return {'error': 'Proyecto no encontrado'}
-        if not repo_path or not os.path.isdir(repo_path):
+        is_ssh = project.connection_type == 'ssh' and project.ssh_host
+        if not repo_path or (not is_ssh and not os.path.isdir(repo_path)):
             return {'error': 'Repo path not found'}
         from ..utils import ssh_utils
         # Get current branch
