@@ -283,7 +283,8 @@
                                       t-on-click="() => this._onContentTabChange('ai')">
                                     ✨ AI
                                 </span>
-                                <span class="px-3 py-2 cursor-pointer"
+                                <span t-if="state.isAdmin or (state.selectedInstance and state.selectedInstance.instance_type !== 'production')"
+                                      class="px-3 py-2 cursor-pointer"
                                       t-att-style="state.activeContentTab === 'shell' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
                                       t-on-click="() => this._onContentTabChange('shell')">
                                     💻 SHELL
@@ -862,8 +863,9 @@
                                     <!-- AI Terminal via WebSocket (right) -->
                                     <div class="flex-grow-1 d-flex flex-column pmb-terminal-container" style="min-height: 300px;">
 
-                                        <!-- Sessions toggle + key buttons bar -->
-                                        <div class="d-flex align-items-center px-2 py-1" style="background: #181825; border-bottom: 1px solid #313244; flex-shrink: 0; gap: 4px;">
+                                        <!-- Sessions toggle + key buttons bar (only when user can use terminal) -->
+                                        <div t-if="state.isAdmin or (state.selectedInstance and state.selectedInstance.instance_type !== 'production')"
+                                             class="d-flex align-items-center px-2 py-1" style="background: #181825; border-bottom: 1px solid #313244; flex-shrink: 0; gap: 4px;">
                                             <!-- Sessions toggle button -->
                                             <button class="btn btn-sm pmb-key-btn"
                                                     t-att-style="state.claudeSessionsVisible ? 'background: #89b4fa !important; color: #1e1e2e !important;' : ''"
@@ -933,11 +935,18 @@
                                         </t>
 
                                         <div t-ref="terminalAI" style="flex: 1 1 0; min-height: 0; width: 100%;"/>
+                                        <t t-set="canUseTerminal" t-value="state.isAdmin or (state.selectedInstance and state.selectedInstance.instance_type !== 'production')"/>
                                         <div t-if="state.selectedInstance and state.selectedInstance.state !== 'running'"
                                              style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: #6c7086;">
                                             <div style="font-size: 40px; margin-bottom: 12px;">⏸</div>
                                             <div style="font-size: 14px;">Instancia detenida</div>
                                             <div style="font-size: 11px; margin-top: 4px;">Inicia la instancia para usar el terminal</div>
+                                        </div>
+                                        <div t-if="state.selectedInstance and state.selectedInstance.state === 'running' and !canUseTerminal"
+                                             style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: #6c7086;">
+                                            <div style="font-size: 40px; margin-bottom: 12px;">🔒</div>
+                                            <div style="font-size: 14px;">Produccion — Solo lectura</div>
+                                            <div style="font-size: 11px; margin-top: 4px;">Solo administradores pueden usar el terminal en produccion</div>
                                         </div>
                                     </div>
                                 </div>

@@ -476,9 +476,10 @@ class PmbDevopsApp extends Component {
             this.state.sidebarCollapsed = false;
         }
         // Re-init terminal when returning to branches with AI tab active
-        // (t-if destroys/recreates DOM, xterm needs re-attaching)
         if (tab === 'branches' && this.state.activeContentTab === 'ai') {
-            if (this.state.selectedInstance && this.state.selectedInstance.state === 'running') {
+            const canTerminal = this.state.isAdmin ||
+                (this.state.selectedInstance && this.state.selectedInstance.instance_type !== 'production');
+            if (canTerminal && this.state.selectedInstance && this.state.selectedInstance.state === 'running') {
                 setTimeout(() => this._initAiTerminal(), 300);
             }
         }
@@ -543,8 +544,10 @@ class PmbDevopsApp extends Component {
             await this._checkGitAuth();
             await this._refreshGitStatus();
             this._loadClaudeSessions();
-            // Only start terminal if instance is running
-            if (this.state.selectedInstance && this.state.selectedInstance.state === 'running') {
+            // Only start terminal if instance is running AND user has write access
+            const canTerminal = this.state.isAdmin ||
+                (this.state.selectedInstance && this.state.selectedInstance.instance_type !== 'production');
+            if (canTerminal && this.state.selectedInstance && this.state.selectedInstance.state === 'running') {
                 setTimeout(() => this._initAiTerminal(), 200);
             }
         } else if (tab === 'editor') {
