@@ -158,6 +158,11 @@ class PmbDevopsApp extends Component {
                 if (prefs.sidebar_minimized) this.state.sidebarMinimized = true;
                 if (prefs.git_collapsed) this.state.gitPanelCollapsed = true;
             } catch (e) { /* ignore */ }
+            // Check admin status early
+            try {
+                const authCheck = await rpc('/devops/git/auth/check');
+                this.state.isAdmin = authCheck.is_admin || false;
+            } catch (e) {}
             await this._loadProjects();
             if (this.state.projects.length > 0) {
                 this.state.currentProjectId = this.state.projects[0].id;
@@ -376,6 +381,22 @@ class PmbDevopsApp extends Component {
     // ------------------------------------------------------------------
     // Project change
     // ------------------------------------------------------------------
+
+    _onProjectSelectorChange(ev) {
+        this._onProjectChange(ev);
+    }
+
+    _newProject() {
+        // Switch to settings tab with empty project form
+        this.state.activeNavTab = 'settings';
+        this.state.settingsProject = {
+            id: null, name: '', domain: '', repo_path: '', enterprise_path: '',
+            database_name: '', connection_type: 'local', ssh_host: '', ssh_user: '',
+            ssh_port: 22, max_staging: 3, max_development: 5, auto_destroy_hours: 24,
+            production_branch: 'main',
+        };
+        this.state.settingsSaved = false;
+    }
 
     _onProjectChange(ev) {
         const val = parseInt(ev.target.value, 10);

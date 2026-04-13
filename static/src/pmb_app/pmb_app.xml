@@ -40,15 +40,19 @@
                 <div class="flex-grow-1"/>
 
                 <!-- Project selector -->
-                <select class="form-select form-select-sm"
-                        style="width: 200px; background: #313244; color: #cdd6f4; border-color: #45475a; font-size: 13px;"
-                        t-on-change="(ev) => this._onProjectChange(ev)">
-                    <t t-foreach="state.projects" t-as="p" t-key="p.id">
-                        <option t-att-value="p.id" t-att-selected="p.id === state.currentProjectId">
-                            <t t-esc="p.name"/>
-                        </option>
-                    </t>
-                </select>
+                <div class="d-flex align-items-center gap-1">
+                    <select class="form-select form-select-sm"
+                            style="width: 200px; background: #313244; color: #cdd6f4; border-color: #45475a; font-size: 13px;"
+                            t-on-change="_onProjectSelectorChange">
+                        <t t-foreach="state.projects" t-as="p" t-key="p.id">
+                            <option t-att-value="p.id" t-att-selected="p.id === state.currentProjectId">
+                                <t t-esc="p.name"/>
+                            </option>
+                        </t>
+                    </select>
+                    <button t-if="state.isAdmin" class="btn btn-sm px-1" style="color: #a6e3a1; font-size: 16px; line-height: 1;"
+                            t-on-click="_newProject" title="Nuevo proyecto">+</button>
+                </div>
             </div>
 
             <!-- BODY: sidebar + main -->
