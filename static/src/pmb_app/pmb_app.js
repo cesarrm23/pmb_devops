@@ -386,9 +386,8 @@ class PmbDevopsApp extends Component {
         this._onProjectChange(ev);
     }
 
-    _newProject() {
+    async _newProject() {
         // Switch to settings tab with empty project form
-        this.state.activeNavTab = 'settings';
         this.state.settingsProject = {
             id: null, name: '', domain: '', repo_path: '', enterprise_path: '',
             database_name: '', connection_type: 'local', ssh_host: '', ssh_user: '',
@@ -396,6 +395,7 @@ class PmbDevopsApp extends Component {
             production_branch: 'main',
         };
         this.state.settingsSaved = false;
+        await this._onNavTabChange('settings');
     }
 
     _onProjectChange(ev) {
