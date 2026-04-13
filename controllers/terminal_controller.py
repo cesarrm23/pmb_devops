@@ -98,9 +98,10 @@ finally:
 '''
 
 
-def _get_session_dir(uid, session_type):
-    """Return the session directory path for a given user and session type."""
-    session_dir = os.path.join(TERMINAL_DIR, f'user_{uid}', session_type)
+def _get_session_dir(uid, session_type, instance_id=None):
+    """Return the session directory path for a given user, session type, and instance."""
+    suffix = f'_{instance_id}' if instance_id else ''
+    session_dir = os.path.join(TERMINAL_DIR, f'user_{uid}', f'{session_type}{suffix}')
     return session_dir
 
 
@@ -120,10 +121,10 @@ class DevopsTerminalController(http.Controller):
     def terminal_start(self, session_type='shell', service=None, instance_id=None):
         """Start a terminal session (claude/shell/logs)."""
         uid = request.env.uid
-        session_dir = _get_session_dir(uid, session_type)
+        session_dir = _get_session_dir(uid, session_type, instance_id)
 
-        # Stop any existing session of this type
-        self._stop_session(uid, session_type)
+        # Stop any existing session of this type for this instance
+        self._stop_session(uid, session_type, instance_id)
 
         # Create session directory
         os.makedirs(session_dir, exist_ok=True)
@@ -284,7 +285,7 @@ class DevopsTerminalController(http.Controller):
     def terminal_read(self, session_type='shell', pos=0, instance_id=None):
         """Read output from a terminal session."""
         uid = request.env.uid
-        session_dir = _get_session_dir(uid, session_type)
+        session_dir = _get_session_dir(uid, session_type, instance_id)
         output_file = os.path.join(session_dir, 'output')
         alive_file = os.path.join(session_dir, 'alive')
 
@@ -324,7 +325,7 @@ class DevopsTerminalController(http.Controller):
     def terminal_write(self, session_type='shell', data='', instance_id=None):
         """Send input to a terminal session."""
         uid = request.env.uid
-        session_dir = _get_session_dir(uid, session_type)
+        session_dir = _get_session_dir(uid, session_type, instance_id)
         input_file = os.path.join(session_dir, 'input')
 
         if not os.path.exists(input_file):
@@ -349,10 +350,10 @@ class DevopsTerminalController(http.Controller):
             return {'error': str(e)}
 
     @http.route('/devops/terminal/resize', type='json', auth='user')
-    def terminal_resize(self, session_type='shell', rows=40, cols=120):
+    def terminal_resize(self, session_type='shell', rows=40, cols=120, instance_id=None):
         """Resize a terminal session."""
         uid = request.env.uid
-        session_dir = _get_session_dir(uid, session_type)
+        session_dir = _get_session_dir(uid, session_type, instance_id)
         pid_file = os.path.join(session_dir, 'pid')
 
         if not os.path.exists(pid_file):
@@ -375,10 +376,10 @@ class DevopsTerminalController(http.Controller):
             return {'error': str(e)}
 
     @http.route('/devops/terminal/stop', type='json', auth='user')
-    def terminal_stop(self, session_type='shell'):
+    def terminal_stop(self, session_type='shell', instance_id=None):
         """Stop a terminal session."""
         uid = request.env.uid
-        self._stop_session(uid, session_type)
+        self._stop_session(uid, session_type, instance_id)
         return {'status': 'stopped', 'session_type': session_type}
 
     def _start_output_watcher(self, uid, session_type, session_dir):
@@ -430,9 +431,9 @@ class DevopsTerminalController(http.Controller):
         t = threading.Thread(target=watcher, daemon=True)
         t.start()
 
-    def _stop_session(self, uid, session_type):
+    def _stop_session(self, uid, session_type, instance_id=None):
         """Kill bridge process and clean up session directory."""
-        session_dir = _get_session_dir(uid, session_type)
+        session_dir = _get_session_dir(uid, session_type, instance_id)
 
         if not os.path.exists(session_dir):
             return
