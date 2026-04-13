@@ -1525,28 +1525,35 @@ Texto:
 {text[:4000]}"""
 
         try:
-            # Claude is installed for odooal user
-            odooal_home = '/opt/odooAL'
-            claude_bin = os.path.join(odooal_home, '.local/bin/claude')
-            if not os.path.isfile(claude_bin):
-                claude_bin = 'claude'
-            import tempfile
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as tmp:
-                tmp.write(prompt)
-                prompt_file = tmp.name
-            try:
-                script = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'utils', 'claude_analyze.sh')
-                result = subprocess.run(
-                    ['/bin/bash', script, prompt_file],
-                    capture_output=True, text=True, timeout=60,
-                )
-            finally:
-                os.unlink(prompt_file)
-            if result.returncode != 0:
-                err = result.stderr.strip() or result.stdout.strip()
-                return {'error': f'Claude CLI error (code {result.returncode}): {err[:300]}'}
+            import requests as http_req
+            content = ''
+            # Try API key first (direct REST call)
+            api_key = request.env['ir.config_parameter'].sudo().get_param('pmb_devops.claude_api_key', '')
+            if api_key and not api_key.startswith('sk-ant-oat'):
+                resp = http_req.post('https://api.anthropic.com/v1/messages',
+                    headers={'anthropic-version': '2023-06-01', 'content-type': 'application/json', 'x-api-key': api_key},
+                    json={'model': 'claude-haiku-4-5-20251001', 'max_tokens': 2000,
+                          'messages': [{'role': 'user', 'content': prompt}]}, timeout=60)
+                if resp.status_code == 200:
+                    content = resp.json().get('content', [{}])[0].get('text', '[]')
 
-            content = result.stdout.strip()
+            # Fallback: Claude CLI wrapper
+            if not content:
+                import tempfile
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as tmp:
+                    tmp.write(prompt)
+                    prompt_file = tmp.name
+                try:
+                    script = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'utils', 'claude_analyze.sh')
+                    result = subprocess.run(['/bin/bash', script, prompt_file],
+                        capture_output=True, text=True, timeout=60)
+                    if result.returncode == 0 and result.stdout.strip():
+                        content = result.stdout.strip()
+                finally:
+                    os.unlink(prompt_file)
+
+            if not content:
+                return {'error': 'No se pudo conectar con Claude. Configura una API key valida (sk-ant-api...) en Settings.'}
             start = content.find('[')
             end = content.rfind(']') + 1
             if start >= 0 and end > start:

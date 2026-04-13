@@ -926,6 +926,12 @@
                                         </t>
 
                                         <div t-ref="terminalAI" style="flex: 1 1 0; min-height: 0; width: 100%;"/>
+                                        <div t-if="state.selectedInstance and state.selectedInstance.state !== 'running'"
+                                             style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: #6c7086;">
+                                            <div style="font-size: 40px; margin-bottom: 12px;">⏸</div>
+                                            <div style="font-size: 14px;">Instancia detenida</div>
+                                            <div style="font-size: 11px; margin-top: 4px;">Inicia la instancia para usar el terminal</div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

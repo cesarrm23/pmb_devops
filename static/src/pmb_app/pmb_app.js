@@ -494,11 +494,13 @@ class PmbDevopsApp extends Component {
             await this._loadHistoryRepos();
             await this._loadHistory();
         } else if (tab === 'ai') {
-            // Don't override user's persisted collapse preference
             await this._checkGitAuth();
             await this._refreshGitStatus();
             this._loadClaudeSessions();
-            setTimeout(() => this._initAiTerminal(), 200);
+            // Only start terminal if instance is running
+            if (this.state.selectedInstance && this.state.selectedInstance.state === 'running') {
+                setTimeout(() => this._initAiTerminal(), 200);
+            }
         } else if (tab === 'editor') {
             await this._browseDir('');
         } else if (tab === 'upgrade') {
