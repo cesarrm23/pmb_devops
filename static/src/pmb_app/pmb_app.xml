@@ -247,8 +247,8 @@
                             <button class="btn btn-sm"
                                     style="background: #45475a; color: #f38ba8; border: 1px solid #f38ba8; font-size: 12px;"
                                     t-on-click="() => this._destroyInstance()"
-                                    t-if="state.isAdmin and state.selectedInstance.instance_type !== 'production'">
-                                Delete
+                                    t-if="(state.isAdmin or state.isDeveloper) and state.selectedInstance.instance_type !== 'production'">
+                                Eliminar
                             </button>
                         </div>
 
