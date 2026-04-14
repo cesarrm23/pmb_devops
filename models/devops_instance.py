@@ -60,6 +60,10 @@ class DevopsInstance(models.Model):
         string='Última Actividad', default=fields.Datetime.now,
     )
 
+    # ---- GitHub credentials (per instance, for git push) ----
+    github_user = fields.Char(string='GitHub Usuario')
+    github_token = fields.Char(string='GitHub Token')
+
     # ---- Users ----
     user_ids = fields.Many2many('res.users', string='Usuarios Asignados')
 
@@ -99,8 +103,10 @@ class DevopsInstance(models.Model):
         for rec in self:
             if rec.instance_type == 'production':
                 rec.full_domain = rec.project_id.domain or ''
-            elif rec.subdomain and rec.project_id.domain:
-                rec.full_domain = f"{rec.subdomain}.{rec.project_id.domain}"
+            elif rec.subdomain:
+                # Use subdomain_base if configured, otherwise fall back to domain
+                base = rec.project_id.subdomain_base or rec.project_id.domain or ''
+                rec.full_domain = f"{rec.subdomain}.{base}" if base else ''
             else:
                 rec.full_domain = ''
 
@@ -123,18 +129,28 @@ class DevopsInstance(models.Model):
 
         Checks both the DB (other instances) and the OS (ss) to avoid conflicts
         with non-Odoo processes like code-server.
+        For SSH projects, checks ports on the remote server.
         """
         import subprocess
         used_ports = set(
             self.search([('port', '!=', False)]).mapped('port')
         )
-        # Also check ports in use at OS level
+        project = self.project_id
+        is_ssh = project.connection_type == 'ssh' and project.ssh_host
+
+        # Check ports in use at OS level (local or remote)
         try:
-            result = subprocess.run(
-                ['ss', '-tlnH'],
-                capture_output=True, text=True, timeout=5,
-            )
-            for line in result.stdout.split('\n'):
+            if is_ssh:
+                from ..utils import ssh_utils
+                result = ssh_utils.execute_command(project, ['ss', '-tlnH'])
+                ss_output = result.stdout if result.returncode == 0 else ''
+            else:
+                result = subprocess.run(
+                    ['ss', '-tlnH'],
+                    capture_output=True, text=True, timeout=5,
+                )
+                ss_output = result.stdout
+            for line in ss_output.split('\n'):
                 parts = line.split()
                 if len(parts) >= 4:
                     addr = parts[3]

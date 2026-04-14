@@ -69,10 +69,6 @@ class DevopsController(http.Controller):
         """Create a new staging/development instance (admin or developer)."""
         if not request.env.user.has_group('pmb_devops.group_devops_developer'):
             return {'error': 'Se requiere rol Developer o Admin para crear instancias'}
-        # SSH projects: instances must be created on the remote server
-        project = request.env['devops.project'].sudo().browse(project_id)
-        if project.exists() and project.connection_type == 'ssh' and project.ssh_host:
-            return {'error': 'Para proyectos remotos (SSH), las instancias staging/dev deben crearse directamente en el servidor remoto. Usa el Shell para configurarlas.'}
         # Use sudo for internal operations (developer may not see production via record rules)
         Project = request.env['devops.project'].sudo()
         Instance = request.env['devops.instance'].sudo()
@@ -142,44 +138,88 @@ class DevopsController(http.Controller):
         if not instance.exists():
             return {'error': 'Not found'}
 
-        # Read creation log tail
+        project = instance.project_id
+        is_ssh = project.connection_type == 'ssh' and project.ssh_host
+
         log_lines = ''
         new_log_pos = log_pos
+        creation_step = instance.creation_step or ''
+
         if instance.state in ('creating', 'error'):
-            log_file = '/var/log/odoo/pmb_creation.log'
-            try:
-                with open(log_file, 'rb') as f:
-                    f.seek(0, 2)  # end
-                    file_size = f.tell()
-                    if log_pos == 0:
-                        # First call: find the start of this instance's section
-                        marker = f'id={instance.id})'.encode()
-                        # Read last 50KB to find marker
-                        read_from = max(0, file_size - 50000)
-                        f.seek(read_from)
-                        chunk = f.read()
-                        idx = chunk.rfind(marker)
-                        if idx >= 0:
-                            # Find start of line
-                            line_start = chunk.rfind(b'\n', 0, idx)
-                            new_log_pos = read_from + (line_start + 1 if line_start >= 0 else idx)
-                            f.seek(new_log_pos)
+            if is_ssh:
+                # SSH: read status and log from remote files
+                status_file = f"/tmp/pmb_create_{instance.id}.status"
+                log_file = f"/tmp/pmb_create_{instance.id}.log"
+                try:
+                    # Read current step from status file
+                    status_out = self._cmd_on_project(
+                        project, f'cat {status_file} 2>/dev/null || echo running',
+                    )
+                    remote_status = status_out.strip()
+
+                    # Read log from remote
+                    log_out = self._cmd_on_project(
+                        project,
+                        f'tail -c +{log_pos + 1} {log_file} 2>/dev/null',
+                    )
+                    log_lines = log_out
+                    new_log_pos = log_pos + len(log_lines.encode('utf-8'))
+
+                    # Update local record from remote status
+                    if remote_status == 'done':
+                        instance.sudo().write({
+                            'state': 'running',
+                            'creation_step': '',
+                            'creation_pid': 0,
+                        })
+                        creation_step = ''
+                    elif remote_status.startswith('error:'):
+                        err_msg = remote_status[6:].strip()
+                        instance.sudo().write({
+                            'state': 'error',
+                            'creation_step': f'Error: {err_msg}',
+                            'creation_pid': 0,
+                        })
+                        creation_step = f'Error: {err_msg}'
+                    else:
+                        # Intermediate step
+                        creation_step = remote_status
+                        instance.sudo().write({'creation_step': remote_status})
+                except Exception as e:
+                    _logger.warning("SSH poll_status error: %s", e)
+            else:
+                # Local: read from shared log file
+                log_file = '/var/log/odoo/pmb_creation.log'
+                try:
+                    with open(log_file, 'rb') as f:
+                        f.seek(0, 2)  # end
+                        file_size = f.tell()
+                        if log_pos == 0:
+                            marker = f'id={instance.id})'.encode()
+                            read_from = max(0, file_size - 50000)
+                            f.seek(read_from)
+                            chunk = f.read()
+                            idx = chunk.rfind(marker)
+                            if idx >= 0:
+                                line_start = chunk.rfind(b'\n', 0, idx)
+                                new_log_pos = read_from + (line_start + 1 if line_start >= 0 else idx)
+                                f.seek(new_log_pos)
+                                log_lines = f.read().decode('utf-8', errors='replace')
+                                new_log_pos = file_size
+                            else:
+                                new_log_pos = file_size
+                        elif log_pos < file_size:
+                            f.seek(log_pos)
                             log_lines = f.read().decode('utf-8', errors='replace')
                             new_log_pos = file_size
                         else:
-                            new_log_pos = file_size
-                    elif log_pos < file_size:
-                        f.seek(log_pos)
-                        log_lines = f.read().decode('utf-8', errors='replace')
-                        new_log_pos = file_size
-                    else:
-                        new_log_pos = log_pos
-            except Exception:
-                pass
+                            new_log_pos = log_pos
+                except Exception:
+                    pass
 
         return {
             'state': instance.state,
-            'creation_step': instance.creation_step or '',
+            'creation_step': creation_step,
             'creation_pid': instance.creation_pid or 0,
             'log': log_lines,
             'log_pos': new_log_pos,
@@ -476,7 +516,7 @@ echo "done" > {status_file}
         except Exception as e:
             return {'status': 'error', 'error': str(e)}
 
-    def _cmd_on_project(self, project, cmd_str):
+    def _cmd_on_project(self, project, cmd_str, timeout=30):
         """Run a shell command locally or via SSH depending on project type."""
         import subprocess
         if project.connection_type == 'ssh' and project.ssh_host:
@@ -486,7 +526,7 @@ echo "done" > {status_file}
             if project.ssh_port and project.ssh_port != 22:
                 ssh_cmd += ['-p', str(project.ssh_port)]
             ssh_cmd += [f'{project.ssh_user or "root"}@{project.ssh_host}', cmd_str]
-            r = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=15)
+            r = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=timeout)
         else:
             r = subprocess.run(cmd_str, shell=True, capture_output=True, text=True, timeout=10)
         return r.stdout.strip() if r.returncode == 0 else ''
@@ -697,6 +737,14 @@ echo "done" > {status_file}
                     script += 'done | sort -u'
                     raw = ssh_run(script)
 
+                    # Determine expected branch for staging/dev instances
+                    expected_branch = ''
+                    inst_obj = None
+                    if instance_id:
+                        inst_obj = request.env['devops.instance'].browse(instance_id)
+                        if inst_obj.exists() and inst_obj.instance_type != 'production':
+                            expected_branch = inst_obj.git_branch or ''
+
                     seen = set()
                     for line in raw.split('\n'):
                         line = line.strip()
@@ -706,13 +754,30 @@ echo "done" > {status_file}
                                 continue
                             seen.add(git_path)
                             name = os.path.basename(git_path)
+
+                            # Fix safe.directory for this repo
+                            ssh_run(f'git config --global --add safe.directory {git_path} 2>/dev/null')
+
                             branch = ssh_run(f'git -C {git_path} branch --show-current 2>/dev/null') or 'HEAD'
-                            dirty = bool(ssh_run(f'git -C {git_path} status --porcelain 2>/dev/null'))
                             repo_type = 'custom'
                             if ssh_run(f'test -f {git_path}/odoo-bin && echo yes') == 'yes':
                                 repo_type = 'odoo'
                             elif 'enterprise' in git_path.lower():
                                 repo_type = 'enterprise'
+
+                            # Auto-fix: ensure custom repos are on the correct instance branch
+                            if expected_branch and repo_type == 'custom' and branch != expected_branch:
+                                # Create branch from current HEAD if it doesn't exist, then checkout
+                                ssh_run(
+                                    f'cd {git_path} && '
+                                    f'git checkout {expected_branch} 2>/dev/null || '
+                                    f'(git checkout -b {expected_branch} && '
+                                    f'git push -u origin {expected_branch} 2>/dev/null); '
+                                    f'true'
+                                )
+                                branch = ssh_run(f'git -C {git_path} branch --show-current 2>/dev/null') or branch
+
+                            dirty = bool(ssh_run(f'git -C {git_path} status --porcelain 2>/dev/null'))
                             repos.append({
                                 'path': git_path, 'name': name, 'branch': branch,
                                 'ahead': 0, 'behind': 0, 'remote': '', 'dirty': dirty,
@@ -802,6 +867,32 @@ echo "done" > {status_file}
                     branch = r.stdout.strip()
             except Exception:
                 pass
+            # Determine repo type early for auto-fix
+            is_odoo = os.path.isfile(os.path.join(git_path, 'odoo-bin'))
+            is_enterprise = 'enterprise' in git_path.lower()
+            is_custom = not is_odoo and not is_enterprise
+
+            # Auto-fix: ensure custom repos in staging/dev are on the correct branch
+            if expected_branch and is_custom and branch != expected_branch:
+                try:
+                    # Try checkout existing branch, or create from current HEAD
+                    co = subprocess.run(
+                        ['git', 'checkout', expected_branch],
+                        capture_output=True, text=True, timeout=10, cwd=git_path,
+                    )
+                    if co.returncode != 0:
+                        subprocess.run(
+                            ['git', 'checkout', '-b', expected_branch],
+                            capture_output=True, text=True, timeout=10, cwd=git_path,
+                        )
+                        subprocess.run(
+                            ['git', 'push', '-u', 'origin', expected_branch],
+                            capture_output=True, text=True, timeout=30, cwd=git_path,
+                        )
+                    branch = expected_branch
+                    _logger.info("Auto-fixed branch for %s -> %s", git_path, expected_branch)
+                except Exception:
+                    pass
             # Ahead/behind remote
             try:
                 r2 = subprocess.run(
@@ -877,10 +968,16 @@ echo "done" > {status_file}
                             })
                 except Exception:
                     pass
+            repo_type = 'custom'
+            if is_odoo:
+                repo_type = 'odoo'
+            elif is_enterprise:
+                repo_type = 'enterprise'
             repos.append({
                 'path': git_path, 'name': os.path.basename(git_path),
                 'branch': branch, 'ahead': ahead, 'behind': behind,
                 'remote': remote, 'dirty': dirty, 'shallow': shallow,
+                'owned': True, 'repo_type': repo_type,
                 'merge_target': merge_target, 'merge_pending': merge_pending,
                 'merge_pending_commits': merge_pending_commits,
                 'sync_pending': sync_pending, 'sync_pending_commits': sync_pending_commits,
@@ -889,11 +986,14 @@ echo "done" > {status_file}
         # For non-production instances, only show repos inside the instance's own path
         inst_path = None
         inst_type = 'production'
+        expected_branch = ''
         if instance_id:
             inst = request.env['devops.instance'].browse(instance_id)
             if inst.exists():
                 inst_path = inst.instance_path
                 inst_type = inst.instance_type or 'production'
+                if inst_type != 'production':
+                    expected_branch = inst.git_branch or ''
 
         for path in addons_paths:
             # 1. Direct: path itself has .git
@@ -1354,22 +1454,106 @@ echo "done" > {status_file}
         except Exception:
             return {'error': 'Contraseña incorrecta'}
 
+    # ---- GitHub credentials per instance ----
+
+    @http.route('/devops/git/github/check', type='json', auth='user')
+    def github_check(self, instance_id=None):
+        """Check if GitHub credentials are configured for this instance."""
+        if not instance_id:
+            return {'configured': False}
+        inst = request.env['devops.instance'].sudo().browse(instance_id)
+        if not inst.exists():
+            return {'configured': False}
+        return {
+            'configured': bool(inst.github_user and inst.github_token),
+            'github_user': inst.github_user or '',
+        }
+
+    @http.route('/devops/git/github/save', type='json', auth='user')
+    def github_save(self, instance_id=None, github_user='', github_token=''):
+        """Save GitHub credentials for an instance and configure git remotes."""
+        if not instance_id or not github_user or not github_token:
+            return {'error': 'Usuario y token de GitHub requeridos'}
+        inst = request.env['devops.instance'].sudo().browse(instance_id)
+        if not inst.exists():
+            return {'error': 'Instancia no encontrada'}
+        if inst.instance_type == 'production':
+            return {'error': 'No se pueden configurar credenciales en produccion'}
+
+        inst.write({
+            'github_user': github_user,
+            'github_token': github_token,
+        })
+
+        # Configure git remote URLs with credentials in all custom repos
+        project = inst.project_id
+        from ..utils import ssh_utils
+        repos_data = self.instance_repos(project.id, instance_id)
+        for repo in repos_data.get('repos', []):
+            if repo.get('repo_type') != 'custom':
+                continue
+            rpath = repo['path']
+            # Get current remote URL
+            r = ssh_utils.execute_command(project, ['git', 'remote', 'get-url', 'origin'], cwd=rpath, timeout=10)
+            if r.returncode != 0:
+                continue
+            url = r.stdout.strip()
+            # Replace/add credentials in URL: https://user:token@github.com/...
+            import re
+            if url.startswith('https://'):
+                # Remove existing credentials
+                clean = re.sub(r'https://[^@]+@', 'https://', url)
+                new_url = clean.replace('https://', f'https://{github_user}:{github_token}@')
+                ssh_utils.execute_command(project, ['git', 'remote', 'set-url', 'origin', new_url], cwd=rpath, timeout=10)
+
+        return {'status': 'ok'}
+
+    @http.route('/devops/git/github/logout', type='json', auth='user')
+    def github_logout(self, instance_id=None):
+        """Remove GitHub credentials from an instance."""
+        if not instance_id:
+            return {'error': 'Instance ID required'}
+        inst = request.env['devops.instance'].sudo().browse(instance_id)
+        if not inst.exists():
+            return {'error': 'Instancia no encontrada'}
+        inst.write({'github_user': False, 'github_token': False})
+        return {'status': 'ok'}
+
     # ---- Claude sessions ----
 
     def _get_claude_project_dir(self, instance_id=None):
         """Get the Claude project directory for an instance.
 
-        Must match the cwd logic in terminal_controller.py so we find
-        the same sessions that Claude Code created.
+        For local: reads from ~/.claude/projects/<slug>/
+        For SSH: reads from remote server via SSH.
+        Returns (project_dir, is_ssh, project) tuple.
         """
         home = os.path.expanduser('~')
         if not instance_id:
-            return ''
+            return '', False, None
         inst = request.env['devops.instance'].browse(instance_id)
         if not inst.exists():
-            return ''
+            return '', False, None
 
-        # Replicate terminal_controller cwd logic exactly
+        project = inst.project_id
+        is_ssh = project.connection_type == 'ssh' and project.ssh_host
+
+        if is_ssh:
+            # For SSH, sessions are on the remote server
+            # Build candidate dirs: instance path + production/repo path
+            ssh_user = project.ssh_user or 'root'
+            remote_home = '/root' if ssh_user == 'root' else f'/home/{ssh_user}'
+            candidates = []
+            if inst.instance_path:
+                slug = inst.instance_path.replace('/', '-').replace('_', '-')
+                candidates.append(f'{remote_home}/.claude/projects/{slug}')
+            if project.repo_path:
+                slug = project.repo_path.replace('/', '-').replace('_', '-')
+                candidates.append(f'{remote_home}/.claude/projects/{slug}')
+            remote_dir = ','.join(candidates) if candidates else ''
+            return remote_dir, True, project
+
+        # Local
         cwd = home
         if inst.instance_type == 'production':
             repo = inst.project_id.repo_path
@@ -1382,27 +1566,32 @@ echo "done" > {status_file}
         elif inst.project_id.repo_path and os.path.isdir(inst.project_id.repo_path):
             cwd = inst.project_id.repo_path
 
-        # Use instance_path as unique key even if dir doesn't exist yet
         if cwd == home and inst.instance_path:
             cwd = inst.instance_path
 
-        # Claude replaces / and _ with - in the project slug
         slug = cwd.replace('/', '-').replace('_', '-')
         project_dir = os.path.join(home, '.claude', 'projects', slug)
-        # Fallback: try with underscore preserved (older Claude versions)
         if not os.path.isdir(project_dir):
             slug_alt = cwd.replace('/', '-')
             project_dir_alt = os.path.join(home, '.claude', 'projects', slug_alt)
             if os.path.isdir(project_dir_alt):
-                return project_dir_alt
-        return project_dir
+                return project_dir_alt, False, project
+        return project_dir, False, project
 
     @http.route('/devops/claude/sessions', type='json', auth='user')
     def claude_sessions(self, instance_id=None, search=''):
-        """List Claude Code sessions for an instance."""
+        """List Claude Code sessions for an instance (local or SSH)."""
+        import json as json_mod
+        project_dir, is_ssh, project = self._get_claude_project_dir(instance_id)
+        if not project_dir:
+            return {'sessions': []}
+
+        if is_ssh and project:
+            return self._claude_sessions_ssh(project, project_dir, search)
+
+        # Local
         import glob
-        project_dir = self._get_claude_project_dir(instance_id)
-        if not project_dir or not os.path.isdir(project_dir):
+        if not os.path.isdir(project_dir):
             return {'sessions': []}
 
         sessions = []
@@ -1413,7 +1602,7 @@ echo "done" > {status_file}
                 ts = ''
                 with open(f, 'r') as fh:
                     for line in fh:
-                        d = __import__('json').loads(line)
+                        d = json_mod.loads(line)
                         if not ts and 'timestamp' in d:
                             ts = d['timestamp']
                         if d.get('type') == 'summary':
@@ -1441,18 +1630,64 @@ echo "done" > {status_file}
 
         return {'sessions': sessions[:50]}
 
+    def _claude_sessions_ssh(self, project, remote_dirs_csv, search=''):
+        """List Claude sessions from a remote SSH server."""
+        dirs = [d.strip() for d in remote_dirs_csv.split(',') if d.strip()]
+        dir_list = ' '.join(f'"{d}"' for d in dirs)
+        # Simple script: list files with timestamp from filename/mtime, no python3 needed
+        script = (
+            f'for DIR in {dir_list}; do '
+            f'  [ -d "$DIR" ] || continue; '
+            f'  for f in $(ls -t "$DIR"/*.jsonl 2>/dev/null | head -50); do '
+            f'    SID=$(basename "$f" .jsonl); '
+            f'    SIZE=$(stat -c%s "$f" 2>/dev/null || echo 0); '
+            f'    MTIME=$(stat -c%Y "$f" 2>/dev/null || echo 0); '
+            f'    SUMMARY=$(grep -m1 "content" "$f" 2>/dev/null | head -c 150 || echo ""); '
+            f'    echo "$SID||$MTIME||$SUMMARY||$SIZE"; '
+            f'  done; '
+            f'done'
+        )
+        raw = self._cmd_on_project(project, script)
+        if not raw or raw == 'NODIR':
+            return {'sessions': []}
+
+        sessions = []
+        for line in raw.split('\n'):
+            line = line.strip()
+            if not line or '||' not in line:
+                continue
+            parts = line.split('||', 3)
+            if len(parts) < 4:
+                continue
+            sid, ts, summary, size_str = parts
+            if search and search.lower() not in summary.lower() and search.lower() not in sid.lower():
+                continue
+            sessions.append({
+                'id': sid,
+                'timestamp': ts,
+                'summary': summary,
+                'size': int(size_str) if size_str.isdigit() else 0,
+            })
+        return {'sessions': sessions}
+
     @http.route('/devops/claude/sessions/delete', type='json', auth='user')
     def claude_session_delete(self, instance_id=None, session_id=''):
-        """Delete a Claude Code session file."""
+        """Delete a Claude Code session file (local or SSH)."""
         if not session_id:
             return {'error': 'Session ID required'}
-        project_dir = self._get_claude_project_dir(instance_id)
+        project_dir, is_ssh, project = self._get_claude_project_dir(instance_id)
         if not project_dir:
             return {'error': 'Project dir not found'}
+
+        if is_ssh and project:
+            filepath = f'{project_dir}/{session_id}.jsonl'
+            self._cmd_on_project(project, f'rm -f {filepath}')
+            return {'status': 'ok'}
+
+        # Local
         filepath = os.path.join(project_dir, f'{session_id}.jsonl')
         if not os.path.isfile(filepath):
             return {'error': 'Session not found'}
-        # Security: ensure path is inside .claude/projects/
         if '.claude/projects/' not in filepath:
             return {'error': 'Invalid path'}
         os.remove(filepath)

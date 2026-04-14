@@ -533,7 +533,45 @@
 
                                             <t t-if="!state.gitPanelCollapsed">
 
-                                            <!-- Git auth login (non-admin) -->
+                                            <!-- GitHub credentials (per instance, staging/dev only) -->
+                                            <t t-if="state.selectedInstance and state.selectedInstance.instance_type !== 'production' and !state.githubConfigured">
+                                                <div class="mb-3 p-2" style="border: 1px solid #45475a; border-radius: 6px; background: #1e1e2e;">
+                                                    <div style="color: #cba6f7; font-size: 11px; font-weight: 600; margin-bottom: 6px;">
+                                                        GitHub — Credenciales para push
+                                                    </div>
+                                                    <div style="color: #6c7086; font-size: 10px; margin-bottom: 6px;">Se guardan en esta instancia hasta que se elimine.</div>
+                                                    <input type="text" class="form-control form-control-sm mb-2"
+                                                           style="background: #11111b; border-color: #313244; color: #cdd6f4; font-size: 11px;"
+                                                           placeholder="Usuario GitHub"
+                                                           t-att-value="state.githubUser"
+                                                           t-on-input="_onGithubUserInput"/>
+                                                    <input type="password" class="form-control form-control-sm mb-2"
+                                                           style="background: #11111b; border-color: #313244; color: #cdd6f4; font-size: 11px;"
+                                                           placeholder="Token (ghp_...)"
+                                                           t-att-value="state.githubToken"
+                                                           t-on-input="_onGithubTokenInput"
+                                                           t-on-keyup="_onGithubKeyup"/>
+                                                    <div t-if="state.githubError" style="color: #f38ba8; font-size: 10px; margin-bottom: 4px;">
+                                                        <t t-esc="state.githubError"/>
+                                                    </div>
+                                                    <button class="btn btn-sm w-100"
+                                                            style="background: #cba6f7; color: #1e1e2e; font-size: 11px; font-weight: 600;"
+                                                            t-att-disabled="state.githubLoading"
+                                                            t-on-click="_githubLogin">
+                                                        <t t-if="state.githubLoading">Guardando...</t>
+                                                        <t t-else="">Conectar GitHub</t>
+                                                    </button>
+                                                </div>
+                                            </t>
+                                            <t t-if="state.selectedInstance and state.selectedInstance.instance_type !== 'production' and state.githubConfigured">
+                                                <div class="mb-2 px-1 d-flex align-items-center justify-content-between" style="font-size: 10px;">
+                                                    <span style="color: #a6e3a1;">GitHub: <t t-esc="state.githubUser"/></span>
+                                                    <button class="btn btn-sm px-1 py-0" style="color: #f38ba8; font-size: 10px;"
+                                                            t-on-click="_githubLogout" title="Cerrar sesion GitHub">✕</button>
+                                                </div>
+                                            </t>
+
+                                            <!-- Odoo auth login (non-admin, required per session) -->
                                             <t t-if="!state.gitAuthenticated and !state.gitAuthIsAdmin">
                                                 <div class="mb-3 p-2" style="border: 1px solid #313244; border-radius: 6px; background: #1e1e2e;">
                                                     <div style="color: #f9e2af; font-size: 11px; font-weight: 600; margin-bottom: 6px;">
@@ -889,6 +927,8 @@
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\x1b[B')" title="Down arrow">↓</button>
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('y\\n')" title="Yes + Enter">Y⏎</button>
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\n')" title="Enter">⏎</button>
+                                            <div style="width: 1px; height: 16px; background: #313244; margin: 0 2px;"/>
+                                            <button class="btn btn-sm pmb-key-btn" t-on-click="_reconnectAiTerminal" title="Reconectar terminal">&#x21bb;</button>
                                         </div>
 
                                         <!-- Claude Sessions panel (toggle) -->
@@ -968,6 +1008,8 @@
                                     <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\t')" title="Tab">⇥</button>
                                     <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\x1b[A')" title="Up">↑</button>
                                     <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\x1b[B')" title="Down">↓</button>
+                                    <div style="width: 1px; height: 16px; background: #313244; margin: 0 2px;"/>
+                                    <button class="btn btn-sm pmb-key-btn" t-on-click="_reconnectShellTerminal" title="Reconectar terminal">&#x21bb;</button>
                                 </div>
                                 <div class="pmb-terminal-container" style="flex: 1 1 0; min-height: 0;">
                                     <div t-ref="terminalShell" style="height: 100%; width: 100%;"/>
@@ -1565,14 +1607,37 @@
                                     </div>
                                 </div>
 
-                                <!-- 7. Tabs secundarios -->
+                                <!-- Shell Tab -->
                                 <div class="mb-4" style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
-                                    <h6 style="color: #89b4fa;">History, Editor, Upgrade</h6>
+                                    <h6 style="color: #a6e3a1;">Tab SHELL — Terminal WebSocket</h6>
+                                    <img src="/pmb_devops/static/src/docs/img/09_shell.jpg" class="mb-3" style="width: 100%; border-radius: 6px; border: 1px solid #313244;" alt="Shell"/>
+                                    <div style="font-size: 12px; color: #a6adc8;">
+                                        <div class="mb-1">Terminal Linux interactiva via WebSocket (misma tecnologia que AI)</div>
+                                        <div class="mb-1">La sesion persiste al cambiar de tab y al reconectarse</div>
+                                        <div class="mb-1">Para proyectos SSH, se conecta al servidor remoto automaticamente</div>
+                                        <div class="mb-1">Botones Ctrl+C, Ctrl+Z, Ctrl+D, Tab, flechas para uso movil</div>
+                                    </div>
+                                </div>
+
+                                <!-- Logs Tab -->
+                                <div class="mb-4" style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
+                                    <h6 style="color: #94e2d5;">Tab LOGS — Servicio y Odoo</h6>
+                                    <img src="/pmb_devops/static/src/docs/img/13_logs.jpg" class="mb-3" style="width: 100%; border-radius: 6px; border: 1px solid #313244;" alt="Logs"/>
+                                    <div style="font-size: 12px; color: #a6adc8;">
+                                        <div class="mb-1"><strong style="color: #89b4fa;">Service (journalctl):</strong> Logs del servicio systemd en tiempo real</div>
+                                        <div class="mb-1"><strong style="color: #89b4fa;">Odoo Log:</strong> Logs del archivo de Odoo (werkzeug, ORM, errores)</div>
+                                        <div class="mb-1">Cambiar entre Service y Odoo Log con los botones superiores</div>
+                                    </div>
+                                </div>
+
+                                <!-- Tabs: History, Editor, Upgrade -->
+                                <div class="mb-4" style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
+                                    <h6 style="color: #89b4fa;">HISTORY, EDITOR, UPGRADE</h6>
                                     <div class="row g-3">
                                         <div class="col-md-4">
                                             <div style="font-size: 11px; color: #cba6f7; font-weight: 600; margin-bottom: 4px;">HISTORY</div>
                                             <img src="/pmb_devops/static/src/docs/img/03_history.jpg" style="width: 100%; border-radius: 6px; border: 1px solid #313244;" alt="History"/>
-                                            <div style="font-size: 10px; color: #6c7086; margin-top: 4px;">Selector de repos, historial de commits, detalle con diff</div>
+                                            <div style="font-size: 10px; color: #6c7086; margin-top: 4px;">Selector de repos, historial de commits, detalle con diff. Boton Pull para actualizar.</div>
                                         </div>
                                         <div class="col-md-4">
                                             <div style="font-size: 11px; color: #cba6f7; font-weight: 600; margin-bottom: 4px;">EDITOR</div>
@@ -1582,33 +1647,66 @@
                                         <div class="col-md-4">
                                             <div style="font-size: 11px; color: #cba6f7; font-weight: 600; margin-bottom: 4px;">UPGRADE</div>
                                             <img src="/pmb_devops/static/src/docs/img/08_upgrade.jpg" style="width: 100%; border-radius: 6px; border: 1px solid #313244;" alt="Upgrade"/>
-                                            <div style="font-size: 10px; color: #6c7086; margin-top: 4px;">Deploy: pull + detectar modulos + actualizar + reiniciar</div>
+                                            <div style="font-size: 10px; color: #6c7086; margin-top: 4px;">Deploy: git pull + detectar modulos + actualizar + reiniciar servicio</div>
                                         </div>
                                     </div>
                                 </div>
 
-                                <!-- 8. Mobile -->
+                                <!-- Meet, Tools, Backups, Status -->
                                 <div class="mb-4" style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
-                                    <h6 style="color: #94e2d5;">Vista Movil</h6>
-                                    <div class="row">
-                                        <div class="col-auto">
-                                            <img src="/pmb_devops/static/src/docs/img/11_mobile.jpg" style="max-height: 300px; border-radius: 6px; border: 1px solid #313244;" alt="Mobile"/>
+                                    <h6 style="color: #89b4fa;">MEET, TOOLS, BACKUPS</h6>
+                                    <div class="row g-3">
+                                        <div class="col-md-4">
+                                            <div style="font-size: 11px; color: #cba6f7; font-weight: 600; margin-bottom: 4px;">MEET</div>
+                                            <img src="/pmb_devops/static/src/docs/img/14_meet.jpg" style="width: 100%; border-radius: 6px; border: 1px solid #313244;" alt="Meet"/>
+                                            <div style="font-size: 10px; color: #6c7086; margin-top: 4px;">Jitsi embebido o link externo. Grabar audio, transcribir con Groq, extraer tareas con IA.</div>
                                         </div>
-                                        <div class="col-auto">
-                                            <img src="/pmb_devops/static/src/docs/img/12_mobile_sessions.jpg" style="max-height: 300px; border-radius: 6px; border: 1px solid #313244;" alt="Mobile sessions"/>
+                                        <div class="col-md-4">
+                                            <div style="font-size: 11px; color: #cba6f7; font-weight: 600; margin-bottom: 4px;">TOOLS</div>
+                                            <img src="/pmb_devops/static/src/docs/img/15_tools.jpg" style="width: 100%; border-radius: 6px; border: 1px solid #313244;" alt="Tools"/>
+                                            <div style="font-size: 10px; color: #6c7086; margin-top: 4px;">Diagnostico, informacion tecnica (servicio, BD, puerto, dominio), reparacion.</div>
                                         </div>
-                                        <div class="col" style="font-size: 12px; color: #a6adc8;">
-                                            <div class="mb-1"><span style="background:#89b4fa;color:#1e1e2e;border-radius:50%;padding:1px 6px;font-size:10px;font-weight:600;">1</span> Git Changes se expande automaticamente</div>
-                                            <div class="mb-1"><span style="background:#89b4fa;color:#1e1e2e;border-radius:50%;padding:1px 6px;font-size:10px;font-weight:600;">2</span> Barra de teclas especiales (Ctrl+C, Esc, etc.)</div>
-                                            <div class="mb-1"><span style="background:#89b4fa;color:#1e1e2e;border-radius:50%;padding:1px 6px;font-size:10px;font-weight:600;">3</span> Terminal Claude Code a ancho completo</div>
-                                            <div class="mt-2" style="color: #6c7086;">El sidebar se oculta al seleccionar instancia. Boton ← para volver.</div>
+                                        <div class="col-md-4">
+                                            <div style="font-size: 11px; color: #cba6f7; font-weight: 600; margin-bottom: 4px;">BACKUPS</div>
+                                            <img src="/pmb_devops/static/src/docs/img/16_backups.jpg" style="width: 100%; border-radius: 6px; border: 1px solid #313244;" alt="Backups"/>
+                                            <div style="font-size: 10px; color: #6c7086; margin-top: 4px;">Backups con pg_dump, descarga directa, restauracion.</div>
                                         </div>
+                                    </div>
+                                </div>
+
+                                <!-- Settings + Status (nav tabs) -->
+                                <div class="mb-4" style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
+                                    <h6 style="color: #89b4fa;">Settings y Status</h6>
+                                    <div class="row g-3">
+                                        <div class="col-md-6">
+                                            <div style="font-size: 11px; color: #cba6f7; font-weight: 600; margin-bottom: 4px;">SETTINGS</div>
+                                            <img src="/pmb_devops/static/src/docs/img/17_settings.jpg" style="width: 100%; border-radius: 6px; border: 1px solid #313244;" alt="Settings"/>
+                                            <div style="font-size: 10px; color: #6c7086; margin-top: 4px;">Proyecto (dominio, repos, limites) + Conexion SSH (host, llave, test) + Miembros + Servicio systemd autodetect.</div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <div style="font-size: 11px; color: #cba6f7; font-weight: 600; margin-bottom: 4px;">STATUS (Dashboard)</div>
+                                            <img src="/pmb_devops/static/src/docs/img/18_status.jpg" style="width: 100%; border-radius: 6px; border: 1px solid #313244;" alt="Status"/>
+                                            <div style="font-size: 10px; color: #6c7086; margin-top: 4px;">Metricas del servidor, instancias, tareas por estado, reuniones, graficos.</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- SSH Projects -->
+                                <div class="mb-4" style="background: #1e1e2e; border: 1px solid #cba6f7; border-radius: 8px; padding: 16px;">
+                                    <h6 style="color: #cba6f7;">Proyectos SSH (remotos)</h6>
+                                    <img src="/pmb_devops/static/src/docs/img/20_maha_settings.jpg" class="mb-3" style="width: 100%; border-radius: 6px; border: 1px solid #313244;" alt="SSH Settings"/>
+                                    <div style="font-size: 12px; color: #a6adc8;">
+                                        <div class="mb-1"><strong>Todas las operaciones funcionan via SSH:</strong> crear instancias, deploy, logs, shell, repos, sesiones Claude</div>
+                                        <div class="mb-1">Al crear staging/dev, el pipeline completo se ejecuta en el servidor remoto: clonar BD, copiar source, crear servicio, Nginx, SSL</div>
+                                        <div class="mb-1">La estructura de produccion se replica automaticamente (symlinks, repos git con rama propia, venv)</div>
+                                        <div class="mb-1">Al destruir, se elimina la rama git del remoto, BD, servicio y directorio</div>
+                                        <div class="mb-1">Configurar en Settings: tipo SSH, host, usuario, puerto + generar llave SSH y probar conexion</div>
                                     </div>
                                 </div>
 
                                 <!-- Terminal keys -->
                                 <div class="mb-4" style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
-                                    <h6 style="color: #f9e2af;">Teclas del Terminal (movil)</h6>
+                                    <h6 style="color: #f9e2af;">Botones del Terminal</h6>
                                     <table class="table table-sm mb-0" style="color: #a6adc8; font-size: 12px;">
                                         <tbody>
                                             <tr style="border-color: #313244;"><td style="color: #89b4fa; width: 100px;">Ctrl+C</td><td>Cancelar comando en ejecucion</td></tr>
@@ -1649,43 +1747,23 @@
                                             <li>Merge <strong>development → staging</strong> (Developer)</li>
                                             <li>No puede hacer merge a main ni sync desde main</li>
                                             <li>Ve solo proyectos donde es miembro</li>
-                                            <li>Instancias: ve las asignadas + produccion (lectura)</li>
+                                            <li>Ve todas las instancias de sus proyectos (produccion, staging, dev)</li>
+                                            <li><strong>Developer:</strong> Puede crear instancias staging y development</li>
+                                            <li><strong>Viewer:</strong> Solo lectura en todas las instancias</li>
                                         </ul>
                                     </div>
                                 </t>
 
-                                <!-- Meet + Recording -->
+                                <!-- Extras and tips -->
                                 <div class="mb-4" style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
-                                    <h6 style="color: #94e2d5;">Reuniones y Grabacion</h6>
+                                    <h6 style="color: #89b4fa;">Tips y Extras</h6>
                                     <div style="font-size: 12px; color: #a6adc8;">
-                                        <div class="mb-1"><strong style="color: #cba6f7;">Jitsi (embebido):</strong> Videoconferencia directa en el panel, sin cuentas</div>
-                                        <div class="mb-1"><strong style="color: #a6e3a1;">Link externo:</strong> Google Meet, Zoom, Teams — abre en nueva pestaña</div>
-                                        <div class="mb-1"><strong style="color: #f38ba8;">🔴 Grabar:</strong> Desktop captura audio del tab, mobile usa microfono</div>
-                                        <div class="mb-1"><strong style="color: #cba6f7;">🎙 Transcribir:</strong> Groq Whisper convierte audio a texto</div>
-                                        <div class="mb-1"><strong style="color: #f9e2af;">🤖 Extraer tareas:</strong> Claude analiza transcripcion y crea tareas en Odoo</div>
-                                        <div class="mb-1">Multiples grabaciones por reunion, cada una con su transcripcion</div>
-                                    </div>
-                                </div>
-
-                                <!-- Tasks + Commits -->
-                                <div class="mb-4" style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
-                                    <h6 style="color: #f9e2af;">Tareas y Commits</h6>
-                                    <div style="font-size: 12px; color: #a6adc8;">
-                                        <div class="mb-1">Las tareas se crean en <strong>project.task</strong> de Odoo, vinculadas al proyecto DevOps</div>
-                                        <div class="mb-1">En commits usa <code style="color: #89b4fa;">closes #ID</code> o <code style="color: #89b4fa;">fixes #ID</code> para cerrar tareas automaticamente</div>
-                                        <div class="mb-1">Tab <strong>Status</strong> muestra dashboard: tareas por estado, tags, reuniones, instancias</div>
-                                        <div class="mb-1">Tab <strong>TOOLS</strong> → Diagnostico: detecta problemas y repara instancias</div>
-                                    </div>
-                                </div>
-
-                                <!-- Extras -->
-                                <div class="mb-4" style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
-                                    <h6 style="color: #89b4fa;">Extras</h6>
-                                    <div style="font-size: 12px; color: #a6adc8;">
-                                        <div class="mb-1"><strong>Hard Reset:</strong> Menu usuario → 🔄 Hard Reset (limpia cache de assets)</div>
-                                        <div class="mb-1"><strong>Resize:</strong> Arrastra el borde del panel Git para ajustar ancho (se guarda)</div>
-                                        <div class="mb-1"><strong>Persistencia:</strong> Sidebar contraido y Git panel se guardan entre recargas</div>
-                                        <div class="mb-1"><strong>Sesiones Claude:</strong> Boton 📋 para ver, buscar, resumir o eliminar sesiones</div>
+                                        <div class="mb-1"><strong>Hard Reset:</strong> Menu usuario → 🔄 Hard Reset (limpia cache de assets de Odoo)</div>
+                                        <div class="mb-1"><strong>Resize Git panel:</strong> Arrastra el borde entre Git Changes y el terminal (se guarda)</div>
+                                        <div class="mb-1"><strong>Persistencia:</strong> Sidebar, Git panel, terminales persisten al cambiar tabs</div>
+                                        <div class="mb-1"><strong>Sesiones Claude:</strong> Boton 📋 — buscar, resumir (<code>/resume</code>) o eliminar sesiones</div>
+                                        <div class="mb-1"><strong>Tareas:</strong> <code style="color: #89b4fa;">closes #ID</code> en commits cierra tareas de Odoo automaticamente</div>
+                                        <div class="mb-1"><strong>Reuniones:</strong> Jitsi embebido + grabar audio + transcribir (Groq) + extraer tareas (Claude)</div>
                                     </div>
                                 </div>
 
@@ -1980,68 +2058,6 @@
 
                         <t t-if="state.settingsProject" t-key="state.settingsProject.id || 'new'">
 
-                            <!-- Connection + Service (first row, full width) -->
-                            <div class="mb-3" style="background: #1e1e2e; border: 1px solid #89b4fa; border-radius: 8px; padding: 16px;">
-                                <div class="d-flex align-items-center gap-3 flex-wrap">
-                                    <div>
-                                        <label style="color: #6c7086; font-size: 10px;">Conexion</label>
-                                        <div class="d-flex gap-1">
-                                            <button class="btn btn-sm"
-                                                    t-att-style="state.settingsProject.connection_type === 'local' ? 'background: #89b4fa; color: #1e1e2e; font-weight: 600;' : 'background: #313244; color: #6c7086;'"
-                                                    t-on-click="() => { this.state.settingsProject.connection_type = 'local'; }">Local</button>
-                                            <button class="btn btn-sm"
-                                                    t-att-style="state.settingsProject.connection_type === 'ssh' ? 'background: #89b4fa; color: #1e1e2e; font-weight: 600;' : 'background: #313244; color: #6c7086;'"
-                                                    t-on-click="() => { this.state.settingsProject.connection_type = 'ssh'; }">SSH</button>
-                                        </div>
-                                    </div>
-                                    <t t-if="state.settingsProject.connection_type === 'ssh'">
-                                        <div class="flex-grow-1" style="max-width: 200px;">
-                                            <label style="color: #6c7086; font-size: 10px;">Host</label>
-                                            <input type="text" class="form-control form-control-sm"
-                                                   style="background: #11111b; border-color: #313244; color: #cdd6f4; font-size: 11px;"
-                                                   placeholder="server.com"
-                                                   t-att-value="state.settingsProject.ssh_host"
-                                                   t-on-change="_onSettingsInput" data-field="ssh_host"/>
-                                        </div>
-                                        <div style="width: 80px;">
-                                            <label style="color: #6c7086; font-size: 10px;">User</label>
-                                            <input type="text" class="form-control form-control-sm"
-                                                   style="background: #11111b; border-color: #313244; color: #cdd6f4; font-size: 11px;"
-                                                   placeholder="root"
-                                                   t-att-value="state.settingsProject.ssh_user"
-                                                   t-on-change="_onSettingsInput" data-field="ssh_user"/>
-                                        </div>
-                                        <div style="width: 60px;">
-                                            <label style="color: #6c7086; font-size: 10px;">Puerto</label>
-                                            <input type="number" class="form-control form-control-sm"
-                                                   style="background: #11111b; border-color: #313244; color: #cdd6f4; font-size: 11px;"
-                                                   t-att-value="state.settingsProject.ssh_port"
-                                                   t-on-change="_onSettingsInput" data-field="ssh_port" data-type="int"/>
-                                        </div>
-                                    </t>
-                                    <div class="flex-grow-1" style="max-width: 180px;">
-                                        <label style="color: #6c7086; font-size: 10px;">Servicio systemd</label>
-                                        <div class="d-flex gap-1">
-                                            <input type="text" class="form-control form-control-sm"
-                                                   style="background: #11111b; border-color: #313244; color: #cdd6f4; font-size: 11px;"
-                                                   placeholder="odoo19"
-                                                   t-att-value="state.autodetectService || state.settingsProject.odoo_service_name || ''"
-                                                   t-on-input="_onAutodetectInput"/>
-                                            <button class="btn btn-sm px-2" style="background: #a6e3a1; color: #1e1e2e; font-size: 10px; white-space: nowrap;"
-                                                    t-on-click="_autodetectProject">Detectar</button>
-                                        </div>
-                                    </div>
-                                </div>
-                                <t t-if="state.autodetectResult and !state.autodetectResult.error">
-                                    <div class="mt-2 d-flex gap-3 flex-wrap" style="font-size: 10px; color: #a6e3a1;">
-                                        <span t-if="state.autodetectResult.active">✓ Activo</span>
-                                        <span t-if="state.autodetectResult.database_name">BD: <t t-esc="state.autodetectResult.database_name"/></span>
-                                        <span t-if="state.autodetectResult.port">Puerto: <t t-esc="state.autodetectResult.port"/></span>
-                                        <span t-if="state.autodetectResult.domain">Dominio: <t t-esc="state.autodetectResult.domain"/></span>
-                                    </div>
-                                </t>
-                            </div>
-
                             <div class="row g-3">
                                 <!-- Column 1: General -->
                                 <div class="col-md-6">
@@ -2121,6 +2137,108 @@
                                                 <span style="color: #6c7086; font-size: 10px;">0 = nunca destruir</span>
                                             </div>
                                         </div>
+                                        <div class="mt-2" style="border-top: 1px solid #313244; padding-top: 10px;">
+                                            <label style="color: #6c7086; font-size: 11px;">Servicio systemd (produccion)</label>
+                                            <div class="d-flex gap-2">
+                                                <input type="text" class="form-control form-control-sm flex-grow-1"
+                                                       style="background: #11111b; border-color: #313244; color: #cdd6f4;"
+                                                       placeholder="odoo19, odooAL, maha..."
+                                                       t-att-value="state.autodetectService || state.settingsProject.odoo_service_name || ''"
+                                                       t-on-input="_onAutodetectInput"/>
+                                                <button class="btn btn-sm px-3" style="background: #a6e3a1; color: #1e1e2e; font-weight: 600; font-size: 11px; white-space: nowrap;"
+                                                        t-on-click="_autodetectProject">Detectar</button>
+                                            </div>
+                                            <t t-if="state.autodetectResult and !state.autodetectResult.error">
+                                                <div class="mt-1 d-flex gap-3 flex-wrap" style="font-size: 10px; color: #a6e3a1;">
+                                                    <span t-if="state.autodetectResult.active">✓ Activo</span>
+                                                    <span t-if="state.autodetectResult.database_name">BD: <t t-esc="state.autodetectResult.database_name"/></span>
+                                                    <span t-if="state.autodetectResult.port">Puerto: <t t-esc="state.autodetectResult.port"/></span>
+                                                    <span t-if="state.autodetectResult.domain">Dominio: <t t-esc="state.autodetectResult.domain"/></span>
+                                                </div>
+                                            </t>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Column 2: Conexion al Servidor -->
+                                <div class="col-md-6">
+                                    <div style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
+                                        <h6 style="color: #89b4fa; margin-bottom: 12px;">Conexion al Servidor</h6>
+                                        <div class="mb-2">
+                                            <label style="color: #6c7086; font-size: 11px;">Tipo</label>
+                                            <div class="d-flex gap-2">
+                                                <button class="btn btn-sm flex-grow-1"
+                                                        t-att-style="state.settingsProject.connection_type === 'local' ? 'background: #89b4fa; color: #1e1e2e; font-weight: 600;' : 'background: #313244; color: #6c7086;'"
+                                                        t-on-click="() => { this.state.settingsProject.connection_type = 'local'; }">
+                                                    Local
+                                                </button>
+                                                <button class="btn btn-sm flex-grow-1"
+                                                        t-att-style="state.settingsProject.connection_type === 'ssh' ? 'background: #89b4fa; color: #1e1e2e; font-weight: 600;' : 'background: #313244; color: #6c7086;'"
+                                                        t-on-click="() => { this.state.settingsProject.connection_type = 'ssh'; }">
+                                                    SSH
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <t t-if="state.settingsProject.connection_type === 'ssh'">
+                                            <div class="mb-2">
+                                                <label style="color: #6c7086; font-size: 11px;">Host</label>
+                                                <input type="text" class="form-control form-control-sm"
+                                                       style="background: #11111b; border-color: #313244; color: #cdd6f4;"
+                                                       placeholder="192.168.1.100"
+                                                       t-att-value="state.settingsProject.ssh_host"
+                                                       t-on-change="_onSettingsInput" data-field="ssh_host"/>
+                                            </div>
+                                            <div class="d-flex gap-2 mb-2">
+                                                <div class="flex-grow-1">
+                                                    <label style="color: #6c7086; font-size: 11px;">Usuario</label>
+                                                    <input type="text" class="form-control form-control-sm"
+                                                           style="background: #11111b; border-color: #313244; color: #cdd6f4;"
+                                                           placeholder="root"
+                                                           t-att-value="state.settingsProject.ssh_user"
+                                                           t-on-change="_onSettingsInput" data-field="ssh_user"/>
+                                                </div>
+                                                <div style="width: 100px;">
+                                                    <label style="color: #6c7086; font-size: 11px;">Puerto</label>
+                                                    <input type="number" class="form-control form-control-sm"
+                                                           style="background: #11111b; border-color: #313244; color: #cdd6f4;"
+                                                           t-att-value="state.settingsProject.ssh_port"
+                                                           t-on-change="_onSettingsInput" data-field="ssh_port" data-type="int"/>
+                                                </div>
+                                            </div>
+                                            <div style="background: #181825; border: 1px solid #313244; border-radius: 6px; padding: 12px; margin-top: 8px;">
+                                                <div class="d-flex align-items-center justify-content-between mb-2">
+                                                    <span style="color: #cba6f7; font-size: 12px; font-weight: 600;">Llave SSH (ED25519)</span>
+                                                    <span t-if="state.settingsProject.ssh_key_configured"
+                                                          style="color: #a6e3a1; font-size: 11px;">Configurada</span>
+                                                    <span t-if="!state.settingsProject.ssh_key_configured"
+                                                          style="color: #f9e2af; font-size: 11px;">No configurada</span>
+                                                </div>
+                                                <button class="btn btn-sm mb-2"
+                                                        style="background: #cba6f7; color: #1e1e2e; font-weight: 600; font-size: 12px;"
+                                                        t-on-click="_generateSshKey">
+                                                    Generar Llave SSH
+                                                </button>
+                                                <t t-if="state.sshPublicKey">
+                                                    <div class="mt-2">
+                                                        <label style="color: #6c7086; font-size: 11px;">Llave Publica (copia al servidor)</label>
+                                                        <textarea readonly="1" rows="3"
+                                                                  class="form-control form-control-sm"
+                                                                  style="background: #11111b; border-color: #313244; color: #a6e3a1; font-family: monospace; font-size: 11px;"
+                                                                  t-att-value="state.sshPublicKey"/>
+                                                    </div>
+                                                </t>
+                                                <button t-if="state.settingsProject.ssh_key_configured"
+                                                        class="btn btn-sm mt-2"
+                                                        style="background: #313244; color: #cdd6f4; font-size: 12px;"
+                                                        t-on-click="_testSshConnection">
+                                                    Probar Conexion
+                                                </button>
+                                                <span t-if="state.sshTestResult"
+                                                      t-att-style="'font-size: 11px; margin-left: 8px; color:' + (state.sshTestResult.ok ? '#a6e3a1' : '#f38ba8')">
+                                                    <t t-esc="state.sshTestResult.message"/>
+                                                </span>
+                                            </div>
+                                        </t>
                                     </div>
                                 </div>
 
@@ -2196,96 +2314,6 @@
                                     </div>
                                 </div>
 
-                                <!-- Column 2: Conexion SSH -->
-                                <div class="col-md-6">
-                                    <div style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
-                                        <h6 style="color: #89b4fa; margin-bottom: 12px;">Conexion al Servidor</h6>
-                                        <div class="mb-2">
-                                            <label style="color: #6c7086; font-size: 11px;">Tipo</label>
-                                            <div class="d-flex gap-2">
-                                                <button class="btn btn-sm flex-grow-1"
-                                                        t-att-style="state.settingsProject.connection_type === 'local' ? 'background: #89b4fa; color: #1e1e2e; font-weight: 600;' : 'background: #313244; color: #6c7086;'"
-                                                        t-on-click="() => { this.state.settingsProject.connection_type = 'local'; }">
-                                                    Local
-                                                </button>
-                                                <button class="btn btn-sm flex-grow-1"
-                                                        t-att-style="state.settingsProject.connection_type === 'ssh' ? 'background: #89b4fa; color: #1e1e2e; font-weight: 600;' : 'background: #313244; color: #6c7086;'"
-                                                        t-on-click="() => { this.state.settingsProject.connection_type = 'ssh'; }">
-                                                    SSH
-                                                </button>
-                                            </div>
-                                        </div>
-
-                                        <t t-if="state.settingsProject.connection_type === 'ssh'">
-                                            <div class="mb-2">
-                                                <label style="color: #6c7086; font-size: 11px;">Host</label>
-                                                <input type="text" class="form-control form-control-sm"
-                                                       style="background: #11111b; border-color: #313244; color: #cdd6f4;"
-                                                       placeholder="192.168.1.100"
-                                                       t-att-value="state.settingsProject.ssh_host"
-                                                       t-on-change="_onSettingsInput" data-field="ssh_host"/>
-                                            </div>
-                                            <div class="d-flex gap-2 mb-2">
-                                                <div class="flex-grow-1">
-                                                    <label style="color: #6c7086; font-size: 11px;">Usuario</label>
-                                                    <input type="text" class="form-control form-control-sm"
-                                                           style="background: #11111b; border-color: #313244; color: #cdd6f4;"
-                                                           placeholder="root"
-                                                           t-att-value="state.settingsProject.ssh_user"
-                                                           t-on-change="_onSettingsInput" data-field="ssh_user"/>
-                                                </div>
-                                                <div style="width: 100px;">
-                                                    <label style="color: #6c7086; font-size: 11px;">Puerto</label>
-                                                    <input type="number" class="form-control form-control-sm"
-                                                           style="background: #11111b; border-color: #313244; color: #cdd6f4;"
-                                                           t-att-value="state.settingsProject.ssh_port"
-                                                           t-on-change="_onSettingsInput" data-field="ssh_port" data-type="int"/>
-                                                </div>
-                                            </div>
-
-                                            <!-- SSH Key section -->
-                                            <div style="background: #181825; border: 1px solid #313244; border-radius: 6px; padding: 12px; margin-top: 8px;">
-                                                <div class="d-flex align-items-center justify-content-between mb-2">
-                                                    <span style="color: #cba6f7; font-size: 12px; font-weight: 600;">Llave SSH (ED25519)</span>
-                                                    <span t-if="state.settingsProject.ssh_key_configured"
-                                                          style="color: #a6e3a1; font-size: 11px;">Configurada</span>
-                                                    <span t-if="!state.settingsProject.ssh_key_configured"
-                                                          style="color: #f9e2af; font-size: 11px;">No configurada</span>
-                                                </div>
-                                                <button class="btn btn-sm mb-2"
-                                                        style="background: #cba6f7; color: #1e1e2e; font-weight: 600; font-size: 12px;"
-                                                        t-on-click="_generateSshKey">
-                                                    Generar Llave SSH
-                                                </button>
-                                                <t t-if="state.sshPublicKey">
-                                                    <div class="mt-2">
-                                                        <label style="color: #6c7086; font-size: 11px;">Llave Publica (copia al servidor)</label>
-                                                        <textarea readonly="1" rows="3"
-                                                                  class="form-control form-control-sm"
-                                                                  style="background: #11111b; border-color: #313244; color: #a6e3a1; font-family: monospace; font-size: 11px;"
-                                                                  t-att-value="state.sshPublicKey"/>
-                                                        <div style="color: #6c7086; font-size: 11px; margin-top: 6px;">
-                                                            Usa la terminal AI para configurar:
-                                                            <code style="color: #89b4fa; font-size: 11px;">
-                                                                "Configura SSH al servidor con ssh-copy-id"
-                                                            </code>
-                                                        </div>
-                                                    </div>
-                                                </t>
-                                                <button t-if="state.settingsProject.ssh_key_configured"
-                                                        class="btn btn-sm mt-2"
-                                                        style="background: #313244; color: #cdd6f4; font-size: 12px;"
-                                                        t-on-click="_testSshConnection">
-                                                    Probar Conexion
-                                                </button>
-                                                <span t-if="state.sshTestResult"
-                                                      t-att-style="'font-size: 11px; margin-left: 8px; color:' + (state.sshTestResult.ok ? '#a6e3a1' : '#f38ba8')">
-                                                    <t t-esc="state.sshTestResult.message"/>
-                                                </span>
-                                            </div>
-                                        </t>
-                                    </div>
-                                </div>
                             </div>
 
                             <!-- Save button -->

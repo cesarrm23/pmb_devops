@@ -96,11 +96,22 @@ class DevopsInstanceInfra(models.Model):
     def _launch_creation_script(self, instance_id, dbname):
         """Launch a background bash script that runs the creation pipeline.
 
-        Uses psql to update creation_step so the SPA can poll progress.
-        This avoids the complexity of spawning an Odoo process.
+        For local projects: uses psql to update creation_step directly.
+        For SSH projects: runs script on remote server via SCP + nohup,
+        writes status/log to files, polled via SSH by the SPA.
         """
         rec = self.browse(instance_id)
         project = rec.project_id
+        is_ssh = project.connection_type == 'ssh' and project.ssh_host
+
+        if is_ssh:
+            self._launch_creation_script_ssh(rec, project)
+        else:
+            self._launch_creation_script_local(rec, project, dbname)
+
+    def _launch_creation_script_local(self, rec, project, dbname):
+        """Launch creation script locally (original implementation)."""
+        instance_id = rec.id
 
         # Determine clone source DB and filestore
         source_db = ''
@@ -117,8 +128,6 @@ class DevopsInstanceInfra(models.Model):
         elif project.database_name:
             source_db = project.database_name
 
-        # Build addons path using instance-local paths
-        # Enterprise is only included if configured on the project
         inst_path = rec.instance_path
         addons_path = f"{inst_path}/odoo/odoo/addons,{inst_path}/odoo/addons"
         if project.enterprise_path:
@@ -126,7 +135,6 @@ class DevopsInstanceInfra(models.Model):
         addons_path += f",/opt/odooAL/custom_addons"
         addons_path += f",{inst_path}/cremara_addons"
 
-        # Git repo URL for cloning into instance
         repo_url = project.repo_url or ''
         if not repo_url and project.repo_path:
             try:
@@ -146,13 +154,11 @@ DB="{dbname}"
 STEP() {{ psql -q "$DB" -c "UPDATE devops_instance SET creation_step='$1', creation_pid=$$ WHERE id=$ID;" 2>/dev/null; }}
 FAIL() {{ psql -q "$DB" -c "UPDATE devops_instance SET state='error', creation_step='Error: $1', creation_pid=0 WHERE id=$ID;" 2>/dev/null; exit 1; }}
 
-# Save PID immediately
 psql -q "$DB" -c "UPDATE devops_instance SET creation_pid=$$ WHERE id=$ID;" 2>/dev/null
 
 exec >> /var/log/odoo/pmb_creation.log 2>&1
 echo "=== Creating instance {rec.name} (id=$ID) pid=$$ at $(date) ==="
 
-# Step 1: Clone database — idempotent: skip if DB already has Odoo tables
 STEP "Clonando base de datos ({source_db})..."
 if [ -n "{source_db}" ]; then
     DB_READY=0
@@ -160,7 +166,6 @@ if [ -n "{source_db}" ]; then
         DB_READY=1
     fi
     if [ "$DB_READY" -eq 0 ]; then
-        # Kill any lingering connections to the target DB
         psql -q "{dbname}" -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='{rec.database_name}' AND pid != pg_backend_pid();" 2>/dev/null
         sleep 1
         dropdb --if-exists "{rec.database_name}" 2>/dev/null
@@ -177,7 +182,6 @@ if [ -n "{source_db}" ]; then
     fi
 fi
 
-# Step 1b: Copy filestore — idempotent: skip if dir already has files
 if [ -n "{source_filestore}" ] && [ -d "{source_filestore}" ]; then
     FSDEST="{rec.instance_path}/.local/share/Odoo/filestore/{rec.database_name}"
     if [ ! -d "$FSDEST" ] || [ -z "$(ls -A "$FSDEST" 2>/dev/null)" ]; then
@@ -190,12 +194,10 @@ if [ -n "{source_filestore}" ] && [ -d "{source_filestore}" ]; then
     fi
 fi
 
-# Step 2: Create directory + copy odoo/enterprise + clone repo
 STEP "Preparando directorio de instancia..."
 sudo mkdir -p "{inst_path}/.local/share/Odoo"
 sudo chown -R odooal:odooal "{inst_path}"
 
-# Copy Odoo source — idempotent: skip if odoo-bin exists
 if [ ! -f "{inst_path}/odoo/odoo-bin" ]; then
     STEP "Copiando Odoo source..."
     rsync -a --exclude='__pycache__' /opt/odooAL/odoo/ "{inst_path}/odoo/"
@@ -203,7 +205,6 @@ else
     echo "Odoo source already exists, skipping"
 fi
 
-# Copy enterprise addons — only if project has enterprise configured
 if [ -n "{enterprise_path}" ] && [ -d "{enterprise_path}" ]; then
     if [ ! -d "{inst_path}/enterprise/account" ]; then
         STEP "Copiando enterprise addons..."
@@ -212,35 +213,24 @@ if [ -n "{enterprise_path}" ] && [ -d "{enterprise_path}" ]; then
     else
         echo "Enterprise addons already exist, skipping"
     fi
-else
-    echo "Enterprise no configurado para este proyecto, saltando"
 fi
 
-# Symlink venv (shared, read-only executables)
 ln -sfn /opt/odooAL/.venv "{inst_path}/.venv"
 
-# Clone custom addons repo — idempotent: skip if dir exists
 if [ -n "{repo_url}" ] && [ ! -d "{inst_path}/cremara_addons/.git" ]; then
     STEP "Clonando repositorio de addons..."
     rm -rf "{inst_path}/cremara_addons" 2>/dev/null
-    git clone "{repo_url}" "{inst_path}/cremara_addons" --branch staging --single-branch 2>/dev/null || \
     git clone "{repo_url}" "{inst_path}/cremara_addons" 2>/dev/null || \
     echo "WARNING: repo clone failed"
-else
-    echo "Addons repo already cloned, skipping"
+    # Create instance branch
+    if [ -d "{inst_path}/cremara_addons/.git" ]; then
+        cd "{inst_path}/cremara_addons"
+        git checkout -b "{rec.git_branch}" 2>/dev/null || git checkout "{rec.git_branch}" 2>/dev/null || true
+        git push -u origin "{rec.git_branch}" 2>/dev/null || true
+        cd /
+    fi
 fi
 
-# Enforce .gitignore in cloned repo (remove tracked .pyc etc.)
-if [ -d "{inst_path}/cremara_addons/.git" ]; then
-    STEP "Aplicando .gitignore..."
-    python3 -c "
-import sys; sys.path.insert(0, '/opt/odooAL/custom_addons/pmb_devops')
-from utils.git_utils import ensure_gitignore
-ensure_gitignore('{inst_path}/cremara_addons')
-" 2>/dev/null || echo "WARNING: .gitignore enforcement skipped"
-fi
-
-# Step 3: Odoo config
 STEP "Generando configuración Odoo..."
 sudo tee "{rec.odoo_config_path}" > /dev/null << 'CONF'
 [options]
@@ -261,7 +251,6 @@ workers = 2
 without_demo = True
 CONF
 
-# Step 4: Systemd service
 STEP "Creando servicio systemd..."
 sudo tee "/etc/systemd/system/{rec.service_name}.service" > /dev/null << 'SVC'
 [Unit]
@@ -283,7 +272,6 @@ SVC
 sudo systemctl daemon-reload
 sudo systemctl enable "{rec.service_name}"
 
-# Step 5: Nginx (HTTP only first — certbot adds SSL later)
 STEP "Configurando Nginx..."
 DOMAIN="{rec.full_domain or f'{rec.subdomain}.{project.domain}'}"
 sudo tee "/etc/nginx/sites-enabled/$DOMAIN" > /dev/null << NGINX
@@ -325,23 +313,19 @@ NGINX
 sudo nginx -t || FAIL "nginx config invalid"
 sudo systemctl reload nginx
 
-# Step 6: Start service
 STEP "Iniciando servicio Odoo..."
 sudo systemctl start "{rec.service_name}"
 sleep 5
 
-# Step 7: SSL
 STEP "Obteniendo certificado SSL..."
 sudo certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --email admin@patchmybyte.com --redirect 2>&1 || echo "SSL cert failed (HTTP still works)"
 
-# Step 8: Verify
 STEP "Verificando..."
 HTTP=$(curl -sk -o /dev/null -w '%{{http_code}}' "https://$DOMAIN/web/login" --max-time 15 2>/dev/null || echo "000")
 if [ "$HTTP" = "200" ] || [ "$HTTP" = "303" ] || [ "$HTTP" = "302" ]; then
     psql -q "$DB" -c "UPDATE devops_instance SET state='running', creation_step='', creation_pid=0 WHERE id=$ID;"
     echo "=== Instance {rec.name} created successfully (HTTP $HTTP) ==="
 else
-    # Try HTTP (no SSL)
     HTTP2=$(curl -sk -o /dev/null -w '%{{http_code}}' "http://$DOMAIN/web/login" --max-time 15 2>/dev/null || echo "000")
     if [ "$HTTP2" = "200" ] || [ "$HTTP2" = "303" ] || [ "$HTTP2" = "302" ]; then
         psql -q "$DB" -c "UPDATE devops_instance SET state='running', creation_step='', creation_pid=0 WHERE id=$ID;"
@@ -351,7 +335,6 @@ else
     fi
 fi
 """
-        # Write script and execute
         script_path = f"/tmp/pmb_create_{instance_id}.sh"
         with open(script_path, 'w') as f:
             f.write(script)
@@ -362,6 +345,356 @@ fi
             start_new_session=True,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+        )
+
+    def _launch_creation_script_ssh(self, rec, project):
+        """Launch creation script on a remote SSH server.
+
+        Script writes progress to files on the remote server.
+        The SPA polls status via SSH from instance_poll_status.
+        """
+        instance_id = rec.id
+
+        # Discover remote Odoo paths from production instance
+        prod = project.production_instance_id
+        prod_path = prod.instance_path if prod else project.repo_path or '/opt'
+        prod_db = prod.database_name if prod else project.database_name or ''
+
+        # Source DB for cloning
+        source_db = ''
+        if rec.cloned_from_id and rec.cloned_from_id.database_name:
+            source_db = rec.cloned_from_id.database_name
+        elif prod_db:
+            source_db = prod_db
+
+        # Source filestore
+        source_filestore = ''
+        source_inst = rec.cloned_from_id or prod
+        if source_inst and source_inst.database_name and source_inst.instance_path:
+            source_filestore = f"{source_inst.instance_path}/.local/share/Odoo/filestore/{source_inst.database_name}"
+
+        inst_path = rec.instance_path
+        enterprise_path = project.enterprise_path or ''
+
+        # Discover Odoo source path and venv from production's systemd service
+        prod_svc = project.odoo_service_name or (prod.service_name if prod else '')
+        # Detect DB user from production
+        db_user = 'odoo'  # default for remote
+        if prod_svc:
+            try:
+                from ..utils import ssh_utils
+                r = ssh_utils.execute_command_shell(
+                    project,
+                    f"systemctl show {prod_svc} -p User --value 2>/dev/null || echo odoo",
+                )
+                u = r.stdout.strip() if r.returncode == 0 else ''
+                if u:
+                    db_user = u
+            except Exception:
+                pass
+
+        log_file = f"/tmp/pmb_create_{instance_id}.log"
+        status_file = f"/tmp/pmb_create_{instance_id}.status"
+        domain = rec.full_domain or f"{rec.subdomain}.{project.subdomain_base or project.domain}"
+        prod_svc_name = prod_svc or 'odoo'
+
+        script = f"""#!/bin/bash
+set -euo pipefail
+LOG="{log_file}"
+STATUS="{status_file}"
+PROD_PATH="{prod_path}"
+INST_PATH="{inst_path}"
+
+# Auto-detect Python and venv from production service
+PROD_EXEC=$(systemctl show {prod_svc_name} -p ExecStart --value 2>/dev/null | grep -oP '\\S+python\\S*' | head -1)
+if [ -z "$PROD_EXEC" ]; then
+    PROD_EXEC=$(grep -oP 'ExecStart=\\K\\S+' /etc/systemd/system/{prod_svc_name}.service 2>/dev/null || echo "python3")
+fi
+PROD_VENV=$(dirname "$(dirname "$PROD_EXEC")" 2>/dev/null)
+if [ ! -d "$PROD_VENV/bin" ]; then
+    for V in "$PROD_PATH/venv" "$PROD_PATH/.venv" /opt/venv; do
+        if [ -d "$V/bin" ]; then PROD_VENV="$V"; break; fi
+    done
+fi
+PYTHON_BIN="$PROD_VENV/bin/python3"
+if [ ! -f "$PYTHON_BIN" ]; then PYTHON_BIN="$PROD_VENV/bin/python"; fi
+
+# Auto-detect addons_path from production config
+PROD_ADDONS=$(grep -oP 'addons_path\\s*=\\s*\\K.*' /etc/{prod_svc_name}.conf 2>/dev/null || echo "")
+
+STEP() {{ echo "$1" > "$STATUS"; echo "$(date +%H:%M:%S) $1" >> "$LOG"; }}
+FAIL() {{ echo "error: $1" > "$STATUS"; echo "$(date +%H:%M:%S) ERROR: $1" >> "$LOG"; exit 1; }}
+
+echo "running" > "$STATUS"
+echo "=== Creating instance {rec.name} at $(date) ===" > "$LOG"
+
+# Step 1: Clone database
+STEP "Clonando base de datos ({source_db})..."
+if [ -n "{source_db}" ]; then
+    DB_READY=0
+    if sudo -u postgres psql -q "{rec.database_name}" -c "SELECT 1 FROM ir_module_module LIMIT 1" 2>/dev/null | grep -q 1; then
+        DB_READY=1
+    fi
+    if [ "$DB_READY" -eq 0 ]; then
+        sudo -u postgres psql -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='{rec.database_name}' AND pid != pg_backend_pid();" 2>/dev/null
+        sleep 1
+        sudo -u postgres dropdb --if-exists "{rec.database_name}" 2>/dev/null
+        sudo -u postgres createdb -O {db_user} "{rec.database_name}" || FAIL "createdb failed"
+        set +e
+        sudo -u postgres pg_dump "{source_db}" 2>/dev/null | sudo -u postgres psql -q "{rec.database_name}" 2>/dev/null
+        PG_EXIT=${{PIPESTATUS[0]}}
+        set -e
+        if [ "$PG_EXIT" -ne 0 ]; then
+            FAIL "pg_dump failed (exit $PG_EXIT)"
+        fi
+        echo "DB cloned successfully" >> "$LOG"
+    else
+        echo "DB {rec.database_name} already has data, skipping" >> "$LOG"
+    fi
+fi
+
+# Step 1b: Copy filestore
+if [ -n "{source_filestore}" ] && [ -d "{source_filestore}" ]; then
+    FSDEST="$INST_PATH/.local/share/Odoo/filestore/{rec.database_name}"
+    if [ ! -d "$FSDEST" ] || [ -z "$(ls -A "$FSDEST" 2>/dev/null)" ]; then
+        STEP "Copiando filestore..."
+        mkdir -p "$FSDEST"
+        rsync -a "{source_filestore}/" "$FSDEST/" || echo "WARNING: filestore copy failed" >> "$LOG"
+        chown -R {db_user}:{db_user} "$INST_PATH/.local/share/Odoo"
+    fi
+fi
+
+# Step 2: Replicate production directory structure
+STEP "Preparando directorio de instancia..."
+mkdir -p "$INST_PATH/.local/share/Odoo"
+
+# Replicate each dir from production: symlinks stay as symlinks, git repos get cloned, rest is copied
+INST_ADDONS=""
+for ENTRY in "$PROD_PATH"/*/; do
+    DIRNAME=$(basename "$ENTRY")
+    [ "$DIRNAME" = ".local" ] && continue
+    DEST="$INST_PATH/$DIRNAME"
+
+    if [ -L "$PROD_PATH/$DIRNAME" ]; then
+        # Symlink: replicate the symlink (shared resource like odoo, enterprise, venv)
+        LINK_TARGET=$(readlink -f "$PROD_PATH/$DIRNAME")
+        if [ ! -e "$DEST" ]; then
+            STEP "Enlazando $DIRNAME..."
+            ln -sfn "$LINK_TARGET" "$DEST"
+            echo "Symlinked $DIRNAME -> $LINK_TARGET" >> "$LOG"
+        fi
+    elif [ -d "$PROD_PATH/$DIRNAME/.git" ]; then
+        # Git repo: clone and create instance branch
+        if [ ! -d "$DEST/.git" ]; then
+            STEP "Clonando repositorio $DIRNAME..."
+            PROD_BRANCH=$(cd "$PROD_PATH/$DIRNAME" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+            REPO_URL=$(cd "$PROD_PATH/$DIRNAME" && git remote get-url origin 2>/dev/null || echo "")
+            if [ -n "$REPO_URL" ]; then
+                git clone "$REPO_URL" "$DEST" 2>/dev/null || \
+                {{ echo "WARNING: clone $DIRNAME failed, copying instead" >> "$LOG"; rsync -a --exclude='__pycache__' "$PROD_PATH/$DIRNAME/" "$DEST/"; }}
+            else
+                rsync -a --exclude='__pycache__' "$PROD_PATH/$DIRNAME/" "$DEST/"
+            fi
+            # Create instance branch from production branch
+            git config --global --add safe.directory "$DEST" 2>/dev/null
+            if [ -d "$DEST/.git" ]; then
+                cd "$DEST"
+                git checkout "$PROD_BRANCH" 2>/dev/null || true
+                git checkout -b "{rec.git_branch}" 2>/dev/null || git checkout "{rec.git_branch}" 2>/dev/null || true
+                # Push branch to remote so it exists for merge/sync later
+                if [ -n "$REPO_URL" ]; then
+                    git push -u origin "{rec.git_branch}" 2>/dev/null || true
+                fi
+                cd /
+                echo "Cloned $DIRNAME -> branch {rec.git_branch} (from $PROD_BRANCH)" >> "$LOG"
+            fi
+        fi
+    elif [ -d "$PROD_PATH/$DIRNAME" ]; then
+        # Regular directory: copy if it doesn't exist
+        if [ ! -d "$DEST" ]; then
+            STEP "Copiando $DIRNAME..."
+            rsync -a --exclude='__pycache__' "$PROD_PATH/$DIRNAME/" "$DEST/"
+            echo "Copied dir $DIRNAME" >> "$LOG"
+        fi
+    fi
+done
+
+# Symlink venv from production (if not already linked)
+if [ ! -e "$INST_PATH/venv" ] && [ -d "$PROD_VENV" ]; then
+    ln -sfn "$PROD_VENV" "$INST_PATH/venv"
+fi
+
+# Set ownership
+chown -R {db_user}:{db_user} "$INST_PATH"
+
+# Step 3: Build addons_path by rewriting production paths to staging paths
+STEP "Generando configuración Odoo..."
+INST_ADDONS=$(echo "$PROD_ADDONS" | tr ',' '\\n' | while read -r AP; do
+    AP=$(echo "$AP" | xargs)  # trim
+    [ -z "$AP" ] && continue
+    # Replace production base path with instance path
+    echo "$AP" | sed "s|$PROD_PATH|$INST_PATH|g"
+done | paste -sd ',' -)
+
+# Fallback if detection failed
+if [ -z "$INST_ADDONS" ]; then
+    INST_ADDONS="$INST_PATH/odoo/odoo/addons,$INST_PATH/odoo/addons,$INST_PATH/enterprise"
+fi
+
+cat > "{rec.odoo_config_path}" << CONFEOF
+[options]
+addons_path = $INST_ADDONS
+admin_passwd = False
+data_dir = $INST_PATH/.local/share/Odoo
+db_name = {rec.database_name}
+db_user = {db_user}
+http_port = {rec.port}
+gevent_port = {rec.gevent_port}
+list_db = False
+log_handler = :INFO
+logfile = /var/log/odoo/{rec.service_name}.log
+max_cron_threads = 1
+proxy_mode = True
+server_wide_modules = base,web
+workers = 2
+without_demo = True
+CONFEOF
+
+# Step 4: Systemd service (uses detected python path)
+STEP "Creando servicio systemd..."
+cat > "/etc/systemd/system/{rec.service_name}.service" << ENDSVC
+[Unit]
+Description=Odoo {rec.service_name}
+After=network.target postgresql.service
+[Service]
+Type=simple
+User={db_user}
+Group={db_user}
+ExecStart=$PYTHON_BIN {inst_path}/odoo/odoo-bin -c {rec.odoo_config_path}
+WorkingDirectory={inst_path}
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=65535
+Environment=PYTHONUNBUFFERED=1
+[Install]
+WantedBy=multi-user.target
+ENDSVC
+systemctl daemon-reload
+systemctl enable "{rec.service_name}"
+
+# Step 5: Nginx
+STEP "Configurando Nginx..."
+DOMAIN="{domain}"
+tee "/etc/nginx/sites-enabled/$DOMAIN" > /dev/null << NGINX
+upstream odoo_{instance_id} {{
+  server 127.0.0.1:{rec.port};
+}}
+upstream odoochat_{instance_id} {{
+  server 127.0.0.1:{rec.gevent_port};
+}}
+server {{
+  listen 80;
+  server_name $DOMAIN;
+  proxy_read_timeout 720s;
+  proxy_connect_timeout 720s;
+  proxy_send_timeout 720s;
+  location /websocket {{
+    proxy_pass http://odoochat_{instance_id};
+    proxy_set_header Upgrade \\$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header X-Forwarded-Host \\$http_host;
+    proxy_set_header X-Forwarded-For \\$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \\$scheme;
+    proxy_set_header X-Real-IP \\$remote_addr;
+  }}
+  location / {{
+    proxy_set_header X-Forwarded-Host \\$host;
+    proxy_set_header X-Forwarded-For \\$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \\$scheme;
+    proxy_set_header X-Real-IP \\$remote_addr;
+    proxy_redirect off;
+    proxy_http_version 1.1;
+    proxy_pass http://odoo_{instance_id};
+  }}
+  gzip on;
+  gzip_types text/css text/plain application/xml application/json application/javascript;
+  client_max_body_size 100M;
+}}
+NGINX
+nginx -t || FAIL "nginx config invalid"
+systemctl reload nginx
+
+# Step 6: Start service
+STEP "Iniciando servicio Odoo..."
+systemctl start "{rec.service_name}"
+sleep 5
+
+# Step 7: SSL
+STEP "Obteniendo certificado SSL..."
+certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --email admin@patchmybyte.com --redirect 2>&1 >> "$LOG" || echo "SSL cert failed (HTTP still works)" >> "$LOG"
+
+# Step 8: Verify (try domain, then localhost:port as fallback)
+STEP "Verificando..."
+HTTP=$(curl -sk -o /dev/null -w '%{{http_code}}' "https://$DOMAIN/web/login" --max-time 15 2>/dev/null || echo "000")
+if [ "$HTTP" = "200" ] || [ "$HTTP" = "303" ] || [ "$HTTP" = "302" ]; then
+    echo "done" > "$STATUS"
+    echo "=== Instance {rec.name} created successfully (HTTPS $HTTP) ===" >> "$LOG"
+else
+    HTTP2=$(curl -sk -o /dev/null -w '%{{http_code}}' "http://$DOMAIN/web/login" --max-time 15 2>/dev/null || echo "000")
+    if [ "$HTTP2" = "200" ] || [ "$HTTP2" = "303" ] || [ "$HTTP2" = "302" ]; then
+        echo "done" > "$STATUS"
+        echo "=== Instance {rec.name} created (HTTP $HTTP2, no SSL) ===" >> "$LOG"
+    else
+        # Fallback: verify via localhost:port (DNS may not be ready yet)
+        HTTP3=$(curl -s -o /dev/null -w '%{{http_code}}' "http://127.0.0.1:{rec.port}/web/login" --max-time 10 2>/dev/null || echo "000")
+        if [ "$HTTP3" = "200" ] || [ "$HTTP3" = "303" ] || [ "$HTTP3" = "302" ]; then
+            echo "done" > "$STATUS"
+            echo "=== Instance {rec.name} created (port {rec.port}, DNS pending) ===" >> "$LOG"
+        else
+            FAIL "HTTP verify failed (https=$HTTP http=$HTTP2 local=$HTTP3)"
+        fi
+    fi
+fi
+"""
+        # SCP script to remote and execute via nohup
+        script_path = f"/tmp/pmb_create_{instance_id}.sh"
+        with open(script_path, 'w') as f:
+            f.write(script)
+
+        ssh_user = project.ssh_user or 'root'
+        ssh_host = project.ssh_host
+
+        # Build SCP command
+        scp_cmd = ['scp', '-o', 'StrictHostKeyChecking=no']
+        if project.ssh_key_path and os.path.isfile(project.ssh_key_path):
+            scp_cmd += ['-i', project.ssh_key_path]
+        if project.ssh_port and project.ssh_port != 22:
+            scp_cmd += ['-P', str(project.ssh_port)]
+        scp_cmd += [script_path, f'{ssh_user}@{ssh_host}:{script_path}']
+
+        # Transfer script
+        subprocess.run(scp_cmd, capture_output=True, timeout=30)
+
+        # Build SSH command to execute
+        ssh_cmd = ['ssh', '-o', 'StrictHostKeyChecking=no']
+        if project.ssh_key_path and os.path.isfile(project.ssh_key_path):
+            ssh_cmd += ['-i', project.ssh_key_path]
+        if project.ssh_port and project.ssh_port != 22:
+            ssh_cmd += ['-p', str(project.ssh_port)]
+        ssh_cmd += [f'{ssh_user}@{ssh_host}']
+        ssh_cmd += [f'nohup bash {script_path} > /dev/null 2>&1 &']
+
+        # Execute on remote
+        subprocess.Popen(
+            ssh_cmd,
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+        _logger.info(
+            "SSH creation script launched for instance %s on %s",
+            rec.name, ssh_host,
         )
 
     def _update_step(self, step_text):
@@ -676,10 +1009,14 @@ fi
 
         errors = []
 
+        project = self.project_id
+
         # 1. Stop & remove systemd service
         if self.service_name:
             try:
-                infra_utils.remove_systemd_service(self.service_name)
+                infra_utils.remove_systemd_service(
+                    self.service_name, project=project,
+                )
             except Exception as e:
                 errors.append(f"Systemd: {e}")
                 _logger.warning("Error removing service %s: %s", self.service_name, e)
@@ -687,7 +1024,9 @@ fi
         # 2. Drop database
         if self.database_name:
             try:
-                infra_utils.drop_database(self.database_name)
+                infra_utils.drop_database(
+                    self.database_name, project=project,
+                )
             except Exception as e:
                 errors.append(f"Database: {e}")
                 _logger.warning("Error dropping database %s: %s", self.database_name, e)
@@ -695,14 +1034,18 @@ fi
         # 3. Remove Odoo config
         if self.odoo_config_path:
             try:
-                infra_utils.sudo_run(f"rm -f {self.odoo_config_path}")
+                infra_utils._run(
+                    f"rm -f {self.odoo_config_path}", project=project,
+                )
             except Exception as e:
                 errors.append(f"Config: {e}")
 
         # 4. Remove nginx vhost
         if self.nginx_config_path:
             try:
-                infra_utils.remove_nginx_vhost(self.nginx_config_path)
+                infra_utils.remove_nginx_vhost(
+                    self.nginx_config_path, project=project,
+                )
             except Exception as e:
                 errors.append(f"Nginx: {e}")
                 _logger.warning(
@@ -713,7 +1056,9 @@ fi
         # 5. Remove instance directory
         if self.instance_path:
             try:
-                infra_utils.remove_instance_directory(self.instance_path)
+                infra_utils.remove_instance_directory(
+                    self.instance_path, project=self.project_id,
+                )
             except Exception as e:
                 errors.append(f"Directory: {e}")
                 _logger.warning(
@@ -721,7 +1066,47 @@ fi
                     self.instance_path, e,
                 )
 
-        # 6. Delete associated branch
+        # 5b. Delete git branch from remote repos
+        if self.git_branch and self.git_branch not in ('main', 'master'):
+            project = self.project_id
+            try:
+                from ..utils import ssh_utils
+                # Find git repos in production and delete the instance branch
+                prod_path = ''
+                if project.production_instance_id:
+                    prod_path = project.production_instance_id.instance_path
+                elif project.repo_path:
+                    prod_path = project.repo_path
+                if prod_path:
+                    # Delete branch from all git repos in production path
+                    if project.connection_type == 'ssh' and project.ssh_host:
+                        cmd = (
+                            f'for D in {prod_path}/*/; do '
+                            f'  if [ -d "$D/.git" ]; then '
+                            f'    cd "$D" && git push origin --delete {self.git_branch} 2>/dev/null; '
+                            f'    git branch -d {self.git_branch} 2>/dev/null; '
+                            f'  fi; '
+                            f'done'
+                        )
+                        ssh_utils.execute_command_shell(project, cmd)
+                    else:
+                        import glob
+                        for git_dir in glob.glob(f'{prod_path}/*/.git'):
+                            repo = os.path.dirname(git_dir)
+                            subprocess.run(
+                                ['git', 'push', 'origin', '--delete', self.git_branch],
+                                cwd=repo, capture_output=True, timeout=30,
+                            )
+                            subprocess.run(
+                                ['git', 'branch', '-d', self.git_branch],
+                                cwd=repo, capture_output=True, timeout=10,
+                            )
+                _logger.info("Deleted git branch %s", self.git_branch)
+            except Exception as e:
+                errors.append(f"Git branch: {e}")
+                _logger.warning("Error deleting git branch %s: %s", self.git_branch, e)
+
+        # 6. Delete associated branch record
         if self.branch_id:
             try:
                 self.branch_id.unlink()

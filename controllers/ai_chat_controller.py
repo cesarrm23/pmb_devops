@@ -15,7 +15,7 @@ TOKEN_DIR = '/tmp/pmb_ws_tokens'
 class DevopsAiChatController(http.Controller):
 
     @http.route('/devops/ai/token', type='json', auth='user')
-    def ai_token(self, instance_id=None, project_id=None):
+    def ai_token(self, instance_id=None, project_id=None, cmd_type='claude'):
         """Generate a one-time token for WebSocket terminal authentication.
 
         The token is stored as a file in TOKEN_DIR, read by the WS bridge.
@@ -46,16 +46,25 @@ class DevopsAiChatController(http.Controller):
             except Exception:
                 pass
 
-        # SSH projects: unique cwd + pass SSH info to ws_terminal
+        # SSH projects: unique cwd per instance + pass SSH info to ws_terminal
         if project and project.connection_type == 'ssh' and project.ssh_host:
-            cwd = os.path.join('/opt/odooAL/.pmb_ssh', f'project_{project.id}')
+            # Use instance path as remote_cwd if available
+            remote_cwd = project.repo_path or '/opt'
+            if instance_id:
+                try:
+                    instance = request.env['devops.instance'].browse(instance_id)
+                    if instance.exists() and instance.instance_path:
+                        remote_cwd = instance.instance_path
+                except Exception:
+                    pass
+            cwd = os.path.join('/opt/odooAL/.pmb_ssh', f'instance_{instance_id or "proj_" + str(project.id)}')
             os.makedirs(cwd, exist_ok=True)
             ssh_config = {
                 'host': project.ssh_host,
                 'user': project.ssh_user or 'root',
                 'port': project.ssh_port or 22,
                 'key': project.ssh_key_path or '',
-                'remote_cwd': project.repo_path or '/opt',
+                'remote_cwd': remote_cwd,
             }
 
         # Determine instance type for isolation
@@ -68,11 +77,15 @@ class DevopsAiChatController(http.Controller):
             except Exception:
                 pass
 
+        # Validate cmd_type
+        if cmd_type not in ('claude', 'shell'):
+            cmd_type = 'claude'
+
         # Generate token
         token = secrets.token_urlsafe(32)
         token_data = {
             'uid': uid,
-            'cmd': 'claude',
+            'cmd': cmd_type,
             'cwd': cwd,
             'instance_type': instance_type,
             'allowed_path': cwd,

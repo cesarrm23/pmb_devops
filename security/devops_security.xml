@@ -133,11 +133,11 @@
         <field name="groups" eval="[(4, ref('group_devops_admin'))]"/>
     </record>
 
-    <!-- Instance: Member sees assigned + production -->
+    <!-- Instance: Member sees all instances of their projects -->
     <record id="rule_instance_member" model="ir.rule">
-        <field name="name">DevOps Instance: Members + production</field>
+        <field name="name">DevOps Instance: Project members</field>
         <field name="model_id" ref="model_devops_instance"/>
-        <field name="domain_force">['|', ('user_ids', 'in', user.id), ('instance_type', '=', 'production')]</field>
+        <field name="domain_force">[('project_id.member_ids.user_id', '=', user.id)]</field>
         <field name="groups" eval="[(4, ref('group_devops_viewer'))]"/>
     </record>
 </odoo>

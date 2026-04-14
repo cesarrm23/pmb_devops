@@ -113,6 +113,13 @@ class PmbDevopsApp extends Component {
             gitAuthError: '',
             gitAuthLoading: false,
 
+            // GitHub credentials (per instance)
+            githubConfigured: false,
+            githubUser: '',
+            githubToken: '',
+            githubError: '',
+            githubLoading: false,
+
             // Editor / file browser
             editorRepo: 'addons',  // 'addons', 'odoo', 'enterprise'
             editorPath: '',
@@ -201,6 +208,7 @@ class PmbDevopsApp extends Component {
                 this._pollTimer = null;
             }
             this._cleanupTerminal();
+            this._cleanupShellTerminal();
             this._cleanupAiTerminal();
             if (this._onViewportResize && window.visualViewport) {
                 window.visualViewport.removeEventListener('resize', this._onViewportResize);
@@ -326,6 +334,7 @@ class PmbDevopsApp extends Component {
         if (this._termConnected || this._term) {
             this._cleanupTerminal();
         }
+        this._cleanupShellTerminal();
         this._cleanupAiTerminal();
         // Stop any existing creation polling
         if (this._pollTimer) {
@@ -335,6 +344,10 @@ class PmbDevopsApp extends Component {
         this.state.creationLog = '';
         this.state.creationPid = 0;
         this.state.claudeSessions = [];
+        this.state.githubConfigured = false;
+        this.state.githubUser = '';
+        this.state.githubToken = '';
+        this.state.githubError = '';
         this.state.selectedInstance = instance;
 
         // If instance is creating/error, go to DEPLOY tab
@@ -536,15 +549,7 @@ class PmbDevopsApp extends Component {
             }
         }
         if (tab === 'branches' && this.state.activeContentTab === 'shell') {
-            setTimeout(() => {
-                if (this._term) {
-                    const container = this._getTerminalContainer();
-                    if (container && !container.querySelector('.xterm')) {
-                        this._term.open(container);
-                        if (this._fitAddon) this._fitAddon.fit();
-                    }
-                }
-            }, 300);
+            setTimeout(() => this._initShellTerminal(), 300);
         }
         if (tab === 'settings') {
             await this._loadSettings();
@@ -572,19 +577,13 @@ class PmbDevopsApp extends Component {
         if (tab === this.state.activeContentTab) return;
 
         const prevTab = this.state.activeContentTab;
-        const httpTermTabs = ['shell', 'logs'];
 
-        // Pause shell/logs polling when leaving those tabs (keep session alive)
-        if (httpTermTabs.includes(prevTab)) {
+        // Pause logs polling when leaving logs tab (keep session alive)
+        if (prevTab === 'logs') {
             if (this._termPollTimeout) {
                 clearTimeout(this._termPollTimeout);
                 this._termPollTimeout = null;
             }
-        }
-
-        // When switching between shell↔logs, destroy old HTTP terminal
-        if (httpTermTabs.includes(prevTab) && httpTermTabs.includes(tab) && prevTab !== tab) {
-            this._cleanupTerminal();
         }
 
         this.state.activeContentTab = tab;
@@ -602,6 +601,9 @@ class PmbDevopsApp extends Component {
             if (canTerminal && this.state.selectedInstance && this.state.selectedInstance.state === 'running') {
                 setTimeout(() => this._initAiTerminal(), 200);
             }
+        } else if (tab === 'shell') {
+            // Shell uses WebSocket (same as AI terminal)
+            setTimeout(() => this._initShellTerminal(), 200);
         } else if (tab === 'editor') {
             await this._browseDir('');
         } else if (tab === 'upgrade') {
@@ -610,14 +612,14 @@ class PmbDevopsApp extends Component {
             await this._loadBackups();
         } else if (tab === 'meet') {
             await this._loadMeetings();
-        } else if (httpTermTabs.includes(tab)) {
-            const sessionType = tab === 'shell' ? 'shell' : (this.state.logType === 'odoo' ? 'odoo_log' : 'logs');
+        } else if (tab === 'logs') {
+            const sessionType = this.state.logType === 'odoo' ? 'odoo_log' : 'logs';
             if (this._termConnected && this._terminalType === sessionType && this._term) {
                 if (!this._termPollTimeout) this._pollTerminal();
                 setTimeout(() => { if (this._fitAddon) this._fitAddon.fit(); }, 100);
             } else {
                 setTimeout(async () => {
-                    if (this.state.activeContentTab === tab && !this._termInitializing) {
+                    if (this.state.activeContentTab === 'logs' && !this._termInitializing) {
                         await this._initTerminal(sessionType);
                     }
                 }, 200);
@@ -765,6 +767,7 @@ class PmbDevopsApp extends Component {
         }
 
         this.state.loading = true;
+        this.state.loadingMessage = 'Eliminando instancia...';
 
         try {
             await rpc("/web/dataset/call_kw", {
@@ -779,9 +782,10 @@ class PmbDevopsApp extends Component {
             await this._loadProjectData();
         } catch (err) {
             console.error("PmbDevopsApp: error destroying instance", err);
-            alert("Error destroying instance: " + (err.message || err));
+            alert("Error: " + (err.message || err));
         } finally {
             this.state.loading = false;
+            this.state.loadingMessage = '';
         }
     }
 
@@ -1024,6 +1028,181 @@ class PmbDevopsApp extends Component {
     // Terminal (xterm.js)
     // ------------------------------------------------------------------
 
+    // ------------------------------------------------------------------
+    // Shell terminal (WebSocket) — same tech as AI terminal
+    // ------------------------------------------------------------------
+
+    async _initShellTerminal() {
+        if (this._shellTermInitializing) return;
+        this._shellTermInitializing = true;
+
+        if (!this._shellScrollback) this._shellScrollback = [];
+
+        try {
+            // Dispose old xterm (DOM may have been destroyed by tab switch)
+            if (this._shellResizeObserver) { this._shellResizeObserver.disconnect(); this._shellResizeObserver = null; }
+            if (this._shellTerm) { this._shellTerm.dispose(); this._shellTerm = null; }
+            this._shellFitAddon = null;
+
+            // Load xterm.js from CDN if not loaded
+            if (!window.Terminal) {
+                await this._loadScript('https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js');
+                await this._loadCSS('https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css');
+                await this._loadScript('https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js');
+            }
+
+            const container = this.__owl__.refs.terminalShell || null;
+            if (!container) return;
+
+            this._shellTerm = new window.Terminal({
+                cursorBlink: true,
+                fontSize: 14,
+                fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                theme: {
+                    background: '#1e1e2e',
+                    foreground: '#cdd6f4',
+                    cursor: '#f5e0dc',
+                    selectionBackground: '#45475a',
+                    black: '#45475a', red: '#f38ba8', green: '#a6e3a1',
+                    yellow: '#f9e2af', blue: '#89b4fa', magenta: '#cba6f7',
+                    cyan: '#94e2d5', white: '#bac2de',
+                },
+                allowProposedApi: true,
+            });
+            this._shellFitAddon = new window.FitAddon.FitAddon();
+            this._shellTerm.loadAddon(this._shellFitAddon);
+            this._shellTerm.open(container);
+            this._shellFitAddon.fit();
+
+            // Re-fit on container resize
+            this._shellResizeObserver = new ResizeObserver(() => {
+                if (this._shellFitAddon) { try { this._shellFitAddon.fit(); } catch (e) {} }
+            });
+            this._shellResizeObserver.observe(container);
+
+            // Forward keyboard input to WebSocket
+            this._shellTerm.onData((data) => {
+                if (this._shellWs && this._shellWs.readyState === WebSocket.OPEN) {
+                    this._shellWs.send(JSON.stringify({ type: 'input', data: data }));
+                }
+            });
+
+            // If WebSocket already connected, replay client scrollback and reattach
+            if (this._shellWs && this._shellWs.readyState === WebSocket.OPEN) {
+                if (this._shellScrollback && this._shellScrollback.length > 0) {
+                    for (const chunk of this._shellScrollback) {
+                        this._shellTerm.write(chunk);
+                    }
+                }
+                this._shellWs.onmessage = (event) => this._onShellWsMessage(event);
+                const dims = this._shellFitAddon.proposeDimensions();
+                if (dims) {
+                    this._shellWs.send(JSON.stringify({ type: 'resize', rows: dims.rows, cols: dims.cols }));
+                }
+                return;
+            }
+
+            // New WebSocket connection
+            this._shellTerm.writeln('\x1b[33mConectando terminal...\x1b[0m');
+
+            const tokenResult = await rpc('/devops/ai/token', {
+                project_id: this.state.currentProjectId || null,
+                instance_id: this.state.selectedInstance ? this.state.selectedInstance.id : null,
+                cmd_type: 'shell',
+            });
+            if (tokenResult.error) {
+                this._shellTerm.writeln('\x1b[31mError: ' + tokenResult.error + '\x1b[0m');
+                return;
+            }
+
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${proto}//${location.host}${tokenResult.ws_url}`;
+            this._shellWs = new WebSocket(wsUrl);
+
+            this._shellWs.onopen = () => {
+                this._shellWs.send(JSON.stringify({ token: tokenResult.token }));
+            };
+            this._shellWs.onmessage = (event) => this._onShellWsMessage(event);
+            this._shellWs.onclose = () => {
+                this.state.terminalConnected = false;
+                if (this._shellTerm) this._shellTerm.writeln('\r\n\x1b[31m[Sesion terminada]\x1b[0m');
+            };
+            this._shellWs.onerror = () => {
+                this.state.terminalConnected = false;
+                if (this._shellTerm) this._shellTerm.writeln('\r\n\x1b[31m[Error de conexion WebSocket]\x1b[0m');
+            };
+
+        } catch (e) {
+            if (this._shellTerm) this._shellTerm.writeln('\x1b[31mError: ' + (e.message || e) + '\x1b[0m');
+        } finally {
+            this._shellTermInitializing = false;
+        }
+    }
+
+    _onShellWsMessage(event) {
+        if (!this._shellTerm) return;
+        if (typeof event.data === 'string') {
+            try {
+                const msg = JSON.parse(event.data);
+                if (msg.type === 'ready') {
+                    this.state.terminalConnected = true;
+                    if (msg.reattached) {
+                        this._shellTerm.writeln('\x1b[32mReconectado a sesion existente\x1b[0m\r\n');
+                    } else {
+                        this._shellTerm.writeln('\x1b[32mTerminal conectada\x1b[0m\r\n');
+                    }
+                    const dims = this._shellFitAddon ? this._shellFitAddon.proposeDimensions() : null;
+                    if (dims && this._shellWs) {
+                        this._shellWs.send(JSON.stringify({ type: 'resize', rows: dims.rows, cols: dims.cols }));
+                    }
+                    return;
+                }
+                if (msg.type === 'error') {
+                    this._shellTerm.writeln('\x1b[31mError: ' + msg.data + '\x1b[0m');
+                    return;
+                }
+                if (msg.type === 'info') {
+                    this._shellTerm.writeln('\x1b[32m' + msg.data + '\x1b[0m');
+                    return;
+                }
+            } catch (e) {}
+        }
+        // Write to terminal and save to client scrollback
+        let chunk = event.data;
+        if (event.data instanceof ArrayBuffer) {
+            chunk = new Uint8Array(event.data);
+            this._shellTerm.write(chunk);
+        } else if (event.data instanceof Blob) {
+            event.data.arrayBuffer().then(buf => {
+                const u8 = new Uint8Array(buf);
+                if (this._shellTerm) this._shellTerm.write(u8);
+                if (this._shellScrollback) this._shellScrollback.push(u8);
+            });
+            return;
+        } else {
+            this._shellTerm.write(chunk);
+        }
+        if (this._shellScrollback) {
+            this._shellScrollback.push(chunk);
+            if (this._shellScrollback.length > 200) {
+                this._shellScrollback = this._shellScrollback.slice(-150);
+            }
+        }
+    }
+
+    _cleanupShellTerminal() {
+        if (this._shellResizeObserver) { this._shellResizeObserver.disconnect(); this._shellResizeObserver = null; }
+        if (this._shellWs) { this._shellWs.close(); this._shellWs = null; }
+        if (this._shellTerm) { this._shellTerm.dispose(); this._shellTerm = null; }
+        this._shellFitAddon = null;
+        this._shellScrollback = null;
+        this.state.terminalConnected = false;
+    }
+
+    // ------------------------------------------------------------------
+    // Logs terminal (HTTP polling — kept separate from shell)
+    // ------------------------------------------------------------------
+
     async _initTerminal(sessionType) {
         // Guard against re-entry
         if (this._termInitializing) return;
@@ -1040,7 +1219,7 @@ class PmbDevopsApp extends Component {
                 await this._loadScript('https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js');
             }
 
-            const container = this._getTerminalContainer();
+            const container = this._getLogsTerminalContainer();
             if (!container) return;
 
             this._term = new window.Terminal({
@@ -1178,19 +1357,25 @@ class PmbDevopsApp extends Component {
         // Called when mobile keyboard opens/closes — refit all active terminals
         try { if (this._fitAddon) this._fitAddon.fit(); } catch (e) {}
         try { if (this._aiFitAddon) this._aiFitAddon.fit(); } catch (e) {}
-        // Also send resize to AI WebSocket
+        try { if (this._shellFitAddon) this._shellFitAddon.fit(); } catch (e) {}
+        // Send resize to AI WebSocket
         if (this._aiWs && this._aiWs.readyState === WebSocket.OPEN && this._aiFitAddon) {
             const dims = this._aiFitAddon.proposeDimensions();
             if (dims) {
                 this._aiWs.send(JSON.stringify({ type: 'resize', rows: dims.rows, cols: dims.cols }));
             }
         }
+        // Send resize to Shell WebSocket
+        if (this._shellWs && this._shellWs.readyState === WebSocket.OPEN && this._shellFitAddon) {
+            const dims = this._shellFitAddon.proposeDimensions();
+            if (dims) {
+                this._shellWs.send(JSON.stringify({ type: 'resize', rows: dims.rows, cols: dims.cols }));
+            }
+        }
     }
 
-    _getTerminalContainer() {
-        // Return the DOM element for the current terminal tab
-        const ref = this.state.activeContentTab === 'shell' ? 'terminalShell' : 'terminalLogs';
-        return this.__owl__.refs[ref] || null;
+    _getLogsTerminalContainer() {
+        return this.__owl__.refs.terminalLogs || null;
     }
 
     _getAiTerminalContainer() {
@@ -1403,6 +1588,60 @@ class PmbDevopsApp extends Component {
             this.state.gitAuthIsAdmin = result.is_admin || false;
             this.state.gitAuthenticated = result.authenticated || false;
         } catch (e) { /* ignore */ }
+        // Also check GitHub credentials for this instance
+        await this._checkGithubAuth();
+    }
+
+    async _checkGithubAuth() {
+        if (!this.state.selectedInstance) return;
+        if (this.state.selectedInstance.instance_type === 'production') {
+            this.state.githubConfigured = true; // production uses repo's existing creds
+            return;
+        }
+        try {
+            const result = await rpc('/devops/git/github/check', {
+                instance_id: this.state.selectedInstance.id,
+            });
+            this.state.githubConfigured = result.configured || false;
+            if (result.github_user) this.state.githubUser = result.github_user;
+        } catch (e) { /* ignore */ }
+    }
+
+    _onGithubUserInput(ev) { this.state.githubUser = ev.target.value; }
+    _onGithubTokenInput(ev) { this.state.githubToken = ev.target.value; }
+    _onGithubKeyup(ev) { if (ev.key === 'Enter') this._githubLogin(); }
+
+    async _githubLogin() {
+        if (!this.state.githubUser || !this.state.githubToken || !this.state.selectedInstance) return;
+        this.state.githubLoading = true;
+        this.state.githubError = '';
+        try {
+            const result = await rpc('/devops/git/github/save', {
+                instance_id: this.state.selectedInstance.id,
+                github_user: this.state.githubUser,
+                github_token: this.state.githubToken,
+            });
+            if (result.error) {
+                this.state.githubError = result.error;
+            } else {
+                this.state.githubConfigured = true;
+                this.state.githubToken = '';
+                this.state.githubError = '';
+            }
+        } catch (e) {
+            this.state.githubError = 'Error de conexion';
+        }
+        this.state.githubLoading = false;
+    }
+
+    async _githubLogout() {
+        if (!this.state.selectedInstance) return;
+        await rpc('/devops/git/github/logout', {
+            instance_id: this.state.selectedInstance.id,
+        });
+        this.state.githubConfigured = false;
+        this.state.githubUser = '';
+        this.state.githubToken = '';
     }
 
     _onGitAuthLoginInput(ev) { this.state.gitAuthLogin = ev.target.value; }
@@ -2689,15 +2928,27 @@ class PmbDevopsApp extends Component {
     }
 
     _sendShellKey(data) {
-        // Shell terminal uses HTTP polling, send via the input endpoint
-        if (this._termSessionId && this.state.currentProjectId) {
-            rpc('/devops/terminal/input', {
-                project_id: this.state.currentProjectId,
-                session_id: this._termSessionId,
-                data: data,
-            }).catch(() => {});
+        if (this._shellWs && this._shellWs.readyState === WebSocket.OPEN) {
+            this._shellWs.send(JSON.stringify({ type: 'input', data }));
         }
-        if (this._term) this._term.focus();
+        if (this._shellTerm) this._shellTerm.focus();
+    }
+
+    _reconnectAiTerminal() {
+        // Close only the WebSocket, keep scrollback — PTY is still alive on server
+        if (this._aiWs) { this._aiWs.close(); this._aiWs = null; }
+        this.state.aiConnected = false;
+        if (this._aiTerm) this._aiTerm.writeln('\r\n\x1b[33m[Reconectando...]\x1b[0m');
+        this._aiTermInitializing = false;
+        this._initAiTerminal();
+    }
+
+    _reconnectShellTerminal() {
+        if (this._shellWs) { this._shellWs.close(); this._shellWs = null; }
+        this.state.terminalConnected = false;
+        if (this._shellTerm) this._shellTerm.writeln('\r\n\x1b[33m[Reconectando...]\x1b[0m');
+        this._shellTermInitializing = false;
+        this._initShellTerminal();
     }
 
     _cleanupAiTerminal() {
