@@ -789,7 +789,6 @@ echo "done" > {status_file}
 
                             # Auto-fix: ensure custom repos are on the correct instance branch
                             if expected_branch and repo_type == 'custom' and branch != expected_branch:
-                                # Create branch from current HEAD if it doesn't exist, then checkout
                                 ssh_run(
                                     f'cd {git_path} && '
                                     f'git checkout {expected_branch} 2>/dev/null || '
@@ -798,6 +797,20 @@ echo "done" > {status_file}
                                     f'true'
                                 )
                                 branch = ssh_run(f'git -C {git_path} branch --show-current 2>/dev/null') or branch
+
+                            # Auto-install pre-push hook if missing (branch protection)
+                            if expected_branch and repo_type == 'custom':
+                                inst_type = inst_obj.instance_type if inst_obj else 'staging'
+                                protected = 'main|master' if inst_type == 'staging' else 'main|master|staging'
+                                ssh_run(
+                                    f'if [ ! -f {git_path}/.git/hooks/pre-push ]; then '
+                                    f'  echo \'#!/bin/bash\n'
+                                    f'while read l ls r rs; do b=$(echo "$r"|sed "s|refs/heads/||"); '
+                                    f'if echo "$b"|grep -qE "^({protected})$"; then '
+                                    f'echo "ERROR: Push a $b bloqueado."; exit 1; fi; done; exit 0\' '
+                                    f'> {git_path}/.git/hooks/pre-push && '
+                                    f'chmod +x {git_path}/.git/hooks/pre-push; fi'
+                                )
 
                             dirty = bool(ssh_run(f'git -C {git_path} status --porcelain 2>/dev/null'))
                             repos.append({
@@ -915,6 +928,24 @@ echo "done" > {status_file}
                     _logger.info("Auto-fixed branch for %s -> %s", git_path, expected_branch)
                 except Exception:
                     pass
+
+            # Auto-install pre-push hook if missing (branch protection)
+            if expected_branch and is_custom:
+                hook_path = os.path.join(git_path, '.git', 'hooks', 'pre-push')
+                if not os.path.exists(hook_path):
+                    try:
+                        inst_type = inst_type  # already set above
+                        protected = 'main|master' if inst_type == 'staging' else 'main|master|staging'
+                        os.makedirs(os.path.dirname(hook_path), exist_ok=True)
+                        with open(hook_path, 'w') as hf:
+                            hf.write(f'#!/bin/bash\n'
+                                     f'while read l ls r rs; do b=$(echo "$r"|sed "s|refs/heads/||"); '
+                                     f'if echo "$b"|grep -qE "^({protected})$"; then '
+                                     f'echo "ERROR: Push a $b bloqueado desde {inst_type}."; exit 1; fi; done; exit 0\n')
+                        os.chmod(hook_path, 0o755)
+                    except Exception:
+                        pass
+
             # Ahead/behind remote
             try:
                 r2 = subprocess.run(

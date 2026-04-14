@@ -286,3 +286,63 @@ def _parse_git_date(date_str):
         return datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
     except Exception:
         return None
+
+
+def install_pre_push_hooks(instance_path, instance_type, project=None):
+    """Install git pre-push hooks that block pushing to protected branches.
+
+    Staging: blocks push to main/master
+    Development: blocks push to main/master/staging
+    Production: no hooks installed
+    """
+    if instance_type == 'production':
+        return
+
+    if instance_type == 'staging':
+        protected = 'main|master'
+        msg = 'Push a ramas protegidas (main/master) bloqueado desde staging.'
+    else:
+        protected = 'main|master|staging'
+        msg = 'Push a ramas protegidas (main/master/staging) bloqueado desde development.'
+
+    hook_content = f"""#!/bin/bash
+# PMB DevOps: branch protection for {instance_type}
+while read local_ref local_sha remote_ref remote_sha; do
+    branch=$(echo "$remote_ref" | sed 's|refs/heads/||')
+    if echo "$branch" | grep -qE '^({protected})$'; then
+        echo ""
+        echo "  ERROR: {msg}"
+        echo "  Rama bloqueada: $branch"
+        echo "  Solo puedes hacer push a tu propia rama."
+        echo ""
+        exit 1
+    fi
+done
+exit 0
+"""
+
+    # Find all git repos in the instance path and install hook
+    if project and project.connection_type == 'ssh' and project.ssh_host:
+        # SSH: install hooks remotely
+        escaped_hook = hook_content.replace("'", "'\\''")
+        cmd = (
+            f"for D in {instance_path}/*/; do "
+            f"  if [ -d \"$D/.git/hooks\" ]; then "
+            f"    echo '{escaped_hook}' > \"$D/.git/hooks/pre-push\" && "
+            f"    chmod +x \"$D/.git/hooks/pre-push\" && "
+            f"    echo \"Hook installed: $D\"; "
+            f"  fi; "
+            f"done"
+        )
+        ssh_utils.execute_command_shell(project, cmd, timeout=15)
+    else:
+        # Local
+        import glob
+        for git_dir in glob.glob(f'{instance_path}/*/.git'):
+            hooks_dir = os.path.join(git_dir, 'hooks')
+            os.makedirs(hooks_dir, exist_ok=True)
+            hook_path = os.path.join(hooks_dir, 'pre-push')
+            with open(hook_path, 'w') as f:
+                f.write(hook_content)
+            os.chmod(hook_path, 0o755)
+            _logger.info("Pre-push hook installed: %s", hook_path)

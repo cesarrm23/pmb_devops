@@ -38,7 +38,6 @@ def session_key(uid, cmd_type, cwd):
 def _write_isolation_rules(cwd, instance_type, allowed_path):
     """Write a CLAUDE.md with environment isolation rules."""
     claude_md = os.path.join(cwd, 'CLAUDE.md')
-    # Don't overwrite if file already has custom content beyond our marker
     marker = '# PMB DevOps Environment Rules'
 
     if instance_type == 'production':
@@ -56,7 +55,9 @@ This is a STAGING environment.
 - You may ONLY modify files inside: {allowed_path}
 - NEVER modify files in /opt/odooAL/ (production) or other instance paths.
 - NEVER modify files in /opt/instances/ directories that are not this instance.
-- This environment is for testing before production.
+- NEVER run: git push origin main, git push origin master, git checkout main, git checkout master
+- NEVER push to production branches. Only push to your staging branch.
+- NEVER run destructive commands (rm -rf, DROP DATABASE, etc).
 """
     else:  # development
         rules = f"""{marker}
@@ -65,21 +66,49 @@ This is a DEVELOPMENT environment.
 - You may ONLY modify files inside: {allowed_path}
 - NEVER modify files in /opt/odooAL/ (production).
 - NEVER modify files in other /opt/instances/ directories that are not this instance.
-- NEVER switch git branches to main or staging.
-- Changes here should be committed to the development branch only.
+- NEVER run: git push origin main, git push origin master, git push origin staging
+- NEVER push to production or staging branches. Only push to your development branch.
+- NEVER run destructive commands (rm -rf, DROP DATABASE, etc).
 """
 
     try:
-        # Only write if file doesn't exist or was written by us
         if os.path.exists(claude_md):
             with open(claude_md, 'r') as f:
                 existing = f.read()
             if marker not in existing:
-                return  # User has custom CLAUDE.md, don't overwrite
+                return
         with open(claude_md, 'w') as f:
             f.write(rules)
     except Exception as e:
         logger.warning("Could not write CLAUDE.md: %s", e)
+
+
+# Git pre-push hook content that blocks pushing to protected branches
+_PRE_PUSH_HOOK_STAGING = """#!/bin/bash
+# PMB DevOps: Block push to protected branches from staging
+while read local_ref local_sha remote_ref remote_sha; do
+    branch=$(echo "$remote_ref" | sed 's|refs/heads/||')
+    if [ "$branch" = "main" ] || [ "$branch" = "master" ]; then
+        echo "ERROR: Push a '$branch' bloqueado desde staging."
+        echo "Solo puedes hacer push a tu rama de staging."
+        exit 1
+    fi
+done
+exit 0
+"""
+
+_PRE_PUSH_HOOK_DEV = """#!/bin/bash
+# PMB DevOps: Block push to protected branches from development
+while read local_ref local_sha remote_ref remote_sha; do
+    branch=$(echo "$remote_ref" | sed 's|refs/heads/||')
+    if [ "$branch" = "main" ] || [ "$branch" = "master" ] || [ "$branch" = "staging" ]; then
+        echo "ERROR: Push a '$branch' bloqueado desde development."
+        echo "Solo puedes hacer push a tu rama de desarrollo."
+        exit 1
+    fi
+done
+exit 0
+"""
 
 
 def validate_token(token):

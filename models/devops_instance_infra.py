@@ -227,6 +227,20 @@ if [ -n "{repo_url}" ] && [ ! -d "{inst_path}/cremara_addons/.git" ]; then
         cd "{inst_path}/cremara_addons"
         git checkout -b "{rec.git_branch}" 2>/dev/null || git checkout "{rec.git_branch}" 2>/dev/null || true
         git push -u origin "{rec.git_branch}" 2>/dev/null || true
+        # Install pre-push hook to block push to protected branches
+        mkdir -p .git/hooks
+        cat > .git/hooks/pre-push << 'HOOKEOF'
+#!/bin/bash
+PROTECTED="{('main|master' if rec.instance_type == 'staging' else 'main|master|staging')}"
+while read local_ref local_sha remote_ref remote_sha; do
+    branch=$(echo "$remote_ref" | sed 's|refs/heads/||')
+    if echo "$branch" | grep -qE "^($PROTECTED)$"; then
+        echo ""; echo "  ERROR: Push a ramas protegidas bloqueado desde {rec.instance_type}."; echo "  Rama: $branch"; echo ""; exit 1
+    fi
+done
+exit 0
+HOOKEOF
+        chmod +x .git/hooks/pre-push
         cd /
     fi
 fi
@@ -523,6 +537,31 @@ done
 if [ ! -e "$INST_PATH/venv" ] && [ -d "$PROD_VENV" ]; then
     ln -sfn "$PROD_VENV" "$INST_PATH/venv"
 fi
+
+# Install git pre-push hooks to block push to protected branches
+STEP "Instalando proteccion de ramas..."
+for D in "$INST_PATH"/*/; do
+    if [ -d "$D/.git/hooks" ]; then
+        cat > "$D/.git/hooks/pre-push" << 'HOOKEOF'
+#!/bin/bash
+# PMB DevOps: branch protection for {rec.instance_type}
+PROTECTED="{('main|master' if rec.instance_type == 'staging' else 'main|master|staging')}"
+while read local_ref local_sha remote_ref remote_sha; do
+    branch=$(echo "$remote_ref" | sed 's|refs/heads/||')
+    if echo "$branch" | grep -qE "^($PROTECTED)$"; then
+        echo ""
+        echo "  ERROR: Push a ramas protegidas bloqueado desde {rec.instance_type}."
+        echo "  Rama bloqueada: $branch"
+        echo "  Solo puedes hacer push a tu propia rama."
+        echo ""
+        exit 1
+    fi
+done
+exit 0
+HOOKEOF
+        chmod +x "$D/.git/hooks/pre-push"
+    fi
+done
 
 # Set ownership
 chown -R {db_user}:{db_user} "$INST_PATH"
