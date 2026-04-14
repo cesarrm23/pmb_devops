@@ -3184,6 +3184,16 @@ class PmbDevopsApp extends Component {
         input.click();
     }
 
+    _newClaudeSession() {
+        if (!this._aiWs || this._aiWs.readyState !== WebSocket.OPEN) return;
+        // Ctrl+C to cancel current, then /exit + Enter, wait, reconnect creates new session
+        this._aiWs.send(JSON.stringify({ type: 'input', data: String.fromCharCode(3) }));
+        setTimeout(() => {
+            this._aiWs.send(JSON.stringify({ type: 'input', data: '/exit' + String.fromCharCode(13) }));
+        }, 300);
+        if (this._aiTerm) this._aiTerm.focus();
+    }
+
     _reconnectAiTerminal() {
         // Close only the WebSocket, keep scrollback — PTY is still alive on server
         if (this._aiWs) { this._aiWs.close(); this._aiWs = null; }

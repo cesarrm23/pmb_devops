@@ -948,10 +948,8 @@
                                                 &#128203;
                                             </button>
                                             <div style="width: 1px; height: 16px; background: #313244; margin: 0 2px;"/>
-                                            <!-- Terminal key buttons (use String.fromCharCode for control chars) -->
+                                            <!-- Terminal key buttons -->
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey(this._ctrlChar(3))" title="Cancelar comando en ejecucion">Ctrl+C</button>
-                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey(this._ctrlChar(26))" title="Suspender proceso (background)">Ctrl+Z</button>
-                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey(this._ctrlChar(4))" title="Cerrar sesion / EOF">Ctrl+D</button>
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey(this._ctrlChar(12))" title="Limpiar pantalla">Ctrl+L</button>
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey(this._ctrlChar(27))" title="Escape: salir de modo o cancelar">⎋</button>
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey(this._ctrlChar(9))" title="Autocompletar comando o ruta">⇥</button>
@@ -960,6 +958,7 @@
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('y'+this._ctrlChar(13))" title="Confirmar: escribe Yes + Enter">Y⏎</button>
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey(this._ctrlChar(13))" title="Ejecutar comando (Enter)">⏎</button>
                                             <div style="width: 1px; height: 16px; background: #313244; margin: 0 2px;"/>
+                                            <button class="btn btn-sm pmb-key-btn" t-on-click="_newClaudeSession" title="Iniciar nueva sesion de Claude Code">+</button>
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="_pasteToAiTerminal" title="Pegar texto del portapapeles">📋</button>
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="_attachFileToTerminal" title="Adjuntar archivo al terminal">📎</button>
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="_reconnectAiTerminal" title="Reconectar si se perdio la conexion">↻</button>
