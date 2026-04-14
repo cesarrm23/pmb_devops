@@ -907,7 +907,7 @@
 
                                         <!-- Sessions toggle + key buttons bar (only when user can use terminal) -->
                                         <div t-if="state.isAdmin or (state.selectedInstance and state.selectedInstance.instance_type !== 'production')"
-                                             class="d-flex align-items-center px-2 py-1" style="background: #181825; border-bottom: 1px solid #313244; flex-shrink: 0; gap: 4px;">
+                                             class="d-flex align-items-center px-2 py-1" style="background: #181825; border-bottom: 1px solid #313244; flex-shrink: 0; gap: 4px; overflow-x: auto; -webkit-overflow-scrolling: touch;">
                                             <!-- Sessions toggle button -->
                                             <button class="btn btn-sm pmb-key-btn"
                                                     t-att-style="state.claudeSessionsVisible ? 'background: #89b4fa !important; color: #1e1e2e !important;' : ''"
@@ -999,7 +999,7 @@
                             <!-- SHELL tab (always in DOM, hidden when not active) -->
                             <div t-att-class="'d-flex flex-column' + (state.activeContentTab !== 'shell' ? ' d-none' : '')"
                                  t-att-style="'height: 500px;' + (state.activeContentTab !== 'shell' ? ' display: none !important;' : '')">
-                                <div class="pmb-term-keys d-flex flex-wrap gap-1 px-2 py-1" style="background: #181825; border-bottom: 1px solid #313244; flex-shrink: 0;">
+                                <div class="pmb-term-keys d-flex gap-1 px-2 py-1" style="background: #181825; border-bottom: 1px solid #313244; flex-shrink: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap;">
                                     <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\x03')" title="Ctrl+C">Ctrl+C</button>
                                     <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\x1a')" title="Ctrl+Z">Ctrl+Z</button>
                                     <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\x04')" title="Ctrl+D">Ctrl+D</button>
