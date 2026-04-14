@@ -1446,19 +1446,21 @@
                                                     <span t-if="m.recording_count > 0" style="color: #a6e3a1; font-size: 11px;">
                                                         🔊 <t t-esc="m.recording_count"/> grabacion(es)
                                                     </span>
-                                                    <!-- Transcribe all recordings (always available if there are recordings) -->
-                                                    <button t-if="m.has_audio or m.recording_count > 0" class="btn btn-sm"
+                                                    <!-- Transcribe all recordings -->
+                                                    <button t-if="(m.has_audio or m.recording_count > 0) and state.meetTranscribingId !== m.id" class="btn btn-sm"
                                                             style="background: #cba6f7; color: #1e1e2e; font-size: 11px; font-weight: 600;"
                                                             t-att-data-mid="m.id" t-on-click="_meetTranscribeAll">
-                                                        🎙 <t t-if="m.has_transcription">Re-transcribir</t><t t-else="">Transcribir todo</t></button>
+                                                        🎙 <t t-if="m.has_transcription">Re-transcribir</t><t t-else="">Transcribir</t></button>
+                                                    <span t-if="state.meetTranscribingId === m.id" style="color: #cba6f7; font-size: 11px;">🎙 Transcribiendo...</span>
                                                     <button t-if="m.has_transcription" class="btn btn-sm"
                                                             style="background: #89b4fa; color: #1e1e2e; font-size: 11px;"
                                                             t-att-data-mid="m.id" t-on-click="_meetShowTranscription">
                                                         📝 Ver</button>
-                                                    <button t-if="m.has_transcription" class="btn btn-sm"
+                                                    <button t-if="m.has_transcription and state.meetAnalyzingId !== m.id" class="btn btn-sm"
                                                             style="background: #f9e2af; color: #1e1e2e; font-size: 11px; font-weight: 600;"
                                                             t-att-data-mid="m.id" t-on-click="_meetExtractTasks">
                                                         🤖 Tareas IA</button>
+                                                    <span t-if="state.meetAnalyzingId === m.id" style="color: #f9e2af; font-size: 11px;">🤖 Analizando...</span>
                                                 </div>
 
                                                 <t t-if="state.meetTranscriptionId === m.id and state.meetTranscription">

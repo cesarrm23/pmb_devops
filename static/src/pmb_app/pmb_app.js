@@ -89,6 +89,8 @@ class PmbDevopsApp extends Component {
             meetType: 'jitsi',          // create form: jitsi or external
             meetRecordingId: null,      // meeting currently recording
             meetRecordingTime: '',      // recording duration display
+            meetTranscribingId: null,   // meeting being transcribed
+            meetAnalyzingId: null,      // meeting being analyzed
             meetAnalyzedId: null,       // meeting with analyzed tasks pending
             meetAnalyzedTasks: [],      // tasks extracted by AI
             meetTasksId: null,          // meeting showing created tasks
@@ -2357,12 +2359,10 @@ class PmbDevopsApp extends Component {
 
     async _meetTranscribeAll(ev) {
         const mid = parseInt(ev.currentTarget.dataset.mid);
-        const btn = ev.currentTarget;
-        const isRetranscribe = btn.textContent.includes('Re-');
-        btn.disabled = true;
-        btn.textContent = 'Transcribiendo...';
+        const force = this.state.meetings?.find(m => m.id === mid)?.has_transcription || false;
+        this.state.meetTranscribingId = mid;
         try {
-            const result = await rpc('/devops/meetings/transcribe_all', { meeting_id: mid, force: isRetranscribe });
+            const result = await rpc('/devops/meetings/transcribe_all', { meeting_id: mid, force });
             if (result.error) {
                 alert('Error: ' + result.error);
             } else {
@@ -2372,30 +2372,28 @@ class PmbDevopsApp extends Component {
                     alert('Advertencias:\n' + result.warnings.join('\n'));
                 }
             }
-            await this._loadMeetings();
         } catch (e) { alert('Error: ' + e.message); }
+        this.state.meetTranscribingId = null;
+        await this._loadMeetings();
     }
 
     async _meetExtractTasks(ev) {
         const mid = parseInt(ev.currentTarget.dataset.mid);
-        ev.currentTarget.disabled = true;
-        ev.currentTarget.textContent = 'Analizando...';
+        this.state.meetAnalyzingId = mid;
         try {
-            // First analyze with Claude
             const analysis = await rpc('/devops/meetings/analyze', { meeting_id: mid });
             if (analysis.error) {
                 alert('Error: ' + analysis.error);
-                await this._loadMeetings();
-                return;
+            } else {
+                this.state.meetAnalyzedId = mid;
+                this.state.meetAnalyzedTasks = analysis.tasks || [];
+                if (this.state.meetAnalyzedTasks.length === 0) {
+                    alert('No se encontraron tareas en la transcripcion.');
+                }
             }
-            // Show extracted tasks for confirmation
-            this.state.meetAnalyzedId = mid;
-            this.state.meetAnalyzedTasks = analysis.tasks || [];
-            if (this.state.meetAnalyzedTasks.length === 0) {
-                alert('No se encontraron tareas en la transcripcion.');
-            }
-            await this._loadMeetings();
         } catch (e) { alert('Error: ' + e.message); }
+        this.state.meetAnalyzingId = null;
+        await this._loadMeetings();
     }
 
     async _meetShowTranscription(ev) {
