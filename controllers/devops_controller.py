@@ -1508,6 +1508,114 @@ echo "done" > {status_file}
 
         return {'status': 'ok'}
 
+    @http.route('/devops/git/github/oauth/start', type='json', auth='user')
+    def github_oauth_start(self, instance_id=None):
+        """Start GitHub OAuth flow. Returns the authorization URL."""
+        if not instance_id:
+            return {'error': 'Instance ID required'}
+        inst = request.env['devops.instance'].sudo().browse(instance_id)
+        if not inst.exists():
+            return {'error': 'Instancia no encontrada'}
+        project = inst.project_id
+        client_id = project.github_client_id
+        if not client_id:
+            return {'error': 'GitHub OAuth no configurado. Configura Client ID en Settings del proyecto.'}
+        # State = instance_id:uid for CSRF protection
+        import hashlib
+        state = hashlib.sha256(f'{instance_id}:{request.env.uid}:{client_id}'.encode()).hexdigest()[:16]
+        state = f'{instance_id}_{state}'
+        # Store state in session
+        request.session[f'github_oauth_state_{instance_id}'] = state
+        auth_url = (
+            f'https://github.com/login/oauth/authorize'
+            f'?client_id={client_id}'
+            f'&scope=repo'
+            f'&state={state}'
+            f'&redirect_uri=https://{request.httprequest.host}/devops/git/github/oauth/callback'
+        )
+        return {'auth_url': auth_url}
+
+    @http.route('/devops/git/github/oauth/callback', type='http', auth='user', csrf=False)
+    def github_oauth_callback(self, code=None, state=None, **kw):
+        """GitHub OAuth callback — exchange code for token."""
+        import requests as http_requests
+        if not code or not state:
+            return request.redirect('/web#action=780&error=oauth_missing_params')
+
+        # Parse instance_id from state
+        instance_id = int(state.split('_')[0]) if '_' in state else 0
+        if not instance_id:
+            return request.redirect('/web#action=780&error=oauth_invalid_state')
+
+        inst = request.env['devops.instance'].sudo().browse(instance_id)
+        if not inst.exists():
+            return request.redirect('/web#action=780&error=oauth_instance_not_found')
+
+        project = inst.project_id
+        client_id = project.github_client_id
+        client_secret = project.github_client_secret
+        if not client_id or not client_secret:
+            return request.redirect('/web#action=780&error=oauth_not_configured')
+
+        # Exchange code for token
+        try:
+            resp = http_requests.post(
+                'https://github.com/login/oauth/access_token',
+                data={
+                    'client_id': client_id,
+                    'client_secret': client_secret,
+                    'code': code,
+                },
+                headers={'Accept': 'application/json'},
+                timeout=15,
+            )
+            data = resp.json()
+            token = data.get('access_token', '')
+            if not token:
+                _logger.warning("GitHub OAuth: no token in response: %s", data)
+                return request.redirect('/web#action=780&error=oauth_no_token')
+        except Exception as e:
+            _logger.warning("GitHub OAuth token exchange failed: %s", e)
+            return request.redirect('/web#action=780&error=oauth_exchange_failed')
+
+        # Get GitHub username
+        github_user = ''
+        try:
+            user_resp = http_requests.get(
+                'https://api.github.com/user',
+                headers={'Authorization': f'token {token}', 'Accept': 'application/json'},
+                timeout=10,
+            )
+            github_user = user_resp.json().get('login', '')
+        except Exception:
+            pass
+
+        # Save credentials
+        inst.write({
+            'github_user': github_user or 'oauth-user',
+            'github_token': token,
+        })
+
+        # Configure git remotes with the token
+        from ..utils import ssh_utils
+        repos_data = self.instance_repos(project.id, instance_id)
+        for repo in repos_data.get('repos', []):
+            if repo.get('repo_type') != 'custom':
+                continue
+            rpath = repo['path']
+            r = ssh_utils.execute_command(project, ['git', 'remote', 'get-url', 'origin'], cwd=rpath, timeout=10)
+            if r.returncode != 0:
+                continue
+            url = r.stdout.strip()
+            import re
+            if url.startswith('https://'):
+                clean = re.sub(r'https://[^@]+@', 'https://', url)
+                new_url = clean.replace('https://', f'https://{github_user or "oauth"}:{token}@')
+                ssh_utils.execute_command(project, ['git', 'remote', 'set-url', 'origin', new_url], cwd=rpath, timeout=10)
+
+        _logger.info("GitHub OAuth: token saved for instance %s, user %s", inst.name, github_user)
+        return request.redirect('/web#action=780')
+
     @http.route('/devops/git/github/logout', type='json', auth='user')
     def github_logout(self, instance_id=None):
         """Remove GitHub credentials from an instance."""
@@ -2547,6 +2655,7 @@ Texto:
             'connection_type', 'ssh_host', 'ssh_user', 'ssh_port',
             'max_staging', 'max_development', 'auto_destroy_hours', 'odoo_service_name',
             'production_branch', 'odoo_project_id',
+            'github_client_id', 'github_client_secret',
         ]
         write_vals = {k: v for k, v in vals.items() if k in allowed_fields}
 

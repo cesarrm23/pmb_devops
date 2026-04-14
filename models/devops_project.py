@@ -122,6 +122,10 @@ class DevopsProject(models.Model):
     ssh_port = fields.Integer(string='SSH Puerto', default=22)
     ssh_key_path = fields.Char(string='Ruta Llave SSH')
 
+    # ---- GitHub OAuth ----
+    github_client_id = fields.Char(string='GitHub Client ID')
+    github_client_secret = fields.Char(string='GitHub Client Secret')
+
     # ---- Members (NEW) ----
     member_ids = fields.One2many(
         'devops.project.member', 'project_id', string='Miembros',

@@ -1634,6 +1634,25 @@ class PmbDevopsApp extends Component {
         this.state.githubLoading = false;
     }
 
+    async _githubOAuthLogin() {
+        if (!this.state.selectedInstance) return;
+        this.state.githubLoading = true;
+        this.state.githubError = '';
+        try {
+            const result = await rpc('/devops/git/github/oauth/start', {
+                instance_id: this.state.selectedInstance.id,
+            });
+            if (result.error) {
+                this.state.githubError = result.error;
+            } else if (result.auth_url) {
+                window.open(result.auth_url, '_self');
+            }
+        } catch (e) {
+            this.state.githubError = 'Error de conexion';
+        }
+        this.state.githubLoading = false;
+    }
+
     async _githubLogout() {
         if (!this.state.selectedInstance) return;
         await rpc('/devops/git/github/logout', {
@@ -2598,6 +2617,8 @@ class PmbDevopsApp extends Component {
                 max_development: p.max_development,
                 auto_destroy_hours: p.auto_destroy_hours,
                 production_branch: p.production_branch,
+                github_client_id: p.github_client_id,
+                github_client_secret: p.github_client_secret,
             });
             if (result.error) {
                 alert(result.error);
