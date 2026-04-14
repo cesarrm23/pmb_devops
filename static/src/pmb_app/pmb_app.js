@@ -3004,6 +3004,23 @@ class PmbDevopsApp extends Component {
         reader.readAsDataURL(file);
     }
 
+    async _pasteToAiTerminal() {
+        if (!this._aiWs || this._aiWs.readyState !== WebSocket.OPEN) return;
+        try {
+            const text = await navigator.clipboard.readText();
+            if (text) {
+                this._aiWs.send(JSON.stringify({ type: 'input', data: text }));
+                if (this._aiTerm) this._aiTerm.focus();
+            }
+        } catch (e) {
+            // Fallback: prompt
+            const text = prompt('Pegar texto:');
+            if (text) {
+                this._aiWs.send(JSON.stringify({ type: 'input', data: text }));
+            }
+        }
+    }
+
     _attachFileToTerminal() {
         const input = document.createElement('input');
         input.type = 'file';

@@ -940,6 +940,7 @@
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('y\\n')" title="Yes + Enter">Y⏎</button>
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\n')" title="Enter">⏎</button>
                                             <div style="width: 1px; height: 16px; background: #313244; margin: 0 2px;"/>
+                                            <button class="btn btn-sm pmb-key-btn" t-on-click="_pasteToAiTerminal" title="Pegar texto del portapapeles">📋</button>
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="_attachFileToTerminal" title="Adjuntar archivo">📎</button>
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="_reconnectAiTerminal" title="Reconectar terminal">↻</button>
                                         </div>
