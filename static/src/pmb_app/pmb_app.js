@@ -3091,8 +3091,10 @@ class PmbDevopsApp extends Component {
     }
 
     _toggleClaudeSessions() {
-        this.state.claudeSessionsVisible = !this.state.claudeSessionsVisible;
-        if (this.state.claudeSessionsVisible) this._loadClaudeSessions();
+        if (this._aiWs && this._aiWs.readyState === WebSocket.OPEN) {
+            this._aiWs.send(JSON.stringify({ type: 'input', data: '/sessions\n' }));
+        }
+        if (this._aiTerm) this._aiTerm.focus();
     }
 
     _onResumeSession(ev) {
