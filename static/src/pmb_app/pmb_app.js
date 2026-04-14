@@ -213,6 +213,7 @@ class PmbDevopsApp extends Component {
             this._cleanupTerminal();
             this._cleanupShellTerminal();
             this._cleanupAiTerminal();
+            this._stopGitPolling();
             if (this._onViewportResize && window.visualViewport) {
                 window.visualViewport.removeEventListener('resize', this._onViewportResize);
             }
@@ -340,6 +341,7 @@ class PmbDevopsApp extends Component {
         }
         this._cleanupShellTerminal();
         this._cleanupAiTerminal();
+        this._stopGitPolling();
         // Stop any existing creation polling
         if (this._pollTimer) {
             clearInterval(this._pollTimer);
@@ -588,6 +590,10 @@ class PmbDevopsApp extends Component {
 
         const prevTab = this.state.activeContentTab;
 
+        // Stop git polling when leaving AI tab
+        if (prevTab === 'ai') {
+            this._stopGitPolling();
+        }
         // Pause logs polling when leaving logs tab (keep session alive)
         if (prevTab === 'logs') {
             if (this._termPollTimeout) {
@@ -604,6 +610,7 @@ class PmbDevopsApp extends Component {
         } else if (tab === 'ai') {
             await this._checkGitAuth();
             await this._refreshGitStatus();
+            this._startGitPolling();
             this._loadClaudeSessions();
             // Only start terminal if instance is running AND user has write access
             const canTerminal = this.state.isAdmin ||
@@ -1504,6 +1511,22 @@ class PmbDevopsApp extends Component {
 
     _onCommitMessageInput(ev) {
         this.state.gitCommitMessage = ev.target.value;
+    }
+
+    _startGitPolling() {
+        this._stopGitPolling();
+        this._gitPollTimer = setInterval(() => {
+            if (this.state.activeContentTab === 'ai' && !this.state.gitCommitting && !this.state.gitPushing) {
+                this._refreshGitStatus();
+            }
+        }, 10000); // every 10 seconds
+    }
+
+    _stopGitPolling() {
+        if (this._gitPollTimer) {
+            clearInterval(this._gitPollTimer);
+            this._gitPollTimer = null;
+        }
     }
 
     async _refreshGitStatus() {
