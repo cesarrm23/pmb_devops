@@ -193,6 +193,14 @@ if [ -n "{source_db}" ]; then
         if [ "$PG_EXIT" -ne 0 ]; then
             FAIL "pg_dump failed (exit $PG_EXIT)"
         fi
+        # Grant all privileges to the instance DB user
+        psql -q "{rec.database_name}" -c "
+            GRANT ALL ON ALL TABLES IN SCHEMA public TO {db_user};
+            GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO {db_user};
+            GRANT ALL ON ALL FUNCTIONS IN SCHEMA public TO {db_user};
+            ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO {db_user};
+            ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO {db_user};
+        " 2>/dev/null || echo "WARNING: GRANT failed"
     else
         echo "DB {rec.database_name} already has data, skipping clone"
     fi
@@ -477,6 +485,14 @@ if [ -n "{source_db}" ]; then
         if [ "$PG_EXIT" -ne 0 ]; then
             FAIL "pg_dump failed (exit $PG_EXIT)"
         fi
+        # Grant all privileges to the instance DB user
+        sudo -u postgres psql -q "{rec.database_name}" -c "
+            GRANT ALL ON ALL TABLES IN SCHEMA public TO {db_user};
+            GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO {db_user};
+            GRANT ALL ON ALL FUNCTIONS IN SCHEMA public TO {db_user};
+            ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO {db_user};
+            ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO {db_user};
+        " 2>/dev/null || echo "WARNING: GRANT failed" >> "$LOG"
         echo "DB cloned successfully" >> "$LOG"
     else
         echo "DB {rec.database_name} already has data, skipping" >> "$LOG"
