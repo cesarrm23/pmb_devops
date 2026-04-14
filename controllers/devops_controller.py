@@ -815,12 +815,53 @@ echo "done" > {status_file}
                                 )
 
                             dirty = bool(ssh_run(f'git -C {git_path} status --porcelain 2>/dev/null'))
+
+                            # Merge/sync targets based on instance type
+                            merge_target = ''
+                            merge_pending = 0
+                            merge_pending_commits = []
+                            sync_pending = 0
+                            sync_pending_commits = []
+                            inst_type_ssh = inst_obj.instance_type if inst_obj else 'production'
+
+                            if repo_type == 'custom' and inst_type_ssh != 'production':
+                                prod_branch = project.production_branch or 'main'
+                                if inst_type_ssh == 'development':
+                                    staging_inst = request.env['devops.instance'].sudo().search([
+                                        ('project_id', '=', project.id),
+                                        ('instance_type', '=', 'staging'),
+                                    ], limit=1)
+                                    merge_target = staging_inst.git_branch if staging_inst else 'staging'
+                                elif inst_type_ssh == 'staging':
+                                    merge_target = prod_branch
+
+                                # Count pending merges
+                                if merge_target:
+                                    ssh_run(f'git -C {git_path} fetch origin 2>/dev/null')
+                                    log_out = ssh_run(f'git -C {git_path} log --oneline origin/{merge_target}..{branch} 2>/dev/null')
+                                    if log_out:
+                                        for l in log_out.strip().split('\n')[:10]:
+                                            if l.strip():
+                                                parts = l.split(' ', 1)
+                                                merge_pending += 1
+                                                merge_pending_commits.append({'hash': parts[0], 'message': parts[1] if len(parts) > 1 else ''})
+
+                                # Count sync pending (production → this branch)
+                                sync_out = ssh_run(f'git -C {git_path} log --oneline {branch}..origin/{prod_branch} 2>/dev/null')
+                                if sync_out:
+                                    for l in sync_out.strip().split('\n')[:10]:
+                                        if l.strip():
+                                            parts = l.split(' ', 1)
+                                            sync_pending += 1
+                                            sync_pending_commits.append({'hash': parts[0], 'message': parts[1] if len(parts) > 1 else ''})
+
                             repos.append({
                                 'path': git_path, 'name': name, 'branch': branch,
                                 'ahead': 0, 'behind': 0, 'remote': '', 'dirty': dirty,
                                 'shallow': False, 'owned': True, 'repo_type': repo_type,
-                                'merge_target': '', 'merge_pending': 0, 'merge_pending_commits': [],
-                                'sync_pending': 0, 'sync_pending_commits': [],
+                                'merge_target': merge_target, 'merge_pending': merge_pending,
+                                'merge_pending_commits': merge_pending_commits,
+                                'sync_pending': sync_pending, 'sync_pending_commits': sync_pending_commits,
                             })
                         elif line.startswith('ADDON:'):
                             addon_path = line[6:]
@@ -979,13 +1020,19 @@ echo "done" > {status_file}
                 pass
             shallow = os.path.exists(os.path.join(git_path, '.git', 'shallow'))
             # Promote: commits ahead of target branch (dev→staging, staging→main)
+            # Use instance_type to determine merge direction, not branch name
             merge_target = ''
             merge_pending = 0
             merge_pending_commits = []
-            if branch == 'development':
-                merge_target = 'staging'
-            elif branch == 'staging':
-                merge_target = 'main'
+            if inst_type == 'development':
+                # Dev merges into staging branch — find it from project's staging instances
+                staging_inst = request.env['devops.instance'].sudo().search([
+                    ('project_id', '=', project.id),
+                    ('instance_type', '=', 'staging'),
+                ], limit=1)
+                merge_target = staging_inst.git_branch if staging_inst else 'staging'
+            elif inst_type == 'staging':
+                merge_target = project.production_branch or 'main'
             if merge_target:
                 try:
                     r5 = subprocess.run(
@@ -1003,13 +1050,14 @@ echo "done" > {status_file}
                             })
                 except Exception:
                     pass
-            # Sync: commits in main not yet in this branch (main→staging, main→dev)
+            # Sync: commits in production branch not yet in this branch
             sync_pending = 0
             sync_pending_commits = []
-            if branch in ('staging', 'development'):
+            prod_branch = project.production_branch or 'main'
+            if inst_type in ('staging', 'development'):
                 try:
                     r6 = subprocess.run(
-                        ['git', 'log', '--oneline', f'{branch}..origin/main'],
+                        ['git', 'log', '--oneline', f'{branch}..origin/{prod_branch}'],
                         capture_output=True, text=True, timeout=5, cwd=git_path,
                     )
                     if r6.returncode == 0 and r6.stdout.strip():
