@@ -2756,27 +2756,31 @@ class PmbDevopsApp extends Component {
                 }
             });
 
-            // Image paste support: intercept clipboard paste on the terminal container
+            // File paste support: intercept any file from clipboard (images, PDFs, etc.)
             this._aiPasteHandler = (ev) => {
                 const items = ev.clipboardData && ev.clipboardData.items;
                 if (!items) return;
                 for (const item of items) {
-                    if (item.type.startsWith('image/')) {
+                    if (item.kind === 'file') {
                         ev.preventDefault();
                         ev.stopPropagation();
                         const blob = item.getAsFile();
                         if (!blob) return;
+                        const ext = blob.name ? blob.name.split('.').pop() : (item.type.split('/')[1] || 'bin');
+                        const filename = blob.name || `paste_${Date.now()}.${ext}`;
                         const reader = new FileReader();
                         reader.onload = () => {
                             const base64 = reader.result.split(',')[1];
                             if (this._aiWs && this._aiWs.readyState === WebSocket.OPEN) {
                                 this._aiWs.send(JSON.stringify({
-                                    type: 'image',
+                                    type: 'file',
                                     data: base64,
-                                    filename: `paste_${Date.now()}.png`,
+                                    filename: filename,
+                                    mimetype: item.type,
                                 }));
                                 if (this._aiTerm) {
-                                    this._aiTerm.writeln('\x1b[33m[Imagen pegada: enviando...]\x1b[0m');
+                                    const size = blob.size > 1024 ? `${(blob.size/1024).toFixed(1)}KB` : `${blob.size}B`;
+                                    this._aiTerm.writeln(`\x1b[33m[Archivo pegado: ${filename} (${size})]\x1b[0m`);
                                 }
                             }
                         };
@@ -2786,8 +2790,21 @@ class PmbDevopsApp extends Component {
                 }
             };
             container.addEventListener('paste', this._aiPasteHandler, true);
-            // Also listen on document for when xterm has focus
             document.addEventListener('paste', this._aiPasteHandler, false);
+
+            // Drag & drop file support
+            this._aiDropHandler = (ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                const files = ev.dataTransfer && ev.dataTransfer.files;
+                if (!files || files.length === 0) return;
+                for (const file of files) {
+                    this._sendFileToTerminal(file);
+                }
+            };
+            this._aiDragOverHandler = (ev) => { ev.preventDefault(); ev.stopPropagation(); };
+            container.addEventListener('drop', this._aiDropHandler, true);
+            container.addEventListener('dragover', this._aiDragOverHandler, true);
 
             // If WebSocket already connected, replay client scrollback and reattach
             if (this._aiWs && this._aiWs.readyState === WebSocket.OPEN) {
@@ -2962,6 +2979,37 @@ class PmbDevopsApp extends Component {
         if (this._shellTerm) this._shellTerm.focus();
     }
 
+    _sendFileToTerminal(file) {
+        if (!this._aiWs || this._aiWs.readyState !== WebSocket.OPEN) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+            const base64 = reader.result.split(',')[1];
+            this._aiWs.send(JSON.stringify({
+                type: 'file',
+                data: base64,
+                filename: file.name,
+                mimetype: file.type,
+            }));
+            if (this._aiTerm) {
+                const size = file.size > 1024 ? `${(file.size/1024).toFixed(1)}KB` : `${file.size}B`;
+                this._aiTerm.writeln(`\x1b[33m[Archivo: ${file.name} (${size})]\x1b[0m`);
+            }
+        };
+        reader.readAsDataURL(file);
+    }
+
+    _attachFileToTerminal() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.multiple = true;
+        input.onchange = () => {
+            for (const file of input.files) {
+                this._sendFileToTerminal(file);
+            }
+        };
+        input.click();
+    }
+
     _reconnectAiTerminal() {
         // Close only the WebSocket, keep scrollback — PTY is still alive on server
         if (this._aiWs) { this._aiWs.close(); this._aiWs = null; }
@@ -2984,6 +3032,8 @@ class PmbDevopsApp extends Component {
             document.removeEventListener('paste', this._aiPasteHandler, false);
             this._aiPasteHandler = null;
         }
+        this._aiDropHandler = null;
+        this._aiDragOverHandler = null;
         if (this._aiResizeObserver) { this._aiResizeObserver.disconnect(); this._aiResizeObserver = null; }
         if (this._aiWs) { this._aiWs.close(); this._aiWs = null; }
         if (this._aiTerm) { this._aiTerm.dispose(); this._aiTerm = null; }

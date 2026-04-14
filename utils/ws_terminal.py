@@ -361,21 +361,24 @@ async def terminal_handler(websocket):
                     winsize = struct.pack('HHHH', rows, cols, 0, 0)
                     fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsize)
                     os.kill(child_pid, signal.SIGWINCH)
-                elif msg.get('type') == 'image':
-                    # Save pasted image to temp file and send the path to the PTY
+                elif msg.get('type') in ('image', 'file'):
+                    # Save pasted/dropped file to temp dir and send path to PTY
                     import base64, tempfile
-                    img_data = base64.b64decode(msg['data'])
-                    filename = msg.get('filename', f'paste_{int(time.time())}.png')
-                    img_path = os.path.join(tempfile.gettempdir(), filename)
-                    with open(img_path, 'wb') as f:
-                        f.write(img_data)
+                    file_data = base64.b64decode(msg['data'])
+                    filename = msg.get('filename', f'paste_{int(time.time())}.bin')
+                    # Sanitize filename
+                    filename = filename.replace('/', '_').replace('..', '_')
+                    file_path = os.path.join(tempfile.gettempdir(), filename)
+                    with open(file_path, 'wb') as f:
+                        f.write(file_data)
                     # Send the file path as input to Claude Code
-                    os.write(master_fd, img_path.encode('utf-8'))
-                    logger.info("Image saved: %s (%d bytes)", img_path, len(img_data))
+                    os.write(master_fd, file_path.encode('utf-8'))
+                    size_kb = len(file_data) / 1024
+                    logger.info("File saved: %s (%.1f KB)", file_path, size_kb)
                     try:
                         await websocket.send(json.dumps({
                             'type': 'info',
-                            'data': f'Imagen guardada: {img_path}',
+                            'data': f'Archivo guardado: {file_path} ({size_kb:.1f} KB)',
                         }))
                     except Exception:
                         pass
