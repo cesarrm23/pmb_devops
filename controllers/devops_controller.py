@@ -527,12 +527,14 @@ echo "done" > {status_file}
 
     @http.route('/devops/instance/destroy', type='json', auth='user')
     def instance_destroy(self, instance_id):
-        """Destroy an instance."""
+        """Destroy an instance (admin only)."""
+        if not request.env.user.has_group('pmb_devops.group_devops_admin'):
+            return {'error': 'Solo administradores pueden eliminar instancias'}
         instance = request.env['devops.instance'].browse(instance_id)
         if not instance.exists():
             return {'error': 'Instancia no encontrada'}
         try:
-            instance.action_destroy()
+            instance.sudo().action_destroy()
             return {'status': 'ok'}
         except Exception as e:
             return {'status': 'error', 'error': str(e)}
