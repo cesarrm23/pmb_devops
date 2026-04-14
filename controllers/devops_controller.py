@@ -2080,7 +2080,7 @@ echo "done" > {status_file}
             os.unlink(tmp_path)
 
     @http.route('/devops/meetings/transcribe_all', type='json', auth='user')
-    def meetings_transcribe_all(self, meeting_id):
+    def meetings_transcribe_all(self, meeting_id, force=False):
         """Transcribe ALL recordings of a meeting using Groq Whisper API."""
         meeting = request.env['devops.meeting'].sudo().browse(meeting_id)
         if not meeting.exists():
@@ -2103,7 +2103,7 @@ echo "done" > {status_file}
 
         # Transcribe each recording
         for rec in recordings:
-            if rec.transcription:
+            if rec.transcription and not force:
                 all_transcriptions.append(f"[Grabacion: {rec.name}]\n{rec.transcription}")
                 continue
             try:

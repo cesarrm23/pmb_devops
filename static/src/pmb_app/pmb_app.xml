@@ -1446,11 +1446,11 @@
                                                     <span t-if="m.recording_count > 0" style="color: #a6e3a1; font-size: 11px;">
                                                         🔊 <t t-esc="m.recording_count"/> grabacion(es)
                                                     </span>
-                                                    <!-- Transcribe all recordings -->
-                                                    <button t-if="m.has_audio" class="btn btn-sm"
+                                                    <!-- Transcribe all recordings (always available if there are recordings) -->
+                                                    <button t-if="m.has_audio or m.recording_count > 0" class="btn btn-sm"
                                                             style="background: #cba6f7; color: #1e1e2e; font-size: 11px; font-weight: 600;"
                                                             t-att-data-mid="m.id" t-on-click="_meetTranscribeAll">
-                                                        🎙 Transcribir todo</button>
+                                                        🎙 <t t-if="m.has_transcription">Re-transcribir</t><t t-else="">Transcribir todo</t></button>
                                                     <button t-if="m.has_transcription" class="btn btn-sm"
                                                             style="background: #89b4fa; color: #1e1e2e; font-size: 11px;"
                                                             t-att-data-mid="m.id" t-on-click="_meetShowTranscription">

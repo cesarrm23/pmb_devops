@@ -2357,10 +2357,12 @@ class PmbDevopsApp extends Component {
 
     async _meetTranscribeAll(ev) {
         const mid = parseInt(ev.currentTarget.dataset.mid);
-        ev.currentTarget.disabled = true;
-        ev.currentTarget.textContent = 'Transcribiendo todas...';
+        const btn = ev.currentTarget;
+        const isRetranscribe = btn.textContent.includes('Re-');
+        btn.disabled = true;
+        btn.textContent = 'Transcribiendo...';
         try {
-            const result = await rpc('/devops/meetings/transcribe_all', { meeting_id: mid });
+            const result = await rpc('/devops/meetings/transcribe_all', { meeting_id: mid, force: isRetranscribe });
             if (result.error) {
                 alert('Error: ' + result.error);
             } else {
