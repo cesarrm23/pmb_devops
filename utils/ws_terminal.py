@@ -301,11 +301,16 @@ async def terminal_handler(websocket):
                 ssh_cmd += [f"{ssh.get('user', 'root')}@{ssh['host']}"]
                 remote_cwd = ssh.get('remote_cwd', '/opt')
                 instance_user = ssh.get('instance_user', '')
+                ssh_user = ssh.get('user', 'root')
+                claude_env = 'export PATH="$HOME/.local/bin:/usr/local/bin:$PATH" && export CLAUDE_CODE_DISABLE_AUTOUPDATE=1'
                 if cmd_type == 'claude':
                     if instance_user:
-                        ssh_cmd += [f'cd {remote_cwd} && sudo -u {instance_user} claude']
+                        ssh_cmd += [f'{claude_env} && cd {remote_cwd} && sudo -u {instance_user} -E claude']
+                    elif ssh_user == 'root':
+                        # Claude Code refuses to run as root — find the owner of the cwd
+                        ssh_cmd += [f'OWNER=$(stat -c %U {remote_cwd} 2>/dev/null || echo nobody); cd {remote_cwd} && sudo -u $OWNER -i bash -c \'{claude_env} && cd {remote_cwd} && claude\'']
                     else:
-                        ssh_cmd += [f'cd {remote_cwd} && claude']
+                        ssh_cmd += [f'{claude_env} && cd {remote_cwd} && claude']
                 else:
                     if instance_user:
                         ssh_cmd += [f'cd {remote_cwd} && sudo -u {instance_user} -i bash']
