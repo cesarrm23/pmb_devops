@@ -68,12 +68,30 @@ class DevopsAiChatController(http.Controller):
                     pass
             cwd = os.path.join('/opt/odooAL/.pmb_ssh', f'instance_{instance_id or "proj_" + str(project.id)}')
             os.makedirs(cwd, exist_ok=True)
+            # Detect instance OS user for staging/dev (e.g., 'maha')
+            instance_user = ''
+            if instance_id:
+                try:
+                    inst = request.env['devops.instance'].browse(instance_id)
+                    if inst.exists() and inst.instance_type != 'production' and inst.service_name:
+                        from ..utils import ssh_utils
+                        r = ssh_utils.execute_command_shell(
+                            project,
+                            f"systemctl show {inst.service_name} -p User --value 2>/dev/null",
+                        )
+                        u = r.stdout.strip() if r.returncode == 0 else ''
+                        if u and u != 'root':
+                            instance_user = u
+                except Exception:
+                    pass
+
             ssh_config = {
                 'host': project.ssh_host,
                 'user': project.ssh_user or 'root',
                 'port': project.ssh_port or 22,
                 'key': project.ssh_key_path or '',
                 'remote_cwd': remote_cwd,
+                'instance_user': instance_user,
             }
 
         # Determine instance type for isolation

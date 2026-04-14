@@ -270,10 +270,17 @@ async def terminal_handler(websocket):
                     ssh_cmd += ['-p', str(ssh['port'])]
                 ssh_cmd += [f"{ssh.get('user', 'root')}@{ssh['host']}"]
                 remote_cwd = ssh.get('remote_cwd', '/opt')
+                instance_user = ssh.get('instance_user', '')
                 if cmd_type == 'claude':
-                    ssh_cmd += [f'cd {remote_cwd} && claude']
+                    if instance_user:
+                        ssh_cmd += [f'cd {remote_cwd} && sudo -u {instance_user} claude']
+                    else:
+                        ssh_cmd += [f'cd {remote_cwd} && claude']
                 else:
-                    ssh_cmd += [f'cd {remote_cwd} && bash -i']
+                    if instance_user:
+                        ssh_cmd += [f'cd {remote_cwd} && sudo -u {instance_user} -i bash']
+                    else:
+                        ssh_cmd += [f'cd {remote_cwd} && bash -i']
                 cmd = ssh_cmd
             elif cmd_type == 'claude':
                 cmd = [CLAUDE_BIN]

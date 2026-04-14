@@ -1641,12 +1641,30 @@ echo "done" > {status_file}
 
     @http.route('/devops/git/github/logout', type='json', auth='user')
     def github_logout(self, instance_id=None):
-        """Remove GitHub credentials from an instance."""
+        """Remove GitHub credentials and clean remote URLs."""
         if not instance_id:
             return {'error': 'Instance ID required'}
         inst = request.env['devops.instance'].sudo().browse(instance_id)
         if not inst.exists():
             return {'error': 'Instancia no encontrada'}
+
+        # Clean credentials from git remote URLs
+        project = inst.project_id
+        from ..utils import ssh_utils
+        import re
+        repos_data = self.instance_repos(project.id, instance_id)
+        for repo in repos_data.get('repos', []):
+            if repo.get('repo_type') != 'custom':
+                continue
+            rpath = repo['path']
+            r = ssh_utils.execute_command(project, ['git', 'remote', 'get-url', 'origin'], cwd=rpath, timeout=10)
+            if r.returncode != 0:
+                continue
+            url = r.stdout.strip()
+            if '@' in url and url.startswith('https://'):
+                clean_url = re.sub(r'https://[^@]+@', 'https://', url)
+                ssh_utils.execute_command(project, ['git', 'remote', 'set-url', 'origin', clean_url], cwd=rpath, timeout=10)
+
         inst.write({'github_user': False, 'github_token': False})
         return {'status': 'ok'}
 
