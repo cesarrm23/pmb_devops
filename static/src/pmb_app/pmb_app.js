@@ -2132,22 +2132,33 @@ class PmbDevopsApp extends Component {
             const isMobile = window.innerWidth <= 768 || /Android|iPhone|iPad/i.test(navigator.userAgent);
 
             if (isMobile || !navigator.mediaDevices.getDisplayMedia) {
-                // Mobile: mic captures speaker output + your voice
                 stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             } else {
-                // Desktop: mix tab audio + mic for full conversation capture
+                // Desktop: capture tab audio + mic
                 try {
-                    const tabStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+                    // Request tab sharing with audio — video required by API but we stop it
+                    const displayOpts = {
+                        video: true,
+                        audio: true,
+                        // Chrome 107+: prefer sharing a tab (shows tab picker first)
+                        preferCurrentTab: false,
+                    };
+                    // Chrome 105+: request system audio to include tab audio by default
+                    try { displayOpts.systemAudio = 'include'; } catch (e) {}
+
+                    const tabStream = await navigator.mediaDevices.getDisplayMedia(displayOpts);
+                    // Stop video tracks immediately (we only need audio)
                     tabStream.getVideoTracks().forEach(t => t.stop());
 
-                    if (tabStream.getAudioTracks().length > 0) {
-                        // Also get mic
+                    const tabAudioTracks = tabStream.getAudioTracks();
+                    if (tabAudioTracks.length > 0) {
+                        // Got tab audio — now also get mic for local voice
                         let micStream;
                         try {
                             micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                        } catch (e) { /* mic denied, tab-only */ }
+                        } catch (e) { /* mic denied */ }
 
-                        // Mix both with AudioContext
+                        // Mix tab audio + mic with AudioContext
                         const ctx = new AudioContext();
                         const dest = ctx.createMediaStreamDestination();
                         ctx.createMediaStreamSource(tabStream).connect(dest);
@@ -2159,10 +2170,24 @@ class PmbDevopsApp extends Component {
                         this._recordTabStream = tabStream;
                         stream = dest.stream;
                     } else {
+                        // User didn't check "Share tab audio"
                         tabStream.getTracks().forEach(t => t.stop());
-                        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                        const retry = confirm(
+                            'No se detecto audio de la pestaña.\n\n' +
+                            'Para capturar el audio de la otra persona:\n' +
+                            '1. Click "Grabar" de nuevo\n' +
+                            '2. Selecciona la pestaña de la llamada\n' +
+                            '3. MARCA la casilla "Compartir audio de la pestaña"\n\n' +
+                            '¿Grabar solo con microfono?'
+                        );
+                        if (retry) {
+                            stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                        } else {
+                            return;
+                        }
                     }
                 } catch (displayErr) {
+                    if (displayErr.name === 'NotAllowedError') return;
                     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 }
             }
