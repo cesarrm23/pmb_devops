@@ -3119,6 +3119,9 @@ class PmbDevopsApp extends Component {
         if (this._aiTerm) this._aiTerm.focus();
     }
 
+    // Control character map for terminal buttons
+    _ctrlChar(code) { return String.fromCharCode(code); }
+
     _sendTermKey(data) {
         if (this._aiWs && this._aiWs.readyState === WebSocket.OPEN) {
             this._aiWs.send(JSON.stringify({ type: 'input', data }));
