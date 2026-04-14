@@ -2031,6 +2031,93 @@ echo "done" > {status_file}
         finally:
             os.unlink(tmp_path)
 
+    @http.route('/devops/meetings/transcribe_all', type='json', auth='user')
+    def meetings_transcribe_all(self, meeting_id):
+        """Transcribe ALL recordings of a meeting using Groq Whisper API."""
+        meeting = request.env['devops.meeting'].sudo().browse(meeting_id)
+        if not meeting.exists():
+            return {'error': 'Reunion no encontrada'}
+
+        recordings = meeting.recording_ids.filtered(lambda r: r.audio_file)
+        # Also include legacy audio_file on the meeting itself
+        if not recordings and not meeting.audio_file:
+            return {'error': 'No hay grabaciones para transcribir'}
+
+        groq_key = request.env['ir.config_parameter'].sudo().get_param('pmb_devops.groq_api_key', '')
+        if not groq_key:
+            return {'error': 'API key de Groq no configurada. Ve a Settings del proyecto.'}
+
+        import base64, tempfile
+        import requests as http_requests
+
+        all_transcriptions = []
+        errors = []
+
+        # Transcribe each recording
+        for rec in recordings:
+            if rec.transcription:
+                all_transcriptions.append(f"[Grabacion: {rec.name}]\n{rec.transcription}")
+                continue
+            try:
+                audio_bytes = base64.b64decode(rec.audio_file)
+                ext = (rec.audio_filename or 'audio.webm').split('.')[-1]
+                with tempfile.NamedTemporaryFile(suffix=f'.{ext}', delete=False) as tmp:
+                    tmp.write(audio_bytes)
+                    tmp_path = tmp.name
+                resp = http_requests.post(
+                    'https://api.groq.com/openai/v1/audio/transcriptions',
+                    headers={'Authorization': f'Bearer {groq_key}'},
+                    files={'file': (rec.audio_filename or 'audio.webm', open(tmp_path, 'rb'))},
+                    data={'model': 'whisper-large-v3', 'language': 'es'},
+                    timeout=120,
+                )
+                os.unlink(tmp_path)
+                if resp.status_code == 200:
+                    text = resp.json().get('text', '')
+                    rec.write({'transcription': text, 'state': 'transcribed'})
+                    all_transcriptions.append(f"[Grabacion: {rec.name}]\n{text}")
+                else:
+                    errors.append(f"{rec.name}: Groq error {resp.status_code}")
+            except Exception as e:
+                errors.append(f"{rec.name}: {e}")
+
+        # Also handle legacy audio_file on meeting itself
+        if meeting.audio_file and not meeting.transcription:
+            try:
+                audio_bytes = base64.b64decode(meeting.audio_file)
+                ext = (meeting.audio_filename or 'audio.webm').split('.')[-1]
+                with tempfile.NamedTemporaryFile(suffix=f'.{ext}', delete=False) as tmp:
+                    tmp.write(audio_bytes)
+                    tmp_path = tmp.name
+                resp = http_requests.post(
+                    'https://api.groq.com/openai/v1/audio/transcriptions',
+                    headers={'Authorization': f'Bearer {groq_key}'},
+                    files={'file': (meeting.audio_filename or 'audio.webm', open(tmp_path, 'rb'))},
+                    data={'model': 'whisper-large-v3', 'language': 'es'},
+                    timeout=120,
+                )
+                os.unlink(tmp_path)
+                if resp.status_code == 200:
+                    text = resp.json().get('text', '')
+                    meeting.write({'transcription': text, 'state': 'transcribed'})
+                    all_transcriptions.append(f"[Audio principal]\n{text}")
+            except Exception as e:
+                errors.append(f"Audio principal: {e}")
+        elif meeting.transcription:
+            all_transcriptions.append(f"[Audio principal]\n{meeting.transcription}")
+
+        # Combine all transcriptions
+        full_transcription = '\n\n'.join(all_transcriptions)
+        meeting.write({
+            'transcription': full_transcription,
+            'state': 'transcribed',
+        })
+
+        result = {'status': 'ok', 'transcription': full_transcription, 'count': len(all_transcriptions)}
+        if errors:
+            result['warnings'] = errors
+        return result
+
     @http.route('/devops/meetings/analyze', type='json', auth='user')
     def meetings_analyze(self, meeting_id):
         """Analyze transcription with Claude CLI to extract tasks."""

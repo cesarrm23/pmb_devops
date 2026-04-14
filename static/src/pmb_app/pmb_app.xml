@@ -1423,33 +1423,42 @@
 
                                                 <!-- Recording + Audio + Transcription -->
                                                 <div class="mt-2 d-flex align-items-center gap-2 flex-wrap">
-                                                    <!-- Tab audio capture -->
+                                                    <!-- Recording controls (always available) -->
                                                     <t t-if="state.meetRecordingId === m.id">
                                                         <button class="btn btn-sm"
                                                                 style="background: #f38ba8; color: #1e1e2e; font-size: 11px; font-weight: 600; animation: pmb-pulse 1.5s infinite;"
                                                                 t-on-click="_meetStopRecording">
-                                                            ⬛ Detener grabacion
+                                                            ⬛ Detener
                                                         </button>
                                                         <span style="color: #f38ba8; font-size: 10px;" t-esc="state.meetRecordingTime"/>
                                                     </t>
-                                                    <button t-if="!m.has_audio and state.meetRecordingId !== m.id" class="btn btn-sm"
-                                                            style="background: #f38ba8; color: #1e1e2e; font-size: 11px; font-weight: 600;"
-                                                            t-att-data-mid="m.id" t-on-click="_meetStartRecording">
-                                                        🔴 Grabar</button>
-                                                    <label t-if="!m.has_audio and state.meetRecordingId !== m.id" class="btn btn-sm" style="background: #313244; color: #cdd6f4; font-size: 11px; cursor: pointer;">
-                                                        📎 Subir
-                                                        <input type="file" accept="audio/*,video/*" style="display:none;"
-                                                               t-att-data-mid="m.id" t-on-change="_meetUploadAudio"/>
-                                                    </label>
-                                                    <span t-if="m.recording_count > 0" style="color: #a6e3a1; font-size: 11px;">🔊 <t t-esc="m.recording_count"/> grabacion(es)</span>
-                                                    <button t-if="m.has_audio and !m.has_transcription" class="btn btn-sm"
+                                                    <t t-if="state.meetRecordingId !== m.id">
+                                                        <button class="btn btn-sm"
+                                                                style="background: #f38ba8; color: #1e1e2e; font-size: 11px; font-weight: 600;"
+                                                                t-att-data-mid="m.id" t-on-click="_meetStartRecording">
+                                                            🔴 Grabar</button>
+                                                        <label class="btn btn-sm" style="background: #313244; color: #cdd6f4; font-size: 11px; cursor: pointer;">
+                                                            📎 Subir
+                                                            <input type="file" accept="audio/*,video/*" style="display:none;" multiple="multiple"
+                                                                   t-att-data-mid="m.id" t-on-change="_meetUploadAudio"/>
+                                                        </label>
+                                                    </t>
+                                                    <span t-if="m.recording_count > 0" style="color: #a6e3a1; font-size: 11px;">
+                                                        🔊 <t t-esc="m.recording_count"/> grabacion(es)
+                                                    </span>
+                                                    <!-- Transcribe all recordings -->
+                                                    <button t-if="m.has_audio" class="btn btn-sm"
                                                             style="background: #cba6f7; color: #1e1e2e; font-size: 11px; font-weight: 600;"
-                                                            t-att-data-mid="m.id" t-on-click="_meetTranscribe">
-                                                        🎙 Transcribir</button>
+                                                            t-att-data-mid="m.id" t-on-click="_meetTranscribeAll">
+                                                        🎙 Transcribir todo</button>
                                                     <button t-if="m.has_transcription" class="btn btn-sm"
                                                             style="background: #89b4fa; color: #1e1e2e; font-size: 11px;"
                                                             t-att-data-mid="m.id" t-on-click="_meetShowTranscription">
-                                                        📝 Transcripcion</button>
+                                                        📝 Ver</button>
+                                                    <button t-if="m.has_transcription" class="btn btn-sm"
+                                                            style="background: #f9e2af; color: #1e1e2e; font-size: 11px; font-weight: 600;"
+                                                            t-att-data-mid="m.id" t-on-click="_meetExtractTasks">
+                                                        🤖 Tareas IA</button>
                                                 </div>
 
                                                 <t t-if="state.meetTranscriptionId === m.id and state.meetTranscription">

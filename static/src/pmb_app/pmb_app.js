@@ -776,18 +776,22 @@ class PmbDevopsApp extends Component {
         this.state.loadingMessage = 'Eliminando instancia...';
 
         try {
-            await rpc("/web/dataset/call_kw", {
-                model: "devops.instance",
-                method: "action_destroy",
-                args: [[inst.id]],
-                kwargs: {},
+            const result = await rpc('/devops/instance/destroy', {
+                instance_id: inst.id,
             });
-
-            this.state.selectedInstance = null;
-            this.state.selectedBranch = null;
-            await this._loadProjectData();
+            if (result.error) {
+                alert(result.error);
+            } else {
+                this.state.selectedInstance = null;
+                this.state.selectedBranch = null;
+                await this._loadProjectData();
+                // Auto-select production instance if available
+                if (this.state.instances.length > 0) {
+                    const prod = this.state.instances.find(i => i.instance_type === 'production');
+                    this._selectInstance(prod || this.state.instances[0]);
+                }
+            }
         } catch (err) {
-            console.error("PmbDevopsApp: error destroying instance", err);
             alert("Error: " + (err.message || err));
         } finally {
             this.state.loading = false;
@@ -1923,15 +1927,21 @@ class PmbDevopsApp extends Component {
 
     async _startInstance() {
         if (!this.state.selectedInstance) return;
-        await rpc('/devops/instance/start', { instance_id: this.state.selectedInstance.id });
+        const id = this.state.selectedInstance.id;
+        await rpc('/devops/instance/start', { instance_id: id });
         await this._loadProjectData();
+        const updated = this.state.instances.find(i => i.id === id);
+        if (updated) this.state.selectedInstance = updated;
     }
 
     async _stopInstance() {
         if (!this.state.selectedInstance) return;
-        if (!confirm('Stop this instance?')) return;
-        await rpc('/devops/instance/stop', { instance_id: this.state.selectedInstance.id });
+        if (!confirm('Detener esta instancia?')) return;
+        const id = this.state.selectedInstance.id;
+        await rpc('/devops/instance/stop', { instance_id: id });
         await this._loadProjectData();
+        const updated = this.state.instances.find(i => i.id === id);
+        if (updated) this.state.selectedInstance = updated;
     }
 
     async _loadUpgradeRepos() {
@@ -2320,6 +2330,47 @@ class PmbDevopsApp extends Component {
         } catch (e) { alert('Error: ' + e.message); }
     }
 
+    async _meetTranscribeAll(ev) {
+        const mid = parseInt(ev.currentTarget.dataset.mid);
+        ev.currentTarget.disabled = true;
+        ev.currentTarget.textContent = 'Transcribiendo todas...';
+        try {
+            const result = await rpc('/devops/meetings/transcribe_all', { meeting_id: mid });
+            if (result.error) {
+                alert('Error: ' + result.error);
+            } else {
+                this.state.meetTranscriptionId = mid;
+                this.state.meetTranscription = result.transcription;
+                if (result.warnings && result.warnings.length > 0) {
+                    alert('Advertencias:\n' + result.warnings.join('\n'));
+                }
+            }
+            await this._loadMeetings();
+        } catch (e) { alert('Error: ' + e.message); }
+    }
+
+    async _meetExtractTasks(ev) {
+        const mid = parseInt(ev.currentTarget.dataset.mid);
+        ev.currentTarget.disabled = true;
+        ev.currentTarget.textContent = 'Analizando...';
+        try {
+            // First analyze with Claude
+            const analysis = await rpc('/devops/meetings/analyze', { meeting_id: mid });
+            if (analysis.error) {
+                alert('Error: ' + analysis.error);
+                await this._loadMeetings();
+                return;
+            }
+            // Show extracted tasks for confirmation
+            this.state.meetAnalyzedId = mid;
+            this.state.meetAnalyzedTasks = analysis.tasks || [];
+            if (this.state.meetAnalyzedTasks.length === 0) {
+                alert('No se encontraron tareas en la transcripcion.');
+            }
+            await this._loadMeetings();
+        } catch (e) { alert('Error: ' + e.message); }
+    }
+
     async _meetShowTranscription(ev) {
         const mid = parseInt(ev.currentTarget.dataset.mid);
         if (this.state.meetTranscriptionId === mid) {
@@ -2402,8 +2453,11 @@ class PmbDevopsApp extends Component {
 
     async _restartInstance() {
         if (!this.state.selectedInstance) return;
-        await rpc('/devops/instance/restart', { instance_id: this.state.selectedInstance.id });
+        const id = this.state.selectedInstance.id;
+        await rpc('/devops/instance/restart', { instance_id: id });
         await this._loadProjectData();
+        const updated = this.state.instances.find(i => i.id === id);
+        if (updated) this.state.selectedInstance = updated;
     }
 
     // ------------------------------------------------------------------
