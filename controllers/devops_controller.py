@@ -1882,6 +1882,7 @@ echo "done" > {status_file}
             return {'sessions': []}
 
         sessions = []
+        seen_ids = set()
         for line in raw.split('\n'):
             line = line.strip()
             if not line or '||' not in line:
@@ -1890,6 +1891,9 @@ echo "done" > {status_file}
             if len(parts) < 4:
                 continue
             sid, ts, summary, size_str = parts
+            if sid in seen_ids:
+                continue
+            seen_ids.add(sid)
             if search and search.lower() not in summary.lower() and search.lower() not in sid.lower():
                 continue
             sessions.append({
