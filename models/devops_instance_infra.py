@@ -147,6 +147,22 @@ class DevopsInstanceInfra(models.Model):
 
         enterprise_path = project.enterprise_path or ''
 
+        # Detect OS/DB user from production service
+        db_user = 'odooal'  # default for local
+        prod_svc = project.odoo_service_name or ''
+        if prod_svc:
+            try:
+                import subprocess as _sp
+                r = _sp.run(
+                    ['systemctl', 'show', prod_svc, '-p', 'User', '--value'],
+                    capture_output=True, text=True, timeout=5,
+                )
+                u = r.stdout.strip()
+                if u:
+                    db_user = u
+            except Exception:
+                pass
+
         script = f"""#!/bin/bash
 set -euo pipefail
 ID={instance_id}
@@ -169,7 +185,7 @@ if [ -n "{source_db}" ]; then
         psql -q "{dbname}" -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='{rec.database_name}' AND pid != pg_backend_pid();" 2>/dev/null
         sleep 1
         dropdb --if-exists "{rec.database_name}" 2>/dev/null
-        createdb -O odooal "{rec.database_name}" || FAIL "createdb failed"
+        createdb -O {db_user} "{rec.database_name}" || FAIL "createdb failed"
         set +e
         pg_dump "{source_db}" 2>/dev/null | psql -q "{rec.database_name}" 2>/dev/null
         PG_EXIT=${{PIPESTATUS[0]}}
@@ -188,7 +204,7 @@ if [ -n "{source_filestore}" ] && [ -d "{source_filestore}" ]; then
         STEP "Copiando filestore..."
         sudo mkdir -p "$FSDEST"
         sudo rsync -a "{source_filestore}/" "$FSDEST/" || echo "WARNING: filestore copy failed"
-        sudo chown -R odooal:odooal "{rec.instance_path}/.local/share/Odoo"
+        sudo chown -R {db_user}:{db_user} "{rec.instance_path}/.local/share/Odoo"
     else
         echo "Filestore already exists, skipping"
     fi
@@ -196,7 +212,7 @@ fi
 
 STEP "Preparando directorio de instancia..."
 sudo mkdir -p "{inst_path}/.local/share/Odoo"
-sudo chown -R odooal:odooal "{inst_path}"
+sudo chown -R {db_user}:{db_user} "{inst_path}"
 
 if [ ! -f "{inst_path}/odoo/odoo-bin" ]; then
     STEP "Copiando Odoo source..."
@@ -209,7 +225,7 @@ if [ -n "{enterprise_path}" ] && [ -d "{enterprise_path}" ]; then
     if [ ! -d "{inst_path}/enterprise/account" ]; then
         STEP "Copiando enterprise addons..."
         sudo rsync -a --exclude='__pycache__' "{enterprise_path}/" "{inst_path}/enterprise/"
-        sudo chown -R odooal:odooal "{inst_path}/enterprise"
+        sudo chown -R {db_user}:{db_user} "{inst_path}/enterprise"
     else
         echo "Enterprise addons already exist, skipping"
     fi
@@ -252,7 +268,7 @@ addons_path = {addons_path}
 admin_passwd = False
 data_dir = {rec.instance_path}/.local/share/Odoo
 db_name = {rec.database_name}
-db_user = odooal
+db_user = {db_user}
 http_port = {rec.port}
 gevent_port = {rec.gevent_port}
 list_db = False
@@ -272,8 +288,8 @@ Description=Odoo {rec.service_name}
 After=network.target postgresql.service
 [Service]
 Type=simple
-User=odooal
-Group=odooal
+User={db_user}
+Group={db_user}
 ExecStart={inst_path}/.venv/bin/python {inst_path}/odoo/odoo-bin -c {rec.odoo_config_path}
 WorkingDirectory={rec.instance_path}
 Restart=on-failure
