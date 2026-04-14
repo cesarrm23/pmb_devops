@@ -20,3 +20,8 @@ sessions/
 *.log
 .env
 .env.*
+
+node_modules/
+test-results/
+package*.json
+tests/
