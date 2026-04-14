@@ -1059,7 +1059,7 @@ fi
                 _("No se puede destruir una instancia de producción.")
             )
 
-        self.write({'state': 'destroying'})
+        self.sudo().write({'state': 'destroying'})
         self.env.cr.commit()
 
         errors = []
@@ -1164,7 +1164,7 @@ fi
         # 6. Delete associated branch record
         if self.branch_id:
             try:
-                self.branch_id.unlink()
+                self.branch_id.sudo().unlink()
             except Exception as e:
                 errors.append(f"Branch: {e}")
 
@@ -1179,7 +1179,7 @@ fi
             )
 
         # 6. Delete the record
-        self.unlink()
+        self.sudo().unlink()
 
         # Post to project chatter
         if project:
