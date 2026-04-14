@@ -348,6 +348,12 @@ class PmbDevopsApp extends Component {
         this.state.githubUser = '';
         this.state.githubToken = '';
         this.state.githubError = '';
+        this.state.gitSelectedRepo = '';
+        this.state.gitStaged = [];
+        this.state.gitUnstaged = [];
+        this.state.gitUntracked = [];
+        this.state.gitOutgoing = [];
+        this.state.historyRepos = [];
         this.state.selectedInstance = instance;
 
         // If instance is creating/error, go to DEPLOY tab
@@ -1497,9 +1503,10 @@ class PmbDevopsApp extends Component {
         if (this.state.historyRepos.length === 0) {
             await this._loadHistoryRepos();
         }
-        // Auto-select first repo if none selected
+        // Auto-select repo: prefer custom repos (where dev changes are)
         if (!this.state.gitSelectedRepo && this.state.historyRepos.length > 0) {
-            this.state.gitSelectedRepo = this.state.historyRepos[0].path;
+            const custom = this.state.historyRepos.find(r => r.repo_type === 'custom');
+            this.state.gitSelectedRepo = custom ? custom.path : this.state.historyRepos[0].path;
         }
         const repoPath = this.state.gitSelectedRepo;
         if (!repoPath) return;
