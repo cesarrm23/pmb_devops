@@ -825,25 +825,28 @@
                                                                 </t>
                                                             </div>
                                                         </t>
-                                                        <t t-if="selectedRepo.branch === 'development'">
+                                                        <t t-set="_isMergeToProduction" t-value="selectedRepo.merge_target === (state.currentProject and state.currentProject.production_branch || 'main')"/>
+                                                        <t t-if="!_isMergeToProduction">
+                                                            <!-- Dev → Staging (any developer can do this) -->
                                                             <button class="btn btn-sm w-100 mb-1"
                                                                     style="background: #313244; color: #fab387; font-size: 11px;"
                                                                     t-att-disabled="state.gitPushing or selectedRepo.merge_pending === 0"
-                                                                    t-on-click="() => this._gitMerge('development', 'staging')">
-                                                                development &#8594; staging
+                                                                    t-on-click="() => this._gitMerge(selectedRepo.branch, selectedRepo.merge_target)">
+                                                                <t t-esc="selectedRepo.branch"/> &#8594; <t t-esc="selectedRepo.merge_target"/>
                                                             </button>
                                                         </t>
-                                                        <t t-if="selectedRepo.branch === 'staging' and state.isAdmin">
+                                                        <t t-if="_isMergeToProduction and state.isAdmin">
+                                                            <!-- Staging → Production (admin only) -->
                                                             <button class="btn btn-sm w-100 mb-1"
                                                                     style="background: #313244; color: #f38ba8; font-size: 11px;"
                                                                     t-att-disabled="state.gitPushing or selectedRepo.merge_pending === 0"
-                                                                    t-on-click="() => this._gitMerge('staging', 'main')">
-                                                                staging &#8594; main
+                                                                    t-on-click="() => this._gitMerge(selectedRepo.branch, selectedRepo.merge_target)">
+                                                                <t t-esc="selectedRepo.branch"/> &#8594; <t t-esc="selectedRepo.merge_target"/> (produccion)
                                                             </button>
                                                         </t>
-                                                        <t t-if="selectedRepo.branch === 'staging' and !state.isAdmin">
+                                                        <t t-if="_isMergeToProduction and !state.isAdmin">
                                                             <div style="color: #6c7086; font-size: 10px;">
-                                                                Solo administradores pueden enviar a main
+                                                                Solo administradores pueden enviar a <t t-esc="selectedRepo.merge_target"/>
                                                             </div>
                                                         </t>
                                                         <t t-if="selectedRepo.merge_pending === 0">
@@ -853,13 +856,14 @@
                                                         </t>
                                                     </t>
 
-                                                    <!-- Sync: main→staging, main→dev -->
+                                                    <!-- Sync: production→this branch -->
+                                                    <t t-set="_prodBranch" t-value="state.currentProject and state.currentProject.production_branch || 'main'"/>
                                                     <t t-if="selectedRepo.sync_pending > 0 and state.isAdmin">
                                                         <div class="d-flex align-items-center justify-content-between mb-1"
                                                              t-att-class="selectedRepo.merge_target ? 'mt-3 pt-2' : ''"
                                                              t-att-style="selectedRepo.merge_target ? 'border-top: 1px solid #313244;' : ''">
                                                             <span style="color: #89b4fa; font-size: 11px; font-weight: 600;">
-                                                                &#8595; Sync desde main
+                                                                &#8595; Sync desde <t t-esc="_prodBranch"/>
                                                             </span>
                                                             <span style="background: #89b4fa; color: #1e1e2e; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 8px;">
                                                                 <t t-esc="selectedRepo.sync_pending"/> nuevo(s)
@@ -878,14 +882,14 @@
                                                         <button class="btn btn-sm w-100 mb-1"
                                                                 style="background: #313244; color: #89b4fa; font-size: 11px;"
                                                                 t-att-disabled="state.gitPushing"
-                                                                t-on-click="() => this._gitMerge('main', selectedRepo.branch)">
-                                                            main &#8594; <t t-esc="selectedRepo.branch"/>
+                                                                t-on-click="() => this._gitMerge(_prodBranch, selectedRepo.branch)">
+                                                            <t t-esc="_prodBranch"/> &#8594; <t t-esc="selectedRepo.branch"/>
                                                         </button>
                                                     </t>
-                                                    <t t-if="selectedRepo.sync_pending === 0 and (selectedRepo.branch === 'staging' or selectedRepo.branch === 'development')">
+                                                    <t t-if="selectedRepo.sync_pending === 0 and selectedRepo.merge_target">
                                                         <div t-att-class="selectedRepo.merge_target ? 'mt-2' : ''"
                                                              style="color: #a6e3a1; font-size: 10px;">
-                                                            &#10003; Sincronizado con main
+                                                            &#10003; Sincronizado con <t t-esc="_prodBranch"/>
                                                         </div>
                                                     </t>
                                                 </div>

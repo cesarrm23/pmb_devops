@@ -237,6 +237,7 @@ class PmbDevopsApp extends Component {
                         "repo_url",
                         "max_staging",
                         "max_development",
+                        "production_branch",
                     ],
                     limit: 100,
                 },
