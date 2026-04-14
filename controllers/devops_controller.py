@@ -1560,22 +1560,28 @@ echo "done" > {status_file}
 
     # ---- GitHub credentials per instance ----
 
+    def _github_session_key(self, instance_id):
+        return f'pmb_github_{request.env.uid}_{instance_id}'
+
+    def _get_github_creds(self, instance_id):
+        """Get GitHub credentials for current user + instance from session."""
+        key = self._github_session_key(instance_id)
+        return request.session.get(key, {})
+
     @http.route('/devops/git/github/check', type='json', auth='user')
     def github_check(self, instance_id=None):
-        """Check if GitHub credentials are configured for this instance."""
+        """Check if GitHub credentials are configured for this user + instance."""
         if not instance_id:
             return {'configured': False}
-        inst = request.env['devops.instance'].sudo().browse(instance_id)
-        if not inst.exists():
-            return {'configured': False}
+        creds = self._get_github_creds(instance_id)
         return {
-            'configured': bool(inst.github_user and inst.github_token),
-            'github_user': inst.github_user or '',
+            'configured': bool(creds.get('user') and creds.get('token')),
+            'github_user': creds.get('user', ''),
         }
 
     @http.route('/devops/git/github/save', type='json', auth='user')
     def github_save(self, instance_id=None, github_user='', github_token=''):
-        """Save GitHub credentials for an instance and configure git remotes."""
+        """Save GitHub credentials for current user + instance in session."""
         if not instance_id or not github_user or not github_token:
             return {'error': 'Usuario y token de GitHub requeridos'}
         inst = request.env['devops.instance'].sudo().browse(instance_id)
@@ -1584,32 +1590,12 @@ echo "done" > {status_file}
         if inst.instance_type == 'production':
             return {'error': 'No se pueden configurar credenciales en produccion'}
 
-        inst.write({
-            'github_user': github_user,
-            'github_token': github_token,
-        })
-
-        # Configure git remote URLs with credentials in all custom repos
-        project = inst.project_id
-        from ..utils import ssh_utils
-        repos_data = self.instance_repos(project.id, instance_id)
-        for repo in repos_data.get('repos', []):
-            if repo.get('repo_type') != 'custom':
-                continue
-            rpath = repo['path']
-            # Get current remote URL
-            r = ssh_utils.execute_command(project, ['git', 'remote', 'get-url', 'origin'], cwd=rpath, timeout=10)
-            if r.returncode != 0:
-                continue
-            url = r.stdout.strip()
-            # Replace/add credentials in URL: https://user:token@github.com/...
-            import re
-            if url.startswith('https://'):
-                # Remove existing credentials
-                clean = re.sub(r'https://[^@]+@', 'https://', url)
-                new_url = clean.replace('https://', f'https://{github_user}:{github_token}@')
-                ssh_utils.execute_command(project, ['git', 'remote', 'set-url', 'origin', new_url], cwd=rpath, timeout=10)
-
+        # Store in session (per user, per instance)
+        key = self._github_session_key(instance_id)
+        request.session[key] = {
+            'user': github_user,
+            'token': github_token,
+        }
         return {'status': 'ok'}
 
     @http.route('/devops/git/github/oauth/start', type='json', auth='user')
@@ -1694,59 +1680,23 @@ echo "done" > {status_file}
         except Exception:
             pass
 
-        # Save credentials
-        inst.write({
-            'github_user': github_user or 'oauth-user',
-            'github_token': token,
-        })
-
-        # Configure git remotes with the token
-        from ..utils import ssh_utils
-        repos_data = self.instance_repos(project.id, instance_id)
-        for repo in repos_data.get('repos', []):
-            if repo.get('repo_type') != 'custom':
-                continue
-            rpath = repo['path']
-            r = ssh_utils.execute_command(project, ['git', 'remote', 'get-url', 'origin'], cwd=rpath, timeout=10)
-            if r.returncode != 0:
-                continue
-            url = r.stdout.strip()
-            import re
-            if url.startswith('https://'):
-                clean = re.sub(r'https://[^@]+@', 'https://', url)
-                new_url = clean.replace('https://', f'https://{github_user or "oauth"}:{token}@')
-                ssh_utils.execute_command(project, ['git', 'remote', 'set-url', 'origin', new_url], cwd=rpath, timeout=10)
+        # Save credentials in session (per user)
+        key = self._github_session_key(instance_id)
+        request.session[key] = {
+            'user': github_user or 'oauth-user',
+            'token': token,
+        }
 
         _logger.info("GitHub OAuth: token saved for instance %s, user %s", inst.name, github_user)
         return request.redirect('/web#action=780')
 
     @http.route('/devops/git/github/logout', type='json', auth='user')
     def github_logout(self, instance_id=None):
-        """Remove GitHub credentials and clean remote URLs."""
+        """Remove GitHub credentials for current user + instance."""
         if not instance_id:
             return {'error': 'Instance ID required'}
-        inst = request.env['devops.instance'].sudo().browse(instance_id)
-        if not inst.exists():
-            return {'error': 'Instancia no encontrada'}
-
-        # Clean credentials from git remote URLs
-        project = inst.project_id
-        from ..utils import ssh_utils
-        import re
-        repos_data = self.instance_repos(project.id, instance_id)
-        for repo in repos_data.get('repos', []):
-            if repo.get('repo_type') != 'custom':
-                continue
-            rpath = repo['path']
-            r = ssh_utils.execute_command(project, ['git', 'remote', 'get-url', 'origin'], cwd=rpath, timeout=10)
-            if r.returncode != 0:
-                continue
-            url = r.stdout.strip()
-            if '@' in url and url.startswith('https://'):
-                clean_url = re.sub(r'https://[^@]+@', 'https://', url)
-                ssh_utils.execute_command(project, ['git', 'remote', 'set-url', 'origin', clean_url], cwd=rpath, timeout=10)
-
-        inst.write({'github_user': False, 'github_token': False})
+        key = self._github_session_key(instance_id)
+        request.session.pop(key, None)
         return {'status': 'ok'}
 
     # ---- Claude sessions ----
@@ -2679,8 +2629,8 @@ Texto:
         return {'status': 'ok', 'output': result.stdout.strip(), 'closed_tasks': closed_tasks}
 
     @http.route('/devops/git/push', type='json', auth='user')
-    def git_push(self, project_id, repo_path=''):
-        """Push current branch to origin."""
+    def git_push(self, project_id, repo_path='', instance_id=None):
+        """Push current branch to origin using current user's GitHub credentials."""
         if not self._is_git_authed():
             return {'error': 'Autenticación requerida', 'auth_required': True}
         project = request.env['devops.project'].browse(project_id)
@@ -2689,16 +2639,39 @@ Texto:
         is_ssh = project.connection_type == 'ssh' and project.ssh_host
         if not repo_path or (not is_ssh and not os.path.isdir(repo_path)):
             return {'error': 'Repo path not found'}
+
+        # Get GitHub credentials for current user
+        import re
+        creds = self._get_github_creds(instance_id) if instance_id else {}
+        if not creds.get('token') and instance_id:
+            return {'error': 'Inicia sesion en GitHub primero', 'auth_required': True}
+
         from ..utils import ssh_utils
         # Get current branch
         r = ssh_utils.execute_command(project, [
             'git', 'rev-parse', '--abbrev-ref', 'HEAD',
         ], cwd=repo_path, timeout=5)
         branch = r.stdout.strip() if r.returncode == 0 else 'HEAD'
-        # Push
-        result = ssh_utils.execute_command(project, [
-            'git', 'push', 'origin', branch,
-        ], cwd=repo_path, timeout=60)
+
+        # Build push URL with user's credentials
+        if creds.get('token'):
+            r_url = ssh_utils.execute_command(project, ['git', 'remote', 'get-url', 'origin'], cwd=repo_path, timeout=5)
+            origin_url = r_url.stdout.strip() if r_url.returncode == 0 else ''
+            if origin_url.startswith('https://'):
+                clean = re.sub(r'https://[^@]+@', 'https://', origin_url)
+                push_url = clean.replace('https://', f"https://{creds['user']}:{creds['token']}@")
+                # Push with explicit URL (doesn't modify the saved remote)
+                result = ssh_utils.execute_command(project, [
+                    'git', 'push', push_url, branch,
+                ], cwd=repo_path, timeout=60)
+            else:
+                result = ssh_utils.execute_command(project, [
+                    'git', 'push', 'origin', branch,
+                ], cwd=repo_path, timeout=60)
+        else:
+            result = ssh_utils.execute_command(project, [
+                'git', 'push', 'origin', branch,
+            ], cwd=repo_path, timeout=60)
         if result.returncode != 0:
             err = result.stderr.strip() or result.stdout.strip()
             return {'error': err or 'git push failed'}

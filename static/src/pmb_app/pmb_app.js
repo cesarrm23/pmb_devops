@@ -1797,6 +1797,7 @@ class PmbDevopsApp extends Component {
             const result = await rpc('/devops/git/push', {
                 project_id: this.state.currentProjectId,
                 repo_path: this.state.gitSelectedRepo,
+                instance_id: this.state.selectedInstance ? this.state.selectedInstance.id : null,
             });
             if (result.auth_required) {
                 this.state.gitAuthenticated = false;
