@@ -10,6 +10,26 @@ _logger = logging.getLogger(__name__)
 
 class DevopsController(http.Controller):
 
+    # Throttled activity touch — avoids DB write on every request
+    _activity_cache = {}  # {instance_id: last_touch_timestamp}
+
+    def _touch_activity(self, instance_id):
+        """Update last_activity on an instance, throttled to once per 5 min."""
+        if not instance_id:
+            return
+        import time
+        now = time.time()
+        last = self._activity_cache.get(instance_id, 0)
+        if now - last < 300:  # 5 min throttle
+            return
+        self._activity_cache[instance_id] = now
+        try:
+            inst = request.env['devops.instance'].sudo().browse(instance_id)
+            if inst.exists() and inst.state == 'running':
+                inst.write({'last_activity': fields.Datetime.now()})
+        except Exception:
+            pass
+
     @http.route('/devops/assets/clear', type='json', auth='user')
     def assets_clear(self):
         """Clear all compiled asset bundles to force regeneration."""
@@ -325,6 +345,7 @@ class DevopsController(http.Controller):
         Writes progress to a log file, returns immediately.
         Frontend polls /devops/instance/deploy_status for progress.
         """
+        self._touch_activity(instance_id)
         import subprocess
         import shlex
 
@@ -687,6 +708,7 @@ echo "done" > {status_file}
     @http.route('/devops/instance/repos', type='json', auth='user')
     def instance_repos(self, project_id, instance_id=None):
         """Detect available git repos for an instance from its Odoo config."""
+        self._touch_activity(instance_id)
         project = request.env['devops.project'].browse(project_id)
         if not project.exists():
             return {'repos': []}
@@ -1332,6 +1354,7 @@ echo "done" > {status_file}
     @http.route('/devops/git/status', type='json', auth='user')
     def git_status(self, project_id, instance_id=None, repo_path=''):
         """Get git status: staged, unstaged, and untracked files."""
+        self._touch_activity(instance_id)
         project = request.env['devops.project'].browse(project_id)
         if not project.exists():
             return {'error': 'Proyecto no encontrado'}

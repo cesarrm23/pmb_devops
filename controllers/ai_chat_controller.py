@@ -4,7 +4,7 @@ import os
 import secrets
 import time
 
-from odoo import http
+from odoo import fields, http
 from odoo.http import request
 
 _logger = logging.getLogger(__name__)
@@ -22,6 +22,15 @@ class DevopsAiChatController(http.Controller):
         """
         uid = request.env.uid
         os.makedirs(TOKEN_DIR, exist_ok=True)
+
+        # Touch activity to prevent auto-stop while user is active
+        if instance_id:
+            try:
+                inst = request.env['devops.instance'].sudo().browse(instance_id)
+                if inst.exists() and inst.state == 'running':
+                    inst.write({'last_activity': fields.Datetime.now()})
+            except Exception:
+                pass
 
         # Determine working directory and SSH config
         cwd = '/opt/odooAL'
