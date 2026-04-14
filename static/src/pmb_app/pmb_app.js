@@ -2756,38 +2756,44 @@ class PmbDevopsApp extends Component {
                 }
             });
 
-            // File paste support: intercept any file from clipboard (images, PDFs, etc.)
+            // File paste support: intercept files from clipboard (images, PDFs, etc.)
+            // Only intercept if clipboard contains files AND no plain text
+            // (so normal text paste always works for xterm)
             this._aiPasteHandler = (ev) => {
                 const items = ev.clipboardData && ev.clipboardData.items;
                 if (!items) return;
+                // Check if there's plain text — if so, let xterm handle it normally
+                let hasText = false;
+                let fileItem = null;
                 for (const item of items) {
-                    if (item.kind === 'file') {
-                        ev.preventDefault();
-                        ev.stopPropagation();
-                        const blob = item.getAsFile();
-                        if (!blob) return;
-                        const ext = blob.name ? blob.name.split('.').pop() : (item.type.split('/')[1] || 'bin');
-                        const filename = blob.name || `paste_${Date.now()}.${ext}`;
-                        const reader = new FileReader();
-                        reader.onload = () => {
-                            const base64 = reader.result.split(',')[1];
-                            if (this._aiWs && this._aiWs.readyState === WebSocket.OPEN) {
-                                this._aiWs.send(JSON.stringify({
-                                    type: 'file',
-                                    data: base64,
-                                    filename: filename,
-                                    mimetype: item.type,
-                                }));
-                                if (this._aiTerm) {
-                                    const size = blob.size > 1024 ? `${(blob.size/1024).toFixed(1)}KB` : `${blob.size}B`;
-                                    this._aiTerm.writeln(`\x1b[33m[Archivo pegado: ${filename} (${size})]\x1b[0m`);
-                                }
-                            }
-                        };
-                        reader.readAsDataURL(blob);
-                        return;
-                    }
+                    if (item.kind === 'string' && item.type === 'text/plain') hasText = true;
+                    if (item.kind === 'file') fileItem = item;
                 }
+                // Only handle file if there's no text (pure file paste/drop)
+                if (!fileItem || hasText) return;
+                ev.preventDefault();
+                ev.stopPropagation();
+                const blob = fileItem.getAsFile();
+                if (!blob) return;
+                const ext = blob.name ? blob.name.split('.').pop() : (fileItem.type.split('/')[1] || 'bin');
+                const filename = blob.name || `paste_${Date.now()}.${ext}`;
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const base64 = reader.result.split(',')[1];
+                    if (this._aiWs && this._aiWs.readyState === WebSocket.OPEN) {
+                        this._aiWs.send(JSON.stringify({
+                            type: 'file',
+                            data: base64,
+                            filename: filename,
+                            mimetype: fileItem.type,
+                        }));
+                        if (this._aiTerm) {
+                            const size = blob.size > 1024 ? `${(blob.size/1024).toFixed(1)}KB` : `${blob.size}B`;
+                            this._aiTerm.writeln(`\x1b[33m[Archivo: ${filename} (${size})]\x1b[0m`);
+                        }
+                    }
+                };
+                reader.readAsDataURL(blob);
             };
             container.addEventListener('paste', this._aiPasteHandler, true);
             document.addEventListener('paste', this._aiPasteHandler, false);
