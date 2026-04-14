@@ -2020,13 +2020,11 @@ echo "done" > {status_file}
             return {'error': 'Reunion no encontrada'}
         if not audio_data:
             return {'error': 'Audio requerido'}
-        # Also keep backward compat on meeting level
-        meeting.write({
+        meeting.sudo().write({
             'audio_file': audio_data,
             'audio_filename': filename or 'recording.webm',
         })
-        # Create recording record
-        rec = request.env['devops.meeting.recording'].create({
+        rec = request.env['devops.meeting.recording'].sudo().create({
             'meeting_id': meeting_id,
             'name': filename or f'Grabacion {fields.Datetime.now()}',
             'audio_file': audio_data,
@@ -2034,6 +2032,45 @@ echo "done" > {status_file}
             'duration_minutes': duration or 0,
         })
         return {'status': 'ok', 'recording_id': rec.id}
+
+    @http.route('/devops/meetings/upload_chunk', type='json', auth='user')
+    def meetings_upload_chunk(self, meeting_id, recording_id=None, chunk_data='', chunk_index=0, is_last=False, filename='', duration=0):
+        """Upload audio in chunks. Creates recording on first chunk, appends on subsequent."""
+        import base64
+        meeting = request.env['devops.meeting'].sudo().browse(meeting_id)
+        if not meeting.exists():
+            return {'error': 'Reunion no encontrada'}
+
+        if not recording_id:
+            # First chunk — create the recording
+            rec = request.env['devops.meeting.recording'].sudo().create({
+                'meeting_id': meeting_id,
+                'name': filename or f'Grabacion {fields.Datetime.now()}',
+                'audio_file': chunk_data,
+                'audio_filename': filename or 'recording.webm',
+            })
+            recording_id = rec.id
+        else:
+            # Append chunk to existing recording
+            rec = request.env['devops.meeting.recording'].sudo().browse(recording_id)
+            if rec.exists() and rec.audio_file:
+                existing = base64.b64decode(rec.audio_file)
+                new_chunk = base64.b64decode(chunk_data)
+                combined = base64.b64encode(existing + new_chunk).decode()
+                rec.write({'audio_file': combined})
+            elif rec.exists():
+                rec.write({'audio_file': chunk_data})
+
+        if is_last:
+            rec = request.env['devops.meeting.recording'].sudo().browse(recording_id)
+            rec.write({'duration_minutes': duration or 0})
+            # Also update meeting level
+            meeting.write({
+                'audio_file': rec.audio_file,
+                'audio_filename': rec.audio_filename,
+            })
+
+        return {'status': 'ok', 'recording_id': recording_id}
 
     @http.route('/devops/meetings/transcribe', type='json', auth='user')
     def meetings_transcribe(self, meeting_id):

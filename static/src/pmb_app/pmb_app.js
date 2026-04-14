@@ -2210,27 +2210,37 @@ class PmbDevopsApp extends Component {
             }
             this._mediaRecorder = new MediaRecorder(this._recordStream, { mimeType });
 
+            this._recordChunkRecId = null;
+            this._recordFilename = `recording_${Date.now()}.webm`;
+            this._recordChunkIndex = 0;
+            this._recordChunkQueue = [];
+            this._recordUploading = false;
+
+            // Upload chunks incrementally (every 30 seconds of audio)
+            const CHUNK_INTERVAL = 30000; // 30 sec per chunk upload
             this._mediaRecorder.ondataavailable = (e) => {
                 if (e.data.size > 0) this._recordChunks.push(e.data);
             };
 
             this._mediaRecorder.onstop = async () => {
-                const blob = new Blob(this._recordChunks, { type: 'audio/webm' });
-                // Convert to base64 and upload
-                const reader = new FileReader();
-                reader.onload = async () => {
-                    const base64 = reader.result.split(',')[1];
-                    await rpc('/devops/meetings/upload_audio', {
-                        meeting_id: mid,
-                        audio_data: base64,
-                        filename: `recording_${Date.now()}.webm`,
-                    });
-                    await rpc('/devops/meetings/update', { meeting_id: mid, state: 'done' });
-                    await this._loadMeetings();
-                };
-                reader.readAsDataURL(blob);
-                this._recordChunks = [];
+                // Upload final remaining chunks
+                if (this._recordChunks.length > 0) {
+                    const blob = new Blob(this._recordChunks, { type: 'audio/webm' });
+                    await this._uploadAudioChunk(mid, blob, true);
+                    this._recordChunks = [];
+                }
+                await rpc('/devops/meetings/update', { meeting_id: mid, state: 'done' });
+                await this._loadMeetings();
             };
+
+            // Periodic chunk upload
+            this._chunkUploadTimer = setInterval(async () => {
+                if (this._recordChunks.length > 0 && !this._recordUploading) {
+                    const blob = new Blob(this._recordChunks, { type: 'audio/webm' });
+                    this._recordChunks = [];
+                    await this._uploadAudioChunk(mid, blob, false);
+                }
+            }, CHUNK_INTERVAL);
 
             this._mediaRecorder.start(1000); // collect data every second
             this.state.meetRecordingId = mid;
@@ -2262,6 +2272,31 @@ class PmbDevopsApp extends Component {
         }
     }
 
+    async _uploadAudioChunk(mid, blob, isLast) {
+        this._recordUploading = true;
+        try {
+            const base64 = await new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result.split(',')[1]);
+                reader.readAsDataURL(blob);
+            });
+            const duration = this._recordStartTime ? Math.round((Date.now() - this._recordStartTime) / 60000) : 0;
+            const result = await rpc('/devops/meetings/upload_chunk', {
+                meeting_id: mid,
+                recording_id: this._recordChunkRecId || null,
+                chunk_data: base64,
+                chunk_index: this._recordChunkIndex++,
+                is_last: isLast,
+                filename: this._recordFilename,
+                duration: duration || 1,
+            });
+            if (result.recording_id) this._recordChunkRecId = result.recording_id;
+        } catch (e) {
+            console.error('Chunk upload error:', e);
+        }
+        this._recordUploading = false;
+    }
+
     async _meetStopRecording() {
         if (this._mediaRecorder && this._mediaRecorder.state !== 'inactive') {
             this._mediaRecorder.stop();
@@ -2285,6 +2320,10 @@ class PmbDevopsApp extends Component {
         if (this._recordTimer) {
             clearInterval(this._recordTimer);
             this._recordTimer = null;
+        }
+        if (this._chunkUploadTimer) {
+            clearInterval(this._chunkUploadTimer);
+            this._chunkUploadTimer = null;
         }
         // Save duration
         if (this.state.meetRecordingId && this._recordStartTime) {
