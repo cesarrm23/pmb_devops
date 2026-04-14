@@ -957,8 +957,8 @@
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\t')" title="Tab">⇥</button>
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\x1b[A')" title="Up arrow">↑</button>
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\x1b[B')" title="Down arrow">↓</button>
-                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('y\\n')" title="Yes + Enter">Y⏎</button>
-                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\n')" title="Enter">⏎</button>
+                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('y\\r')" title="Yes + Enter">Y⏎</button>
+                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\r')" title="Enter">⏎</button>
                                             <div style="width: 1px; height: 16px; background: #313244; margin: 0 2px;"/>
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="_pasteToAiTerminal" title="Pegar texto del portapapeles">📋</button>
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="_attachFileToTerminal" title="Adjuntar archivo">📎</button>
