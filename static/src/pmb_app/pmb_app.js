@@ -3092,7 +3092,7 @@ class PmbDevopsApp extends Component {
 
     _toggleClaudeSessions() {
         if (this._aiWs && this._aiWs.readyState === WebSocket.OPEN) {
-            this._aiWs.send(JSON.stringify({ type: 'input', data: '/resume\r' }));
+            this._aiWs.send(JSON.stringify({ type: 'input', data: '/resume' + String.fromCharCode(13) }));
         }
         if (this._aiTerm) this._aiTerm.focus();
     }
@@ -3111,9 +3111,9 @@ class PmbDevopsApp extends Component {
         if (!this._aiWs || this._aiWs.readyState !== WebSocket.OPEN) return;
         const ws = this._aiWs;
         // Cancel any pending input, then send /resume inside Claude Code
-        ws.send(JSON.stringify({ type: 'input', data: '\x03' }));  // Ctrl+C
+        ws.send(JSON.stringify({ type: 'input', data: String.fromCharCode(3) }));  // Ctrl+C
         setTimeout(() => {
-            ws.send(JSON.stringify({ type: 'input', data: `/resume ${sessionId}\r` }));
+            ws.send(JSON.stringify({ type: 'input', data: `/resume ${sessionId}` + String.fromCharCode(13) }));
         }, 300);
         this.state.claudeSessionsVisible = false;
         if (this._aiTerm) this._aiTerm.focus();

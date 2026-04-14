@@ -948,17 +948,17 @@
                                                 &#128203;
                                             </button>
                                             <div style="width: 1px; height: 16px; background: #313244; margin: 0 2px;"/>
-                                            <!-- Terminal key buttons -->
-                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\x03')" title="Cancelar comando en ejecucion">Ctrl+C</button>
-                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\x1a')" title="Suspender proceso (background)">Ctrl+Z</button>
-                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\x04')" title="Cerrar sesion / EOF">Ctrl+D</button>
-                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\x0c')" title="Limpiar pantalla">Ctrl+L</button>
-                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\x1b')" title="Escape: salir de modo o cancelar">⎋</button>
-                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\t')" title="Autocompletar comando o ruta">⇥</button>
-                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\x1b[A')" title="Comando anterior en historial">↑</button>
-                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\x1b[B')" title="Comando siguiente en historial">↓</button>
-                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('y\\r')" title="Confirmar: escribe Yes + Enter">Y⏎</button>
-                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('\\r')" title="Ejecutar comando (Enter)">⏎</button>
+                                            <!-- Terminal key buttons (use String.fromCharCode for control chars) -->
+                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey(String.fromCharCode(3))" title="Cancelar comando en ejecucion">Ctrl+C</button>
+                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey(String.fromCharCode(26))" title="Suspender proceso (background)">Ctrl+Z</button>
+                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey(String.fromCharCode(4))" title="Cerrar sesion / EOF">Ctrl+D</button>
+                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey(String.fromCharCode(12))" title="Limpiar pantalla">Ctrl+L</button>
+                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey(String.fromCharCode(27))" title="Escape: salir de modo o cancelar">⎋</button>
+                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey(String.fromCharCode(9))" title="Autocompletar comando o ruta">⇥</button>
+                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey(String.fromCharCode(27)+'[A')" title="Comando anterior en historial">↑</button>
+                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey(String.fromCharCode(27)+'[B')" title="Comando siguiente en historial">↓</button>
+                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey('y'+String.fromCharCode(13))" title="Confirmar: escribe Yes + Enter">Y⏎</button>
+                                            <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendTermKey(String.fromCharCode(13))" title="Ejecutar comando (Enter)">⏎</button>
                                             <div style="width: 1px; height: 16px; background: #313244; margin: 0 2px;"/>
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="_pasteToAiTerminal" title="Pegar texto del portapapeles">📋</button>
                                             <button class="btn btn-sm pmb-key-btn" t-on-click="_attachFileToTerminal" title="Adjuntar archivo al terminal">📎</button>
@@ -1034,14 +1034,14 @@
                             <div t-att-class="'d-flex flex-column' + (state.activeContentTab !== 'shell' ? ' d-none' : '')"
                                  t-att-style="'height: 500px;' + (state.activeContentTab !== 'shell' ? ' display: none !important;' : '')">
                                 <div class="pmb-term-keys d-flex gap-1 px-2 py-1" style="background: #181825; border-bottom: 1px solid #313244; flex-shrink: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap;">
-                                    <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\x03')" title="Cancelar comando en ejecucion">Ctrl+C</button>
-                                    <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\x1a')" title="Suspender proceso (background)">Ctrl+Z</button>
-                                    <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\x04')" title="Cerrar sesion / EOF">Ctrl+D</button>
-                                    <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\x0c')" title="Limpiar pantalla">Ctrl+L</button>
-                                    <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\x1b')" title="Escape: salir de modo o cancelar">⎋</button>
-                                    <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\t')" title="Autocompletar comando o ruta">⇥</button>
-                                    <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\x1b[A')" title="Comando anterior en historial">↑</button>
-                                    <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey('\\x1b[B')" title="Comando siguiente en historial">↓</button>
+                                    <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey(String.fromCharCode(3))" title="Cancelar comando en ejecucion">Ctrl+C</button>
+                                    <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey(String.fromCharCode(26))" title="Suspender proceso (background)">Ctrl+Z</button>
+                                    <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey(String.fromCharCode(4))" title="Cerrar sesion / EOF">Ctrl+D</button>
+                                    <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey(String.fromCharCode(12))" title="Limpiar pantalla">Ctrl+L</button>
+                                    <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey(String.fromCharCode(27))" title="Escape: salir de modo o cancelar">⎋</button>
+                                    <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey(String.fromCharCode(9))" title="Autocompletar comando o ruta">⇥</button>
+                                    <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey(String.fromCharCode(27)+'[A')" title="Comando anterior en historial">↑</button>
+                                    <button class="btn btn-sm pmb-key-btn" t-on-click="() => this._sendShellKey(String.fromCharCode(27)+'[B')" title="Comando siguiente en historial">↓</button>
                                     <div style="width: 1px; height: 16px; background: #313244; margin: 0 2px;"/>
                                     <button class="btn btn-sm pmb-key-btn" t-on-click="_reconnectShellTerminal" title="Reconectar terminal">&#x21bb;</button>
                                 </div>
