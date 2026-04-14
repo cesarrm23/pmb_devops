@@ -105,6 +105,7 @@ class PmbDevopsApp extends Component {
             autodetectResult: null,
             gitPanelWidth: 280,         // resizable panel width (px)
             gitResizing: false,         // drag in progress
+            gitSplitPercent: 60,        // % of panel height for git changes (top)
             claudeSessions: [],         // list of claude sessions
             claudeSessionSearch: '',    // search filter
             claudeSessionsVisible: false, // toggle sessions panel
@@ -1590,6 +1591,32 @@ class PmbDevopsApp extends Component {
             this._saveGitPanelWidth();
         };
 
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onEnd);
+        document.addEventListener('touchmove', onMove, { passive: false });
+        document.addEventListener('touchend', onEnd);
+    }
+
+    _onSplitResizeStart(ev) {
+        ev.preventDefault();
+        const panel = ev.currentTarget.closest('.pmb-git-panel');
+        if (!panel) return;
+        const panelRect = panel.getBoundingClientRect();
+        const startY = ev.type === 'touchstart' ? ev.touches[0].clientY : ev.clientY;
+        const startPercent = this.state.gitSplitPercent;
+
+        const onMove = (e) => {
+            const clientY = e.type === 'touchmove' ? e.touches[0].clientY : e.clientY;
+            const deltaY = clientY - startY;
+            const deltaPercent = (deltaY / panelRect.height) * 100;
+            this.state.gitSplitPercent = Math.max(20, Math.min(80, startPercent + deltaPercent));
+        };
+        const onEnd = () => {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onEnd);
+            document.removeEventListener('touchmove', onMove);
+            document.removeEventListener('touchend', onEnd);
+        };
         document.addEventListener('mousemove', onMove);
         document.addEventListener('mouseup', onEnd);
         document.addEventListener('touchmove', onMove, { passive: false });

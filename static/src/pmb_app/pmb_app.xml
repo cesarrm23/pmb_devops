@@ -626,7 +626,7 @@
                                             </select>
 
                                             <!-- === Git Changes section (scrollable top) === -->
-                                            <div style="flex: 1 1 0; min-height: 60px; overflow-y: auto;">
+                                            <div t-att-style="'overflow-y: auto; min-height: 40px; flex: 0 0 ' + state.gitSplitPercent + '%;'">
 
                                             <!-- Outgoing commits (not pushed) -->
                                             <t t-if="state.gitOutgoing.length > 0">
@@ -803,8 +803,14 @@
 
                                             </div><!-- end Git Changes scroll -->
 
+                                            <!-- Split drag handle -->
+                                            <div style="height: 4px; cursor: row-resize; background: #313244; flex-shrink: 0; margin: 2px 0;"
+                                                 t-on-mousedown="_onSplitResizeStart"
+                                                 t-on-touchstart="_onSplitResizeStart"
+                                                 title="Arrastra para ajustar"/>
+
                                             <!-- === Merge/Sync section (scrollable bottom) === -->
-                                            <div style="flex: 0 1 auto; max-height: 50%; overflow-y: auto; border-top: 1px solid #313244; margin-top: 4px; padding-top: 4px;">
+                                            <div t-att-style="'overflow-y: auto; min-height: 40px; flex: 0 0 ' + (100 - state.gitSplitPercent) + '%;'">
                                             <t t-set="selectedRepo" t-value="state.historyRepos.find(r => r.path === state.gitSelectedRepo)"/>
                                             <t t-if="!selectedRepo and state.historyRepos.length === 0">
                                                 <div style="color: #6c7086; font-size: 10px; padding: 4px 0;">Cargando repos...</div>
