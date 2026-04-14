@@ -3092,7 +3092,7 @@ class PmbDevopsApp extends Component {
 
     _toggleClaudeSessions() {
         if (this._aiWs && this._aiWs.readyState === WebSocket.OPEN) {
-            this._aiWs.send(JSON.stringify({ type: 'input', data: '/sessions\r' }));
+            this._aiWs.send(JSON.stringify({ type: 'input', data: '/resume\r' }));
         }
         if (this._aiTerm) this._aiTerm.focus();
     }
