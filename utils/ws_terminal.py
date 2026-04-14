@@ -180,12 +180,13 @@ class Session:
 
     SCROLLBACK_SIZE = 64 * 1024  # 64KB scrollback buffer
 
-    def __init__(self, key, master_fd, pid, cwd, cmd_type):
+    def __init__(self, key, master_fd, pid, cwd, cmd_type, ssh_config=None):
         self.key = key
         self.master_fd = master_fd
         self.pid = pid
         self.cwd = cwd
         self.cmd_type = cmd_type
+        self.ssh_config = ssh_config
         self.created = time.time()
         self.websocket = None
         self._read_task = None
@@ -338,7 +339,7 @@ async def terminal_handler(websocket):
             flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)
             fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
 
-            session = Session(key, master_fd, child_pid, cwd, cmd_type)
+            session = Session(key, master_fd, child_pid, cwd, cmd_type, ssh_config=ssh)
             persistent_sessions[key] = session
             await session.attach(websocket)
 
@@ -362,23 +363,50 @@ async def terminal_handler(websocket):
                     fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsize)
                     os.kill(child_pid, signal.SIGWINCH)
                 elif msg.get('type') in ('image', 'file'):
-                    # Save pasted/dropped file to temp dir and send path to PTY
-                    import base64, tempfile
+                    # Save file and make it accessible to the PTY process
+                    import base64
                     file_data = base64.b64decode(msg['data'])
                     filename = msg.get('filename', f'paste_{int(time.time())}.bin')
-                    # Sanitize filename
                     filename = filename.replace('/', '_').replace('..', '_')
-                    file_path = os.path.join(tempfile.gettempdir(), filename)
-                    with open(file_path, 'wb') as f:
-                        f.write(file_data)
-                    # Send the file path as input to Claude Code
-                    os.write(master_fd, file_path.encode('utf-8'))
                     size_kb = len(file_data) / 1024
-                    logger.info("File saved: %s (%.1f KB)", file_path, size_kb)
+
+                    # Determine where to save
+                    save_dir = session.cwd if session else '/tmp'
+                    file_path = os.path.join(save_dir, filename)
+
+                    # Check if this is an SSH session
+                    ssh_cfg = session.ssh_config if session else None
+                    if ssh_cfg:
+                        # SSH: save locally first, then SCP to remote
+                        local_tmp = os.path.join('/tmp', filename)
+                        with open(local_tmp, 'wb') as f:
+                            f.write(file_data)
+                        remote_path = f"/tmp/{filename}"
+                        scp_cmd = ['scp', '-o', 'StrictHostKeyChecking=no']
+                        if ssh_cfg.get('key') and os.path.isfile(ssh_cfg['key']):
+                            scp_cmd += ['-i', ssh_cfg['key']]
+                        if ssh_cfg.get('port', 22) != 22:
+                            scp_cmd += ['-P', str(ssh_cfg['port'])]
+                        scp_cmd += [local_tmp, f"{ssh_cfg.get('user', 'root')}@{ssh_cfg['host']}:{remote_path}"]
+                        try:
+                            import subprocess
+                            subprocess.run(scp_cmd, capture_output=True, timeout=30)
+                            os.remove(local_tmp)
+                        except Exception as e:
+                            logger.warning("SCP failed: %s", e)
+                        file_path = remote_path
+                    else:
+                        # Local: save directly
+                        with open(file_path, 'wb') as f:
+                            f.write(file_data)
+
+                    # Send path as input to the terminal
+                    os.write(master_fd, file_path.encode('utf-8'))
+                    logger.info("File saved: %s (%.1f KB, ssh=%s)", file_path, size_kb, bool(ssh_cfg))
                     try:
                         await websocket.send(json.dumps({
                             'type': 'info',
-                            'data': f'Archivo guardado: {file_path} ({size_kb:.1f} KB)',
+                            'data': f'Archivo: {file_path} ({size_kb:.1f} KB)',
                         }))
                     except Exception:
                         pass
