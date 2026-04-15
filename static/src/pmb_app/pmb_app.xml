@@ -1963,7 +1963,10 @@
                                         <div style="font-size: 14px; font-weight: 300;">
                                             <t t-esc="state.serverMetrics.hostname || '—'"/>
                                         </div>
-                                        <div style="color: #6c7086; font-size: 11px; margin-top: 8px;">
+                                        <div style="color: #89b4fa; font-size: 12px; margin-top: 4px; font-family: monospace;">
+                                            <t t-esc="state.serverMetrics.ip || ''"/>
+                                        </div>
+                                        <div style="color: #6c7086; font-size: 11px; margin-top: 4px;">
                                             <t t-esc="state.serverMetrics.uptime || '—'"/>
                                         </div>
                                     </div>

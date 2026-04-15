@@ -515,6 +515,12 @@ class DevopsProject(models.Model):
         if result.returncode == 0:
             metrics['hostname'] = result.stdout.strip()
 
+        # IP address
+        result = ssh_utils.execute_command(project, ['hostname', '-I'], timeout=5)
+        if result.returncode == 0:
+            ips = result.stdout.strip().split()
+            metrics['ip'] = ips[0] if ips else ''
+
         return metrics
 
     def action_fetch_logs(self):
