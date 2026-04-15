@@ -182,7 +182,7 @@ class PmbDevopsApp extends Component {
                 if (prefs.sidebar_minimized) this.state.sidebarMinimized = true;
                 if (prefs.git_collapsed) this.state.gitPanelCollapsed = true;
             } catch (e) { /* ignore */ }
-            // Check admin status early
+            // Check admin status early (global)
             try {
                 const authCheck = await rpc('/devops/git/auth/check');
                 this.state.isAdmin = authCheck.is_admin || false;
@@ -192,6 +192,12 @@ class PmbDevopsApp extends Component {
             if (this.state.projects.length > 0) {
                 this.state.currentProjectId = this.state.projects[0].id;
                 this.state.currentProject = this.state.projects[0];
+                // Re-check role with project context
+                try {
+                    const authCheck2 = await rpc('/devops/git/auth/check', { project_id: this.state.currentProjectId });
+                    this.state.isAdmin = authCheck2.is_admin || false;
+                    this.state.isDeveloper = authCheck2.is_developer || false;
+                } catch (e) {}
                 await this._loadProjectData();
             }
             // Mobile keyboard: re-fit terminals and collapse header
@@ -541,6 +547,12 @@ class PmbDevopsApp extends Component {
         this.state.claudeSessionsVisible = false;
         this.state.settingsProject = null;
         this.state.dashboard = null;
+        // Re-check admin/developer role for this project
+        try {
+            const authCheck = await rpc('/devops/git/auth/check', { project_id: val || null });
+            this.state.isAdmin = authCheck.is_admin || false;
+            this.state.isDeveloper = authCheck.is_developer || false;
+        } catch (e) {}
         await this._loadProjectData();
         // Reload current nav tab data
         const tab = this.state.activeNavTab;

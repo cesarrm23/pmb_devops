@@ -1579,10 +1579,25 @@ echo "done" > {status_file}
         return request.session.get('pmb_git_authed') == request.env.uid
 
     @http.route('/devops/git/auth/check', type='json', auth='user')
-    def git_auth_check(self):
+    def git_auth_check(self, project_id=None):
         """Check if current user needs git auth."""
-        is_admin = request.env.user.has_group('pmb_devops.group_devops_admin')
-        is_developer = request.env.user.has_group('pmb_devops.group_devops_developer')
+        is_global_admin = request.env.user.has_group('pmb_devops.group_devops_admin')
+        is_global_dev = request.env.user.has_group('pmb_devops.group_devops_developer')
+
+        # Check project-level role (overrides global if higher)
+        is_admin = is_global_admin
+        is_developer = is_global_dev
+        if project_id and not is_global_admin:
+            member = request.env['devops.project.member'].sudo().search([
+                ('project_id', '=', project_id),
+                ('user_id', '=', request.env.uid),
+            ], limit=1)
+            if member:
+                if member.role == 'admin':
+                    is_admin = True
+                elif member.role == 'developer':
+                    is_developer = True
+
         return {
             'is_admin': is_admin,
             'is_developer': is_developer,
