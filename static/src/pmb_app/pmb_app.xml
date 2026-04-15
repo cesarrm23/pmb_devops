@@ -1963,8 +1963,13 @@
                                         <div style="font-size: 14px; font-weight: 300;">
                                             <t t-esc="state.serverMetrics.hostname || '—'"/>
                                         </div>
-                                        <div style="color: #89b4fa; font-size: 12px; margin-top: 4px; font-family: monospace;">
-                                            <t t-esc="state.serverMetrics.ip || ''"/>
+                                        <div class="d-flex align-items-center gap-1" style="margin-top: 4px;">
+                                            <span style="color: #89b4fa; font-size: 12px; font-family: monospace;"
+                                                  t-esc="state.serverMetrics.ip || ''"/>
+                                            <button t-if="state.serverMetrics.ip" class="btn btn-sm p-0 px-1"
+                                                    style="color: #6c7086; font-size: 10px; line-height: 1;"
+                                                    t-on-click="() => this._copyText(state.serverMetrics.ip)"
+                                                    title="Copiar IP">📋</button>
                                         </div>
                                         <div style="color: #6c7086; font-size: 11px; margin-top: 4px;">
                                             <t t-esc="state.serverMetrics.uptime || '—'"/>
