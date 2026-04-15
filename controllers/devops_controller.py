@@ -13,6 +13,19 @@ class DevopsController(http.Controller):
     # Throttled activity touch — avoids DB write on every request
     _activity_cache = {}  # {instance_id: last_touch_timestamp}
 
+    def _is_project_admin(self, project_id=None):
+        """Check if current user is admin (global or project-level)."""
+        if request.env.user.has_group('pmb_devops.group_devops_admin'):
+            return True
+        if project_id:
+            member = request.env['devops.project.member'].sudo().search([
+                ('project_id', '=', int(project_id)),
+                ('user_id', '=', request.env.uid),
+            ], limit=1)
+            if member and member.role == 'admin':
+                return True
+        return False
+
     def _touch_activity(self, instance_id):
         """Update last_activity on an instance, throttled to once per 5 min."""
         if not instance_id:
@@ -929,7 +942,7 @@ echo "done" > {status_file}
                                 'sync_pending': 0, 'sync_pending_commits': [],
                             })
 
-            is_admin = request.env.user.has_group('pmb_devops.group_devops_admin')
+            is_admin = self._is_project_admin(project_id)
             return {'repos': repos, 'is_admin': is_admin}
 
         # Find config path from instance or project (local)
@@ -1210,7 +1223,7 @@ echo "done" > {status_file}
             except Exception:
                 pass
 
-        is_admin = request.env.user.has_group('pmb_devops.group_devops_admin')
+        is_admin = self._is_project_admin(project_id)
         return {'repos': repos, 'is_admin': is_admin}
 
     @http.route('/devops/repo/fetch_deeper', type='json', auth='user')
@@ -1581,22 +1594,16 @@ echo "done" > {status_file}
     @http.route('/devops/git/auth/check', type='json', auth='user')
     def git_auth_check(self, project_id=None):
         """Check if current user needs git auth."""
-        is_global_admin = request.env.user.has_group('pmb_devops.group_devops_admin')
-        is_global_dev = request.env.user.has_group('pmb_devops.group_devops_developer')
-
-        # Check project-level role (overrides global if higher)
-        is_admin = is_global_admin
-        is_developer = is_global_dev
-        if project_id and not is_global_admin:
+        is_admin = self._is_project_admin(project_id)
+        is_developer = request.env.user.has_group('pmb_devops.group_devops_developer')
+        # Project-level developer
+        if project_id and not is_admin and not is_developer:
             member = request.env['devops.project.member'].sudo().search([
-                ('project_id', '=', project_id),
+                ('project_id', '=', int(project_id)),
                 ('user_id', '=', request.env.uid),
             ], limit=1)
-            if member:
-                if member.role == 'admin':
-                    is_admin = True
-                elif member.role == 'developer':
-                    is_developer = True
+            if member and member.role in ('admin', 'developer'):
+                is_developer = True
 
         return {
             'is_admin': is_admin,
@@ -2874,7 +2881,7 @@ Texto:
         # Validate merge direction
         # Promote: development → staging → main (admin required for → main)
         # Sync:    main → staging, main → development (admin only)
-        is_admin = request.env.user.has_group('pmb_devops.group_devops_admin')
+        is_admin = self._is_project_admin(project_id)
         allowed_merges = {
             'development': ['staging'],
         }
