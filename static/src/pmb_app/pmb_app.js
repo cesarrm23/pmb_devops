@@ -424,10 +424,11 @@ class PmbDevopsApp extends Component {
             }
         } else {
             this.state.activeContentTab = "ai";
-            // Initialize AI tab: terminal + git status + history
+            // Initialize AI tab: terminal + git status + history + polling
             setTimeout(async () => {
                 await this._checkGitAuth();
                 await this._refreshGitStatus();
+                this._startGitPolling();
                 this._loadClaudeSessions();
                 if (!this.state.commits || this.state.commits.length === 0) {
                     await this._loadHistoryRepos();
@@ -1631,6 +1632,7 @@ class PmbDevopsApp extends Component {
         this._gitPollTimer = setInterval(() => {
             if (this.state.activeContentTab === 'ai' && !this.state.gitCommitting && !this.state.gitPushing) {
                 this._refreshGitStatus();
+                this._loadHistory();
             }
         }, 10000); // every 10 seconds
     }
