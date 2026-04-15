@@ -47,28 +47,87 @@ This is a PRODUCTION environment. Be extra careful with changes.
 - You may read and modify files within this directory.
 - NEVER run destructive commands (rm -rf, DROP DATABASE, etc).
 - Always ask before making significant changes.
+
+# PMB DevOps Platform Context
+This server runs PMB DevOps (PatchMyByte), an Odoo 19 module that manages multiple Odoo instances.
+The module is at: /opt/odooAL/custom_addons/pmb_devops/
+
+## Architecture
+- Production Odoo: runs as systemd service, config in /etc/odoo/
+- Staging/Dev instances: created in /opt/instances/, each with own service, DB, nginx vhost, SSL
+- SSH remote projects: instances can be created on remote servers via SSH
+- WebSocket terminals: ws_terminal.py on port 8077 provides persistent PTY sessions
+- Git workflow: production=main, staging branches, dev branches. Pre-push hooks block push to protected branches.
+
+## Instance Creation Pipeline (staging/dev)
+When creating a new instance, the system:
+1. Clones the production database (pg_dump | psql)
+2. Grants DB privileges to the instance user
+3. Runs post-clone SQL: updates web.base.url, report.url, deactivates mail servers and crons
+4. Replicates the production directory structure (symlinks for odoo/enterprise, clones git repos)
+5. Creates its own git branch (named after the instance)
+6. Creates Odoo config, systemd service, nginx vhost, SSL certificate
+7. Installs pre-push hooks to prevent pushing to main/master
+
+## Post-Clone Parametrization
+After cloning a DB for staging/dev, these SQL updates are applied:
+```sql
+UPDATE ir_config_parameter SET value = 'https://{{domain}}' WHERE key = 'web.base.url';
+UPDATE ir_config_parameter SET value = 'https://{{domain}}' WHERE key = 'report.url';
+DELETE FROM ir_config_parameter WHERE key = 'database.uuid';
+DELETE FROM ir_config_parameter WHERE key = 'database.enterprise_code';
+UPDATE ir_mail_server SET active = false;
+UPDATE fetchmail_server SET active = false;
+UPDATE ir_cron SET active = false WHERE name NOT ILIKE '%session%' AND name NOT ILIKE '%autovacuum%';
+```
+Projects can add custom SQL in Settings > Script Post-Clonacion.
+
+## Key Paths
+- Module code: /opt/odooAL/custom_addons/pmb_devops/
+- Controllers: controllers/devops_controller.py, controllers/ai_chat_controller.py
+- Models: models/devops_instance.py, models/devops_instance_infra.py, models/devops_project.py
+- Frontend: static/src/pmb_app/pmb_app.js, pmb_app.xml
+- Utilities: utils/ssh_utils.py, utils/infra_utils.py, utils/git_utils.py, utils/ws_terminal.py
+- Nginx configs: /etc/nginx/sites-enabled/
+- Instance logs: /var/log/odoo/
+
+## Common Tasks
+- Create instance: done from the UI, calls action_create_instance() which runs _launch_creation_script()
+- Deploy/upgrade: git pull + detect modules + odoo-bin -u modules --stop-after-init + restart service
+- Fix permissions: psql -d {{db}} -c "GRANT ALL ON ALL TABLES IN SCHEMA public TO {{user}}"
+- Check service: systemctl status {{service_name}}
+- View logs: journalctl -u {{service_name}} -f
+- Post-clone fix: psql -d {{db}} -c "UPDATE ir_config_parameter SET value='https://{{domain}}' WHERE key='web.base.url'"
 """
     elif instance_type == 'staging':
         rules = f"""{marker}
-This is a STAGING environment.
+This is a STAGING environment for testing before production.
 - Working directory: {cwd}
 - You may ONLY modify files inside: {allowed_path}
 - NEVER modify files in /opt/odooAL/ (production) or other instance paths.
-- NEVER modify files in /opt/instances/ directories that are not this instance.
-- NEVER run: git push origin main, git push origin master, git checkout main, git checkout master
+- NEVER run: git push origin main, git push origin master
 - NEVER push to production branches. Only push to your staging branch.
 - NEVER run destructive commands (rm -rf, DROP DATABASE, etc).
+
+## Post-Clone: if the DB needs fixing after clone, run:
+psql -d <db_name> -c "UPDATE ir_config_parameter SET value='https://<domain>' WHERE key='web.base.url';"
+## Deploy changes: git pull, then restart the service.
+## This instance has a pre-push hook that blocks push to main/master.
 """
     else:  # development
         rules = f"""{marker}
-This is a DEVELOPMENT environment.
+This is a DEVELOPMENT environment for active coding.
 - Working directory: {cwd}
 - You may ONLY modify files inside: {allowed_path}
 - NEVER modify files in /opt/odooAL/ (production).
-- NEVER modify files in other /opt/instances/ directories that are not this instance.
 - NEVER run: git push origin main, git push origin master, git push origin staging
 - NEVER push to production or staging branches. Only push to your development branch.
 - NEVER run destructive commands (rm -rf, DROP DATABASE, etc).
+
+## Post-Clone: if the DB needs fixing after clone, run:
+psql -d <db_name> -c "UPDATE ir_config_parameter SET value='https://<domain>' WHERE key='web.base.url';"
+## Workflow: develop here, commit, push to your branch, then merge to staging from the UI.
+## This instance has a pre-push hook that blocks push to main/master/staging.
 """
 
     try:
@@ -225,6 +284,17 @@ class Session:
     async def attach(self, websocket):
         """Attach a new WebSocket to this session. Send scrollback history."""
         self.websocket = websocket
+        # Verify PTY is still responsive by checking if master_fd is writable
+        try:
+            import select
+            _, writable, _ = select.select([], [self.master_fd], [], 0.5)
+            if not writable:
+                logger.warning("Session %s master_fd not writable, marking dead", self.key)
+                self._force_dead = True
+                return
+        except Exception:
+            self._force_dead = True
+            return
         # Send buffered scrollback so user sees prior conversation
         if self._scrollback:
             try:
@@ -252,9 +322,14 @@ class Session:
 
     @property
     def alive(self):
+        if getattr(self, '_force_dead', False):
+            return False
         if not is_pid_alive(self.pid):
             return False
-        # Also check if the PTY fd is still writable (catches dead SSH sessions)
+        # Check if reader is still running
+        if self._read_task and self._read_task.done():
+            return False
+        # Check if PTY fd is still valid
         try:
             import select
             _, ready, _ = select.select([], [self.master_fd], [], 0)
@@ -282,7 +357,16 @@ async def terminal_handler(websocket):
         key = session_key(uid, cmd_type, cwd)
 
         # Check for existing session
+        force_new = token_data.get('force_new', False)
         session = persistent_sessions.get(key)
+
+        # Force new: destroy existing session
+        if force_new and session:
+            logger.info("Force new session: destroying old key=%s, pid=%s", key, session.pid)
+            session.destroy()
+            del persistent_sessions[key]
+            session = None
+
         if session and session.alive:
             # Reattach
             await session.attach(websocket)
@@ -310,15 +394,14 @@ async def terminal_handler(websocket):
                 remote_cwd = ssh.get('remote_cwd', '/opt')
                 instance_user = ssh.get('instance_user', '')
                 ssh_user = ssh.get('user', 'root')
-                claude_env = 'export PATH="$HOME/.local/bin:/usr/local/bin:$PATH" && export CLAUDE_CODE_DISABLE_AUTOUPDATE=1'
                 if cmd_type == 'claude':
+                    claude_cmd = f'cd {remote_cwd} && CLAUDE_CODE_DISABLE_AUTOUPDATE=1 claude'
                     if instance_user:
-                        ssh_cmd += [f'{claude_env} && cd {remote_cwd} && sudo -u {instance_user} -E claude']
+                        ssh_cmd += [f'sudo -u {instance_user} -i bash -c \'{claude_cmd}\'']
                     elif ssh_user == 'root':
-                        # Claude Code refuses to run as root — find the owner of the cwd
-                        ssh_cmd += [f'OWNER=$(stat -c %U {remote_cwd} 2>/dev/null || echo nobody); cd {remote_cwd} && sudo -u $OWNER -i bash -c \'{claude_env} && cd {remote_cwd} && claude\'']
+                        ssh_cmd += [f'OWNER=$(stat -c %U {remote_cwd} 2>/dev/null || echo nobody); sudo -u $OWNER -i bash -c \'{claude_cmd}\'']
                     else:
-                        ssh_cmd += [f'{claude_env} && cd {remote_cwd} && claude']
+                        ssh_cmd += [f'{claude_cmd}']
                 else:
                     if instance_user:
                         ssh_cmd += [f'cd {remote_cwd} && sudo -u {instance_user} -i bash']
