@@ -2232,6 +2232,20 @@
                                                 <span style="color: #6c7086; font-size: 10px;">0 = nunca destruir</span>
                                             </div>
                                         </div>
+                                        <div class="mt-2">
+                                            <label style="color: #6c7086; font-size: 11px;">Proyecto Odoo (tareas y reviews)</label>
+                                            <select class="form-select form-select-sm"
+                                                    style="background: #11111b; border-color: #313244; color: #cdd6f4; font-size: 11px;"
+                                                    t-on-change="_onOdooProjectChange">
+                                                <option value="">-- Sin proyecto --</option>
+                                                <t t-foreach="state.odooProjects || []" t-as="op" t-key="op.id">
+                                                    <option t-att-value="op.id"
+                                                            t-att-selected="state.settingsProject.odoo_project_id and state.settingsProject.odoo_project_id === op.id">
+                                                        <t t-esc="op.name"/>
+                                                    </option>
+                                                </t>
+                                            </select>
+                                        </div>
                                         <div class="mt-2" style="border-top: 1px solid #313244; padding-top: 10px;">
                                             <label style="color: #6c7086; font-size: 11px;">Servicio systemd (produccion)</label>
                                             <div class="d-flex gap-2">

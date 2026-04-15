@@ -147,6 +147,7 @@ class PmbDevopsApp extends Component {
             // Deploy / Upgrade
             deploying: false,
             postCloneResult: null,
+            odooProjects: [],           // project.project list for Settings dropdown
             deployLog: '',
             deployResult: null,
             upgradeRepos: [],
@@ -2826,9 +2827,28 @@ Usa psql -d ${inst.database_name} para ejecutar los comandos SQL.`;
         } catch (e) {
             this.state.settingsProject = null;
         }
-        // Load members and available users
+        // Load members, available users, and Odoo projects
         await this._loadMembers();
         await this._loadAvailableUsers();
+        await this._loadOdooProjects();
+    }
+
+    async _loadOdooProjects() {
+        try {
+            const projects = await rpc('/web/dataset/call_kw', {
+                model: 'project.project', method: 'search_read',
+                args: [[]],
+                kwargs: { fields: ['id', 'name'], limit: 100, order: 'name' },
+            });
+            this.state.odooProjects = projects;
+        } catch (e) { this.state.odooProjects = []; }
+    }
+
+    _onOdooProjectChange(ev) {
+        const val = parseInt(ev.target.value) || false;
+        if (this.state.settingsProject) {
+            this.state.settingsProject.odoo_project_id = val;
+        }
     }
 
     async _loadAvailableUsers() {
@@ -2924,6 +2944,7 @@ Usa psql -d ${inst.database_name} para ejecutar los comandos SQL.`;
                 github_client_id: p.github_client_id,
                 github_client_secret: p.github_client_secret,
                 post_clone_script: p.post_clone_script,
+                odoo_project_id: p.odoo_project_id || false,
             });
             if (result.error) {
                 alert(result.error);

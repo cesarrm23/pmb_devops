@@ -3002,6 +3002,10 @@ Texto:
             'odoo_project_id': project.odoo_project_id.id if project.odoo_project_id else False,
             'odoo_project_name': project.odoo_project_id.name if project.odoo_project_id else '',
             'ssh_key_configured': bool(project.ssh_key_path and os.path.exists(project.ssh_key_path)),
+            'github_client_id': project.github_client_id or '',
+            'github_client_secret': project.github_client_secret or '',
+            'post_clone_script': project.post_clone_script or '',
+            'odoo_service_name': project.odoo_service_name or '',
         }
 
     @http.route('/devops/project/save', type='json', auth='user')
