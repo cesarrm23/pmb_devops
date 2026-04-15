@@ -424,6 +424,21 @@ class PmbDevopsApp extends Component {
             }
         } else {
             this.state.activeContentTab = "ai";
+            // Initialize AI tab: terminal + git status + history
+            setTimeout(async () => {
+                await this._checkGitAuth();
+                await this._refreshGitStatus();
+                this._loadClaudeSessions();
+                if (!this.state.commits || this.state.commits.length === 0) {
+                    await this._loadHistoryRepos();
+                    await this._loadHistory();
+                }
+                const canTerminal = this.state.isAdmin ||
+                    (instance.instance_type !== 'production');
+                if (canTerminal && instance.state === 'running') {
+                    this._initAiTerminal();
+                }
+            }, 500);
         }
         // Collapse sidebar on mobile
         if (window.innerWidth <= 768) {
