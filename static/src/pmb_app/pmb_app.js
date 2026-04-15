@@ -3223,10 +3223,6 @@ class PmbDevopsApp extends Component {
         if (this._aiWs) { this._aiWs.close(); this._aiWs = null; }
         this.state.aiConnected = false;
         this._aiScrollback = [];
-        if (this._aiTerm) {
-            this._aiTerm.clear();
-            this._aiTerm.writeln('\x1b[33m[Reconectando...]\x1b[0m');
-        }
         this._aiTermInitializing = false;
         this._initAiTerminal();
     }
