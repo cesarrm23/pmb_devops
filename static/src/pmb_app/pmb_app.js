@@ -1699,7 +1699,10 @@ class PmbDevopsApp extends Component {
         this._gitPollTimer = setInterval(() => {
             if (this.state.activeContentTab === 'ai' && !this.state.gitCommitting && !this.state.gitPushing) {
                 this._refreshGitStatus();
-                this._loadHistory();
+                // Only reload history if user is NOT viewing details (diff, fullscreen)
+                if (!this.state.gitDiffFile && !this.state.historyFullscreen) {
+                    this._loadHistory();
+                }
             }
         }, 10000); // every 10 seconds
     }
