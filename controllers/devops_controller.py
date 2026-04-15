@@ -3051,9 +3051,89 @@ Texto:
         else:
             if not write_vals.get('name'):
                 return {'error': 'El nombre es requerido'}
+            # Auto-create Odoo project if not linked
+            if not write_vals.get('odoo_project_id'):
+                odoo_proj = request.env['project.project'].sudo().create({
+                    'name': f'[DevOps] {write_vals["name"]}',
+                    'allow_task_dependencies': True,
+                })
+                write_vals['odoo_project_id'] = odoo_proj.id
             project = request.env['devops.project'].create(write_vals)
 
         return {'status': 'ok', 'project_id': project.id}
+
+    @http.route('/devops/project/tasks', type='json', auth='user')
+    def project_tasks(self, project_id):
+        """Get project tasks (general, not per-instance)."""
+        project = request.env['devops.project'].browse(project_id)
+        if not project.exists() or not project.odoo_project_id:
+            return {'tasks': []}
+        tasks = request.env['project.task'].sudo().search([
+            ('project_id', '=', project.odoo_project_id.id),
+        ], order='priority desc, create_date desc', limit=50)
+        result = []
+        for t in tasks:
+            result.append({
+                'id': t.id,
+                'name': t.name,
+                'description': t.description or '',
+                'state': t.state or '',
+                'stage': t.stage_id.name if t.stage_id else '',
+                'stage_id': t.stage_id.id if t.stage_id else False,
+                'priority': t.priority or '0',
+                'assignees': [{'id': u.id, 'name': u.name} for u in t.user_ids],
+                'deadline': str(t.date_deadline) if t.date_deadline else '',
+                'tags': [tag.name for tag in t.tag_ids],
+            })
+        return {'tasks': result}
+
+    @http.route('/devops/project/task/create', type='json', auth='user')
+    def project_task_create(self, project_id, name, description=''):
+        """Create a new task in the linked Odoo project."""
+        project = request.env['devops.project'].browse(project_id)
+        if not project.exists():
+            return {'error': 'Proyecto no encontrado'}
+        if not project.odoo_project_id:
+            # Auto-create Odoo project if missing
+            odoo_proj = request.env['project.project'].sudo().create({
+                'name': f'[DevOps] {project.name}',
+            })
+            project.write({'odoo_project_id': odoo_proj.id})
+        task = request.env['project.task'].sudo().create({
+            'name': name,
+            'description': description,
+            'project_id': project.odoo_project_id.id,
+        })
+        return {'status': 'ok', 'task_id': task.id}
+
+    @http.route('/devops/project/task/assign', type='json', auth='user')
+    def project_task_assign(self, task_id, user_id=None):
+        """Assign or unassign a user to a task."""
+        task = request.env['project.task'].sudo().browse(task_id)
+        if not task.exists():
+            return {'error': 'Tarea no encontrada'}
+        if user_id:
+            task.write({'user_ids': [(4, user_id)]})
+        else:
+            task.write({'user_ids': [(5,)]})  # clear all
+        return {'status': 'ok'}
+
+    @http.route('/devops/project/task/update', type='json', auth='user')
+    def project_task_update(self, task_id, **vals):
+        """Update task fields (stage, priority, name)."""
+        task = request.env['project.task'].sudo().browse(task_id)
+        if not task.exists():
+            return {'error': 'Tarea no encontrada'}
+        write_vals = {}
+        if 'stage_id' in vals and vals['stage_id']:
+            write_vals['stage_id'] = int(vals['stage_id'])
+        if 'priority' in vals:
+            write_vals['priority'] = vals['priority']
+        if 'name' in vals:
+            write_vals['name'] = vals['name']
+        if write_vals:
+            task.write(write_vals)
+        return {'status': 'ok'}
 
     @http.route('/devops/project/generate_ssh_key', type='json', auth='user')
     def project_generate_ssh_key(self, project_id):

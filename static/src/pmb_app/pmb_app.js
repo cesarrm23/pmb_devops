@@ -53,6 +53,11 @@ class PmbDevopsApp extends Component {
             historyRepos: [],
             historyRepoPath: '',
 
+            // Project tasks (general, not per-instance)
+            projectTasks: [],
+            showNewTask: false,
+            newTaskName: '',
+
             // All builds (for Builds nav tab)
             allBuilds: [],
 
@@ -436,6 +441,7 @@ class PmbDevopsApp extends Component {
                 await this._refreshGitStatus();
                 this._startGitPolling();
                 this._loadClaudeSessions();
+                this._loadProjectTasks();
                 if (!this.state.commits || this.state.commits.length === 0) {
                     await this._loadHistoryRepos();
                     await this._loadHistory();
@@ -695,6 +701,7 @@ class PmbDevopsApp extends Component {
                 await this._loadHistory();
             }
             this._loadClaudeSessions();
+            this._loadProjectTasks();
             // Only start terminal if instance is running AND user has write access
             const canTerminal = this.state.isAdmin ||
                 (this.state.selectedInstance && this.state.selectedInstance.instance_type !== 'production');
@@ -1029,6 +1036,52 @@ class PmbDevopsApp extends Component {
             this.state.historyRepoPath = path;
             this._loadHistory();
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Project Tasks
+    // ------------------------------------------------------------------
+
+    async _loadProjectTasks() {
+        if (!this.state.currentProjectId) return;
+        try {
+            const result = await rpc('/devops/project/tasks', {
+                project_id: this.state.currentProjectId,
+            });
+            this.state.projectTasks = result.tasks || [];
+        } catch (e) { /* ignore */ }
+    }
+
+    async _createTask() {
+        const name = this.state.newTaskName.trim();
+        if (!name || !this.state.currentProjectId) return;
+        try {
+            await rpc('/devops/project/task/create', {
+                project_id: this.state.currentProjectId,
+                name: name,
+            });
+            this.state.newTaskName = '';
+            this.state.showNewTask = false;
+            await this._loadProjectTasks();
+        } catch (e) {
+            alert('Error: ' + (e.message || e));
+        }
+    }
+
+    async _assignTask(taskId, userId) {
+        try {
+            await rpc('/devops/project/task/assign', {
+                task_id: taskId,
+                user_id: userId || null,
+            });
+            await this._loadProjectTasks();
+        } catch (e) { /* ignore */ }
+    }
+
+    _sendTaskToAi(task) {
+        if (!this._aiWs || this._aiWs.readyState !== WebSocket.OPEN) return;
+        const prompt = `Analiza esta tarea y sugiere una implementación:\n\nTarea: ${task.name}\n${task.description ? 'Descripción: ' + task.description.replace(/<[^>]*>/g, '') : ''}\n`;
+        this._aiWs.send(JSON.stringify({ type: 'input', data: prompt + '\n' }));
     }
 
     async _loadHistory(search = '', offset = 0) {
