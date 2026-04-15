@@ -2755,11 +2755,93 @@ Texto:
         if not branch:
             r = ssh_utils.execute_command(project, ['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=repo_path, timeout=5)
             branch = r.stdout.strip() if r.returncode == 0 else 'HEAD'
+        # Get commits before pull to detect new ones
+        r_before = ssh_utils.execute_command(project, ['git', 'rev-parse', 'HEAD'], cwd=repo_path, timeout=5)
+        head_before = r_before.stdout.strip() if r_before.returncode == 0 else ''
+
         result = ssh_utils.execute_command(project, ['git', 'pull', 'origin', branch], cwd=repo_path, timeout=60)
         if result.returncode != 0:
             err = result.stderr.strip() or result.stdout.strip()
             return {'error': err or 'git pull failed'}
-        return {'status': 'ok', 'output': result.stdout.strip()}
+
+        # Create review tasks for new commits
+        new_commits = []
+        if head_before:
+            r_log = ssh_utils.execute_command(project, [
+                'git', 'log', '--oneline', f'{head_before}..HEAD',
+            ], cwd=repo_path, timeout=10)
+            if r_log.returncode == 0 and r_log.stdout.strip():
+                for line in r_log.stdout.strip().split('\n'):
+                    if line.strip():
+                        parts = line.split(' ', 1)
+                        new_commits.append({'hash': parts[0], 'message': parts[1] if len(parts) > 1 else ''})
+
+        review_task_id = None
+        if new_commits and project.odoo_project_id:
+            repo_name = os.path.basename(repo_path)
+            commit_list = '\n'.join([f"  - {c['hash']} {c['message']}" for c in new_commits[:20]])
+            try:
+                review_task = request.env['project.task'].sudo().create({
+                    'name': f'[Review] {branch} — {len(new_commits)} commit(s) en {repo_name}',
+                    'project_id': project.odoo_project_id.id,
+                    'description': f'Rama: {branch}\nRepo: {repo_name}\n\nCommits nuevos:\n{commit_list}',
+                    'tag_ids': [(0, 0, {'name': 'code-review', 'color': 4})],
+                })
+                review_task_id = review_task.id
+            except Exception as e:
+                _logger.warning("Could not create review task: %s", e)
+
+        return {
+            'status': 'ok',
+            'output': result.stdout.strip(),
+            'new_commits': len(new_commits),
+            'review_task_id': review_task_id,
+        }
+
+    @http.route('/devops/commit/review', type='json', auth='user')
+    def commit_review(self, project_id, commit_hash='', commit_message='', branch='', action='create'):
+        """Create or complete a review task for a commit."""
+        project = request.env['devops.project'].browse(project_id)
+        if not project.exists():
+            return {'error': 'Proyecto no encontrado'}
+        if not project.odoo_project_id:
+            return {'error': 'No hay proyecto Odoo vinculado. Configura en Settings.'}
+
+        Task = request.env['project.task'].sudo()
+        odoo_project = project.odoo_project_id
+
+        if action == 'create':
+            # Create review task
+            task = Task.create({
+                'name': f'[Review] {commit_hash[:8]} — {commit_message[:80]}',
+                'project_id': odoo_project.id,
+                'description': f'Rama: {branch}\nCommit: {commit_hash}\nMensaje: {commit_message}',
+            })
+            return {'status': 'ok', 'task_id': task.id}
+
+        elif action == 'done':
+            # Find and complete the review task for this commit
+            tasks = Task.search([
+                ('project_id', '=', odoo_project.id),
+                ('name', 'ilike', commit_hash[:8]),
+            ], limit=1)
+            if tasks:
+                done_stage = request.env['project.task.type'].sudo().search([
+                    ('name', 'ilike', 'done'),
+                    ('project_ids', 'in', odoo_project.id),
+                ], limit=1)
+                if not done_stage:
+                    done_stage = request.env['project.task.type'].sudo().search([
+                        ('name', 'ilike', 'hecho'),
+                        ('project_ids', 'in', odoo_project.id),
+                    ], limit=1)
+                if done_stage:
+                    tasks.write({'stage_id': done_stage.id})
+                return {'status': 'ok', 'task_id': tasks.id, 'completed': True}
+            else:
+                return {'error': 'Tarea de review no encontrada para este commit'}
+
+        return {'error': 'Accion no valida'}
 
     @http.route('/devops/branch/merge', type='json', auth='user')
     def branch_merge(self, project_id, repo_path='', source_branch='', target_branch=''):

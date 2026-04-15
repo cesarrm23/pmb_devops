@@ -1070,6 +1070,43 @@ class PmbDevopsApp extends Component {
         await this._loadHistory('', this.state.commits.length);
     }
 
+    async _commitReviewCreate(commit) {
+        if (!this.state.currentProjectId) return;
+        const repo = this.state.historyRepos.find(r => r.path === this.state.historyRepoPath);
+        const branch = repo ? repo.branch : '';
+        try {
+            const result = await rpc('/devops/commit/review', {
+                project_id: this.state.currentProjectId,
+                commit_hash: commit.full_hash || commit.short_hash,
+                commit_message: commit.message,
+                branch: branch,
+                action: 'create',
+            });
+            if (result.task_id) {
+                commit._reviewId = result.task_id;
+            } else if (result.error) {
+                alert(result.error);
+            }
+        } catch (e) { alert('Error: ' + e.message); }
+    }
+
+    async _commitReviewDone(commit) {
+        if (!this.state.currentProjectId) return;
+        try {
+            const result = await rpc('/devops/commit/review', {
+                project_id: this.state.currentProjectId,
+                commit_hash: commit.full_hash || commit.short_hash,
+                commit_message: commit.message,
+                action: 'done',
+            });
+            if (result.completed) {
+                commit._reviewDone = true;
+            } else if (result.error) {
+                alert(result.error);
+            }
+        } catch (e) { alert('Error: ' + e.message); }
+    }
+
     async _toggleCommitDetail(commit) {
         if (commit._expanded) {
             commit._expanded = false;

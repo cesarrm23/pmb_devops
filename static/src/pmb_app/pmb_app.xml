@@ -427,11 +427,22 @@
                                                     <t t-esc="commit.author"/> · <t t-esc="commit.date"/>
                                                 </div>
                                             </div>
-                                            <button class="btn btn-sm ms-2" style="background: #313244; color: #cdd6f4; font-size: 11px; white-space: nowrap;"
-                                                    t-on-click="() => this._toggleCommitDetail(commit)">
-                                                <t t-if="commit._expanded">▼ Cerrar</t>
-                                                <t t-else="">▶ Detalle</t>
-                                            </button>
+                                            <div class="d-flex gap-1 ms-2" style="flex-shrink: 0;">
+                                                <button class="btn btn-sm" style="background: #313244; color: #cdd6f4; font-size: 11px; white-space: nowrap;"
+                                                        t-on-click="() => this._toggleCommitDetail(commit)">
+                                                    <t t-if="commit._expanded">▼</t>
+                                                    <t t-else="">▶</t>
+                                                </button>
+                                                <button t-if="commit._reviewDone" class="btn btn-sm"
+                                                        style="background: #a6e3a1; color: #1e1e2e; font-size: 10px; white-space: nowrap;"
+                                                        disabled="1">✓</button>
+                                                <button t-elif="commit._reviewId" class="btn btn-sm"
+                                                        style="background: #f9e2af; color: #1e1e2e; font-size: 10px; white-space: nowrap;"
+                                                        t-on-click="() => this._commitReviewDone(commit)">✓ Listo</button>
+                                                <button t-else="" class="btn btn-sm"
+                                                        style="background: #313244; color: #89b4fa; font-size: 10px; white-space: nowrap;"
+                                                        t-on-click="() => this._commitReviewCreate(commit)">📋 Review</button>
+                                            </div>
                                         </div>
                                         <!-- Expanded detail -->
                                         <div t-if="commit._expanded" class="mt-2 ms-5 p-3" style="background: #313244; border-radius: 6px; font-size: 12px;">
