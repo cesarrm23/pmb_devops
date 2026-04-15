@@ -148,6 +148,7 @@ class PmbDevopsApp extends Component {
             deploying: false,
             postCloneResult: null,
             odooProjects: [],           // project.project list for Settings dropdown
+            historyFullscreen: false,   // fullscreen history overlay
             deployLog: '',
             deployResult: null,
             upgradeRepos: [],
@@ -1069,6 +1070,14 @@ class PmbDevopsApp extends Component {
             return;
         }
         await this._loadHistory('', this.state.commits.length);
+    }
+
+    async _openHistoryFullscreen() {
+        this.state.historyFullscreen = true;
+        if (!this.state.commits || this.state.commits.length === 0) {
+            await this._loadHistoryRepos();
+            await this._loadHistory();
+        }
     }
 
     async _commitReviewCreate(commit) {
