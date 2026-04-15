@@ -192,6 +192,9 @@ class PmbDevopsApp extends Component {
                 await this._loadProjectData();
             }
             // Mobile keyboard: re-fit terminals and collapse header
+            // Poll sidebar state every 30s to keep status indicators fresh
+            this._statusPollTimer = setInterval(() => this._refreshSidebarState(), 30000);
+
             if (window.visualViewport) {
                 this._onViewportResize = () => {
                     this._refitTerminals();
@@ -209,6 +212,10 @@ class PmbDevopsApp extends Component {
             if (this._pollTimer) {
                 clearInterval(this._pollTimer);
                 this._pollTimer = null;
+            }
+            if (this._statusPollTimer) {
+                clearInterval(this._statusPollTimer);
+                this._statusPollTimer = null;
             }
             this._cleanupTerminal();
             this._cleanupShellTerminal();
@@ -248,6 +255,47 @@ class PmbDevopsApp extends Component {
         } catch (err) {
             console.error("PmbDevopsApp: error loading projects", err);
         }
+    }
+
+    async _refreshSidebarState() {
+        // Lightweight poll: only update instance states without full reload
+        if (!this.state.currentProjectId || !this.state.instances.length) return;
+        try {
+            const fresh = await rpc("/web/dataset/call_kw", {
+                model: "devops.instance",
+                method: "search_read",
+                args: [[["project_id", "=", this.state.currentProjectId]]],
+                kwargs: { fields: ["id", "state", "creation_step"], limit: 200 },
+            });
+            const map = {};
+            for (const f of fresh) map[f.id] = f;
+            let changed = false;
+            for (const inst of this.state.instances) {
+                const f = map[inst.id];
+                if (f && f.state !== inst.state) {
+                    inst.state = f.state;
+                    inst.creation_step = f.creation_step;
+                    changed = true;
+                }
+            }
+            // Update selected instance too
+            if (changed && this.state.selectedInstance) {
+                const f = map[this.state.selectedInstance.id];
+                if (f) {
+                    this.state.selectedInstance.state = f.state;
+                    this.state.selectedInstance.creation_step = f.creation_step;
+                }
+            }
+            // Remove instances that no longer exist
+            const freshIds = new Set(fresh.map(f => f.id));
+            const removed = this.state.instances.filter(i => !freshIds.has(i.id));
+            if (removed.length > 0) {
+                this.state.instances = this.state.instances.filter(i => freshIds.has(i.id));
+                if (this.state.selectedInstance && !freshIds.has(this.state.selectedInstance.id)) {
+                    this.state.selectedInstance = this.state.instances[0] || null;
+                }
+            }
+        } catch (e) { /* ignore polling errors */ }
     }
 
     async _loadProjectData() {
@@ -3001,9 +3049,12 @@ class PmbDevopsApp extends Component {
             // New WebSocket connection
             this._aiTerm.writeln('\x1b[33mConectando a Claude Code...\x1b[0m');
 
+            const forceNew = this._aiForceNew || false;
+            this._aiForceNew = false;
             const tokenResult = await rpc('/devops/ai/token', {
                 project_id: this.state.currentProjectId || null,
                 instance_id: this.state.selectedInstance ? this.state.selectedInstance.id : null,
+                force_new: forceNew,
             });
             if (tokenResult.error) {
                 this._aiTerm.writeln('\x1b[31mError: ' + tokenResult.error + '\x1b[0m');
@@ -3219,10 +3270,11 @@ class PmbDevopsApp extends Component {
     }
 
     _reconnectAiTerminal() {
-        // Close WebSocket and clear scrollback — forces fresh connection
+        // Force a completely new session (destroys old PTY on server)
         if (this._aiWs) { this._aiWs.close(); this._aiWs = null; }
         this.state.aiConnected = false;
         this._aiScrollback = [];
+        this._aiForceNew = true;
         this._aiTermInitializing = false;
         this._initAiTerminal();
     }

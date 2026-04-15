@@ -207,9 +207,11 @@
                                 <span class="badge" t-att-style="'background:' + this._getStatusColor(state.selectedInstance) + '; color: #1e1e2e; font-size: 11px;'">
                                     <t t-esc="state.selectedInstance.state"/>
                                 </span>
-                                <span t-if="state.selectedInstance.url" style="color: #89b4fa; font-size: 12px;">
-                                    <t t-esc="state.selectedInstance.url"/>
-                                </span>
+                                <a t-if="state.selectedInstance.url" t-att-href="state.selectedInstance.url"
+                                   target="_blank" style="color: #89b4fa; font-size: 12px; text-decoration: none;"
+                                   t-on-click.stop="">
+                                    <t t-esc="state.selectedInstance.url"/> ↗
+                                </a>
                                 <span t-if="state.selectedInstance.port" style="color: #6c7086; font-size: 12px;">
                                     :<t t-esc="state.selectedInstance.port"/>
                                 </span>
