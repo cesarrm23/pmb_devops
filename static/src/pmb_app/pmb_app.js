@@ -528,10 +528,12 @@ class PmbDevopsApp extends Component {
         // Switch to settings tab with empty project form
         this.state.settingsProject = {
             id: null, name: '', domain: '', subdomain_base: '', repo_path: '', enterprise_path: '',
-            database_name: '', connection_type: 'local', ssh_host: '', ssh_user: '',
-            ssh_port: 22, max_staging: 3, max_development: 5, auto_destroy_hours: 24,
+            database_name: '', connection_type: 'local', ssh_host: '', ssh_user: 'root',
+            ssh_port: 22, ssh_key_path: '', ssh_key_configured: false,
+            max_staging: 3, max_development: 5, auto_destroy_hours: 24,
             production_branch: 'main',
         };
+        this.state.sshPublicKey = '';
         this.state.settingsSaved = false;
         await this._onNavTabChange('settings');
     }
@@ -2935,29 +2937,6 @@ Usa psql -d ${inst.database_name} para ejecutar los comandos SQL.`;
         const mid = parseInt(ev.target.dataset.mid);
         await rpc('/devops/project/members/update_role', { member_id: mid, role: ev.target.value });
         await this._loadMembers();
-    }
-
-    _newProject() {
-        this.state.settingsProject = {
-            id: null,
-            name: '',
-            domain: '',
-            repo_path: '',
-            enterprise_path: '',
-            database_name: '',
-            connection_type: 'local',
-            ssh_host: '',
-            ssh_user: 'root',
-            ssh_port: 22,
-            ssh_key_path: '',
-            max_staging: 3,
-            max_development: 5,
-            auto_destroy_hours: 24,
-            production_branch: 'main',
-            ssh_key_configured: false,
-        };
-        this.state.sshPublicKey = '';
-        this.state.settingsSaved = false;
     }
 
     async _saveProject() {
