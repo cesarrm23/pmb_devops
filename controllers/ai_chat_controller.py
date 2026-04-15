@@ -23,65 +23,73 @@ class DevopsAiChatController(http.Controller):
         uid = request.env.uid
         os.makedirs(TOKEN_DIR, exist_ok=True)
 
-        # Touch activity to prevent auto-stop while user is active
-        if instance_id:
-            try:
-                inst = request.env['devops.instance'].sudo().browse(instance_id)
-                if inst.exists() and inst.state == 'running':
-                    inst.write({'last_activity': fields.Datetime.now()})
-            except Exception:
-                pass
-
-        # Determine working directory and SSH config
-        cwd = '/opt/odooAL'
-        ssh_config = None
+        # ---- Security: validate instance state ----
+        instance = None
         project = None
         if instance_id:
-            try:
-                instance = request.env['devops.instance'].browse(instance_id)
-                if instance.exists():
-                    project = instance.project_id
-                    if instance.instance_path and os.path.isdir(instance.instance_path):
-                        cwd = instance.instance_path
-                    elif project.repo_path and os.path.isdir(project.repo_path):
-                        cwd = project.repo_path
-            except Exception:
-                pass
+            instance = request.env['devops.instance'].browse(instance_id)
+            if not instance.exists():
+                return {'error': 'Instancia no encontrada'}
+            project = instance.project_id
+            # Block terminal for stopped staging/dev (production always allowed)
+            if instance.instance_type != 'production' and instance.state != 'running':
+                return {'error': 'La instancia debe estar en ejecucion para usar el terminal'}
         elif project_id:
+            project = request.env['devops.project'].browse(project_id)
+            if not project.exists():
+                return {'error': 'Proyecto no encontrado'}
+
+        # Touch activity
+        if instance and instance.state == 'running':
             try:
-                project = request.env['devops.project'].browse(project_id)
-                if project.exists() and project.repo_path and os.path.isdir(project.repo_path):
-                    cwd = project.repo_path
+                instance.sudo().write({'last_activity': fields.Datetime.now()})
             except Exception:
                 pass
 
-        # SSH projects: unique cwd per instance + pass SSH info to ws_terminal
-        if project and project.connection_type == 'ssh' and project.ssh_host:
-            # Use instance path as remote_cwd if available
+        # ---- Determine working directory ----
+        ssh_config = None
+        is_ssh = project and project.connection_type == 'ssh' and project.ssh_host
+
+        if is_ssh:
+            # SSH: never use local paths, always remote
             remote_cwd = project.repo_path or '/opt'
-            if instance_id:
-                try:
-                    instance = request.env['devops.instance'].browse(instance_id)
-                    if instance.exists() and instance.instance_path:
-                        remote_cwd = instance.instance_path
-                except Exception:
-                    pass
+            if instance and instance.instance_path:
+                remote_cwd = instance.instance_path
             cwd = os.path.join('/opt/odooAL/.pmb_ssh', f'instance_{instance_id or "proj_" + str(project.id)}')
             os.makedirs(cwd, exist_ok=True)
-            # Detect instance OS user for staging/dev (e.g., 'maha')
+        elif instance and instance.instance_type != 'production':
+            # Staging/dev local: MUST use instance_path, never fall back to production
+            if instance.instance_path and os.path.isdir(instance.instance_path):
+                cwd = instance.instance_path
+            else:
+                return {'error': f'Directorio de instancia no encontrado: {instance.instance_path}'}
+        elif instance and instance.instance_type == 'production':
+            # Production: use repo_path or instance_path
+            cwd = project.repo_path or instance.instance_path or '/opt/odooAL'
+            if not os.path.isdir(cwd):
+                cwd = '/opt/odooAL'
+        elif project:
+            # Project-level (no instance): use repo_path
+            cwd = project.repo_path or '/opt/odooAL'
+            if not os.path.isdir(cwd):
+                cwd = '/opt/odooAL'
+        else:
+            cwd = '/opt/odooAL'
+
+        # SSH projects: build SSH config
+        if is_ssh:
+            # Detect instance OS user for staging/dev
             instance_user = ''
-            if instance_id:
+            if instance and instance.instance_type != 'production' and instance.service_name:
                 try:
-                    inst = request.env['devops.instance'].browse(instance_id)
-                    if inst.exists() and inst.instance_type != 'production' and inst.service_name:
-                        from ..utils import ssh_utils
-                        r = ssh_utils.execute_command_shell(
-                            project,
-                            f"systemctl show {inst.service_name} -p User --value 2>/dev/null",
-                        )
-                        u = r.stdout.strip() if r.returncode == 0 else ''
-                        if u and u != 'root':
-                            instance_user = u
+                    from ..utils import ssh_utils
+                    r = ssh_utils.execute_command_shell(
+                        project,
+                        f"systemctl show {instance.service_name} -p User --value 2>/dev/null",
+                    )
+                    u = r.stdout.strip() if r.returncode == 0 else ''
+                    if u and u != 'root':
+                        instance_user = u
                 except Exception:
                     pass
 
@@ -95,14 +103,7 @@ class DevopsAiChatController(http.Controller):
             }
 
         # Determine instance type for isolation
-        instance_type = 'production'
-        if instance_id:
-            try:
-                instance = request.env['devops.instance'].browse(instance_id)
-                if instance.exists():
-                    instance_type = instance.instance_type or 'production'
-            except Exception:
-                pass
+        instance_type = instance.instance_type if instance else 'production'
 
         # Validate cmd_type
         if cmd_type not in ('claude', 'shell'):
