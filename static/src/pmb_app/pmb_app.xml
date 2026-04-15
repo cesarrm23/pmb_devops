@@ -541,7 +541,7 @@
                                                     <code style="color: #89b4fa; font-size: 12px;"><t t-esc="commit.short_hash"/></code>
                                                 </div>
                                                 <div class="flex-grow-1">
-                                                    <div style="font-size: 13px;"><t t-esc="commit.message"/></div>
+                                                    <div style="font-size: 13px; color: #cdd6f4;"><t t-esc="commit.message"/></div>
                                                     <div style="color: #6c7086; font-size: 11px;">
                                                         <t t-esc="commit.author"/> · <t t-esc="commit.date"/>
                                                     </div>
