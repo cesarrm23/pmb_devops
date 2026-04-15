@@ -78,14 +78,15 @@ class DevopsAiChatController(http.Controller):
 
         # SSH projects: build SSH config
         if is_ssh:
-            # Detect instance OS user for staging/dev
+            # Detect instance OS user via SSH (all instance types)
             instance_user = ''
-            if instance and instance.instance_type != 'production' and instance.service_name:
+            svc_name = (instance.service_name if instance else '') or project.odoo_service_name or ''
+            if svc_name:
                 try:
                     from ..utils import ssh_utils
                     r = ssh_utils.execute_command_shell(
                         project,
-                        f"systemctl show {instance.service_name} -p User --value 2>/dev/null",
+                        f"systemctl show {svc_name} -p User --value 2>/dev/null",
                     )
                     u = r.stdout.strip() if r.returncode == 0 else ''
                     if u and u != 'root':
@@ -105,6 +106,27 @@ class DevopsAiChatController(http.Controller):
         # Determine instance type for isolation
         instance_type = instance.instance_type if instance else 'production'
 
+        # Detect instance OS user for local instances
+        local_instance_user = ''
+        if not is_ssh and instance:
+            import subprocess as _sp
+            # Try instance's own service first
+            svc_to_check = instance.service_name
+            # Fallback to project's production service
+            if not svc_to_check and project:
+                svc_to_check = project.odoo_service_name
+            if svc_to_check:
+                try:
+                    r = _sp.run(
+                        ['systemctl', 'show', svc_to_check, '-p', 'User', '--value'],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                    u = r.stdout.strip()
+                    if u and u != 'root':
+                        local_instance_user = u
+                except Exception:
+                    pass
+
         # Validate cmd_type
         if cmd_type not in ('claude', 'shell'):
             cmd_type = 'claude'
@@ -120,6 +142,8 @@ class DevopsAiChatController(http.Controller):
             'created': time.time(),
             'force_new': bool(force_new),
         }
+        if local_instance_user:
+            token_data['instance_user'] = local_instance_user
         if ssh_config:
             token_data['ssh'] = ssh_config
 

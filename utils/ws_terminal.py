@@ -381,8 +381,18 @@ async def terminal_handler(websocket):
                 del persistent_sessions[key]
 
             # New session
-            # Check if this is an SSH project
+            # Validate cwd exists before spawning
             ssh = token_data.get('ssh')
+            if not ssh and not os.path.isdir(cwd):
+                await websocket.send(json.dumps({
+                    'type': 'error',
+                    'data': f'Directorio no existe: {cwd}',
+                }))
+                logger.warning("Blocked session: cwd %s does not exist", cwd)
+                return
+
+            instance_user = token_data.get('instance_user', '')
+
             if ssh:
                 # Build SSH command to remote server
                 ssh_cmd = ['ssh', '-t', '-o', 'StrictHostKeyChecking=no']
@@ -392,26 +402,37 @@ async def terminal_handler(websocket):
                     ssh_cmd += ['-p', str(ssh['port'])]
                 ssh_cmd += [f"{ssh.get('user', 'root')}@{ssh['host']}"]
                 remote_cwd = ssh.get('remote_cwd', '/opt')
-                instance_user = ssh.get('instance_user', '')
+                ssh_instance_user = ssh.get('instance_user', '')
                 ssh_user = ssh.get('user', 'root')
+                # Validate remote directory exists before opening shell
+                dir_check = f'test -d {remote_cwd} && echo OK || echo FAIL'
                 if cmd_type == 'claude':
                     claude_cmd = f'cd {remote_cwd} && CLAUDE_CODE_DISABLE_AUTOUPDATE=1 claude'
-                    if instance_user:
-                        ssh_cmd += [f'sudo -u {instance_user} -i bash -c \'{claude_cmd}\'']
+                    if ssh_instance_user:
+                        ssh_cmd += [f'sudo -u {ssh_instance_user} -i bash -c \'{claude_cmd}\'']
                     elif ssh_user == 'root':
                         ssh_cmd += [f'OWNER=$(stat -c %U {remote_cwd} 2>/dev/null || echo nobody); sudo -u $OWNER -i bash -c \'{claude_cmd}\'']
                     else:
                         ssh_cmd += [f'{claude_cmd}']
                 else:
-                    if instance_user:
-                        ssh_cmd += [f'cd {remote_cwd} && sudo -u {instance_user} -i bash']
+                    if ssh_instance_user:
+                        ssh_cmd += [f'test -d {remote_cwd} || exit 1; sudo -u {ssh_instance_user} -i bash -c "cd {remote_cwd} && exec bash -i"']
+                    elif ssh_user == 'root':
+                        ssh_cmd += [f'test -d {remote_cwd} || exit 1; OWNER=$(stat -c %U {remote_cwd} 2>/dev/null || echo nobody); sudo -u $OWNER -i bash -c "cd {remote_cwd} && exec bash -i"']
                     else:
-                        ssh_cmd += [f'cd {remote_cwd} && bash -i']
+                        ssh_cmd += [f'test -d {remote_cwd} || exit 1; cd {remote_cwd} && bash -i']
                 cmd = ssh_cmd
             elif cmd_type == 'claude':
-                cmd = [CLAUDE_BIN]
+                if instance_user:
+                    cmd = ['sudo', '-u', instance_user, '-i', 'bash', '-c',
+                           f'cd {cwd} && CLAUDE_CODE_DISABLE_AUTOUPDATE=1 PATH=/opt/odooAL/.local/bin:$PATH claude']
+                else:
+                    cmd = [CLAUDE_BIN]
             elif cmd_type == 'shell':
-                cmd = ['/bin/bash', '-i']
+                if instance_user:
+                    cmd = ['sudo', '-u', instance_user, '-i', 'bash', '-c', f'cd {cwd} && exec bash -i']
+                else:
+                    cmd = ['/bin/bash', '-i']
             else:
                 await websocket.send(json.dumps({'type': 'error', 'data': f'Comando desconocido: {cmd_type}'}))
                 return
