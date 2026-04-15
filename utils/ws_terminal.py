@@ -407,13 +407,19 @@ async def terminal_handler(websocket):
                 # Validate remote directory exists before opening shell
                 dir_check = f'test -d {remote_cwd} && echo OK || echo FAIL'
                 if cmd_type == 'claude':
+                    # Auto-install claude if missing on remote (requires node/npm)
+                    ensure_claude = (
+                        'if ! which claude >/dev/null 2>&1; then '
+                        'if which npm >/dev/null 2>&1; then npm install -g @anthropic-ai/claude-code 2>&1 | tail -1; '
+                        'else echo "ERROR: npm no instalado. Instala Node.js primero: apt install nodejs npm"; exit 1; fi; fi;'
+                    )
                     claude_cmd = f'cd {remote_cwd} && CLAUDE_CODE_DISABLE_AUTOUPDATE=1 claude'
                     if ssh_instance_user:
-                        ssh_cmd += [f'sudo -u {ssh_instance_user} -i bash -c \'{claude_cmd}\'']
+                        ssh_cmd += [f'{ensure_claude} sudo -u {ssh_instance_user} -i bash -c \'{claude_cmd}\'']
                     elif ssh_user == 'root':
-                        ssh_cmd += [f'OWNER=$(stat -c %U {remote_cwd} 2>/dev/null || echo nobody); sudo -u $OWNER -i bash -c \'{claude_cmd}\'']
+                        ssh_cmd += [f'{ensure_claude} OWNER=$(stat -c %U {remote_cwd} 2>/dev/null || echo nobody); sudo -u $OWNER -i bash -c \'{claude_cmd}\'']
                     else:
-                        ssh_cmd += [f'{claude_cmd}']
+                        ssh_cmd += [f'{ensure_claude} {claude_cmd}']
                 else:
                     if ssh_instance_user:
                         ssh_cmd += [f'test -d {remote_cwd} || exit 1; sudo -u {ssh_instance_user} -i bash -c "cd {remote_cwd} && exec bash -i"']
