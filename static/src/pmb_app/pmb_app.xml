@@ -1968,7 +1968,7 @@
                                                   t-esc="state.serverMetrics.ip || ''"/>
                                             <button t-if="state.serverMetrics.ip" class="btn btn-sm p-0 px-1"
                                                     style="color: #6c7086; font-size: 10px; line-height: 1;"
-                                                    t-on-click="() => this._copyText(state.serverMetrics.ip)"
+                                                    t-on-click="() => this._ctxCopy(state.serverMetrics.ip)"
                                                     title="Copiar IP">📋</button>
                                         </div>
                                         <div style="color: #6c7086; font-size: 11px; margin-top: 4px;">
