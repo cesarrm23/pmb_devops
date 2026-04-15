@@ -15,7 +15,7 @@ TOKEN_DIR = '/tmp/pmb_ws_tokens'
 class DevopsAiChatController(http.Controller):
 
     @http.route('/devops/ai/token', type='json', auth='user')
-    def ai_token(self, instance_id=None, project_id=None, cmd_type='claude'):
+    def ai_token(self, instance_id=None, project_id=None, cmd_type='claude', force_new=False):
         """Generate a one-time token for WebSocket terminal authentication.
 
         The token is stored as a file in TOKEN_DIR, read by the WS bridge.
@@ -117,6 +117,7 @@ class DevopsAiChatController(http.Controller):
             'instance_type': instance_type,
             'allowed_path': cwd,
             'created': time.time(),
+            'force_new': bool(force_new),
         }
         if ssh_config:
             token_data['ssh'] = ssh_config
