@@ -3390,11 +3390,9 @@ Usa psql -d ${inst.database_name} para ejecutar los comandos SQL.`;
     }
 
     _reconnectAiTerminal() {
-        // Force a completely new session (destroys old PTY on server)
+        // Reconnect to existing session (same behavior as browser reload)
         if (this._aiWs) { this._aiWs.close(); this._aiWs = null; }
         this.state.aiConnected = false;
-        this._aiScrollback = [];
-        this._aiForceNew = true;
         this._aiTermInitializing = false;
         this._initAiTerminal();
     }
