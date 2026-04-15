@@ -2642,6 +2642,30 @@ class PmbDevopsApp extends Component {
         }
     }
 
+    _runPostCloneWithClaude() {
+        if (!this.state.selectedInstance) return;
+        const inst = this.state.selectedInstance;
+        const prompt = `Ejecuta el siguiente script de post-clonacion en la base de datos "${inst.database_name}" de esta instancia ${inst.instance_type}:
+
+1. Actualiza web.base.url a https://${inst.full_domain || inst.url || ''}
+2. Actualiza report.url al mismo dominio
+3. Elimina database.uuid y database.enterprise_code de ir_config_parameter
+4. Desactiva todos los mail servers (ir_mail_server)
+5. Desactiva todos los fetchmail servers
+6. Desactiva crons innecesarios (deja solo session cleanup y autovacuum)
+7. Verifica que los cambios se aplicaron correctamente
+
+Usa psql -d ${inst.database_name} para ejecutar los comandos SQL.`;
+
+        // Switch to AI tab and send the prompt
+        this._onContentTabChange('ai');
+        setTimeout(() => {
+            if (this._aiWs && this._aiWs.readyState === WebSocket.OPEN) {
+                this._aiWs.send(JSON.stringify({ type: 'input', data: prompt + '\n' }));
+            }
+        }, 2000);
+    }
+
     // ------------------------------------------------------------------
     // Server metrics
     // ------------------------------------------------------------------

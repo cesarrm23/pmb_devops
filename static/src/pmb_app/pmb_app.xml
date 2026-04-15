@@ -1288,6 +1288,36 @@
 
                             <!-- TOOLS tab -->
                             <div t-if="state.activeContentTab === 'tools'" class="p-4" style="color: #cdd6f4; overflow-y: auto; flex: 1 1 0; min-height: 0;">
+
+                                <!-- Post-clone script (staging/dev, first thing visible) -->
+                                <t t-if="state.selectedInstance and state.selectedInstance.instance_type !== 'production'">
+                                    <div class="mb-4" style="background: #1e1e2e; border: 1px solid #f9e2af; border-radius: 8px; padding: 16px;">
+                                        <div class="d-flex align-items-center justify-content-between mb-2">
+                                            <h6 style="color: #f9e2af; margin: 0;">Script Post-Clonacion</h6>
+                                            <div class="d-flex gap-2">
+                                                <button class="btn btn-sm"
+                                                        style="background: #f9e2af; color: #1e1e2e; font-size: 11px; font-weight: 600;"
+                                                        t-on-click="_runPostCloneScript">
+                                                    Ejecutar SQL
+                                                </button>
+                                                <button class="btn btn-sm"
+                                                        style="background: #cba6f7; color: #1e1e2e; font-size: 11px; font-weight: 600;"
+                                                        t-on-click="_runPostCloneWithClaude">
+                                                    Ejecutar con Claude
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div style="color: #6c7086; font-size: 10px; margin-bottom: 8px;">
+                                            Actualiza web.base.url, report.url, desactiva emails/crons. Edita el script en Settings del proyecto.
+                                        </div>
+                                        <div t-if="state.postCloneResult" class="mt-2">
+                                            <t t-foreach="state.postCloneResult" t-as="r" t-key="r_index">
+                                                <div style="color: #a6e3a1; font-size: 11px;"><t t-esc="r"/></div>
+                                            </t>
+                                        </div>
+                                    </div>
+                                </t>
+
                                 <h5 class="mb-3">Instance Info</h5>
                                 <div class="row">
                                     <div class="col-md-6">
@@ -1338,26 +1368,6 @@
                                     </div>
                                 </div>
 
-                                <!-- Post-clone script (staging/dev only) -->
-                                <t t-if="state.selectedInstance and state.selectedInstance.instance_type !== 'production'">
-                                    <div class="mt-4" style="border-top: 1px solid #313244; padding-top: 16px;">
-                                        <h6 style="color: #f9e2af;">Configuracion Post-Clonacion</h6>
-                                        <div style="color: #6c7086; font-size: 11px; margin-bottom: 8px;">
-                                            Ejecuta el script de parametrizacion en la BD de esta instancia
-                                            (web.base.url, report.url, desactivar emails, crons, etc.)
-                                        </div>
-                                        <button class="btn btn-sm"
-                                                style="background: #f9e2af; color: #1e1e2e; font-size: 11px; font-weight: 600;"
-                                                t-on-click="_runPostCloneScript">
-                                            Ejecutar script post-clone
-                                        </button>
-                                        <div t-if="state.postCloneResult" class="mt-2" style="font-size: 11px;">
-                                            <t t-foreach="state.postCloneResult" t-as="r" t-key="r_index">
-                                                <div style="color: #a6e3a1;"><t t-esc="r"/></div>
-                                            </t>
-                                        </div>
-                                    </div>
-                                </t>
                             </div>
 
                             <!-- MEET tab -->
