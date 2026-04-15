@@ -180,6 +180,10 @@ class PmbDevopsApp extends Component {
             // Set DevOps favicon
             this._setDevOpsFavicon();
 
+            // Prevent horizontal page scroll (mobile + desktop)
+            document.documentElement.style.overflowX = 'hidden';
+            document.body.style.overflowX = 'hidden';
+
             // Load persisted UI preferences
             try {
                 const prefs = await rpc('/devops/user/prefs');
@@ -223,6 +227,9 @@ class PmbDevopsApp extends Component {
         onWillUnmount(() => {
             // Restore original favicon
             this._restoreFavicon();
+            // Restore horizontal scroll
+            document.documentElement.style.overflowX = '';
+            document.body.style.overflowX = '';
             if (this._pollTimer) {
                 clearInterval(this._pollTimer);
                 this._pollTimer = null;

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <templates xml:space="preserve">
     <t t-name="pmb_devops.PmbDevopsApp">
-        <div class="pmb-app d-flex flex-column">
+        <div class="pmb-app d-flex flex-column" style="max-width: 100vw; overflow-x: hidden;">
             <!-- NAVBAR -->
             <div class="pmb-navbar d-flex align-items-center flex-wrap px-3"
                  style="height: 46px; background: #1e1e2e; border-bottom: 1px solid #313244;">
@@ -256,7 +256,7 @@
 
                         <!-- Content tabs -->
                         <t t-set="_creating" t-value="state.selectedInstance and state.selectedInstance.state === 'creating' or state.selectedInstance.state === 'error'"/>
-                        <div class="pmb-content-tabs d-flex px-4 gap-0" style="border-bottom: 1px solid #313244;">
+                        <div class="pmb-content-tabs d-flex px-2 gap-0" style="border-bottom: 1px solid #313244; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; flex-shrink: 0;">
                             <t t-if="_creating">
                                 <span class="px-3 py-2 cursor-pointer"
                                       t-att-style="state.activeContentTab === 'deploy' ? 'color: #1e1e2e; border-bottom: 2px solid #f9e2af; font-size: 13px; background: #f9e2af; border-radius: 4px 4px 0 0;' : 'color: #f9e2af; font-size: 13px;'"
@@ -1090,7 +1090,7 @@
                                     </div>
 
                                     <!-- AI Terminal via WebSocket (right) -->
-                                    <div class="flex-grow-1 d-flex flex-column pmb-terminal-container" style="min-height: 300px; overflow: hidden;">
+                                    <div class="flex-grow-1 d-flex flex-column pmb-terminal-container" style="min-height: 300px; overflow: hidden; min-width: 0; max-width: 100%;">
 
                                         <!-- Sessions toggle + key buttons bar (only when user can use terminal) -->
                                         <div t-if="state.isAdmin or (state.selectedInstance and state.selectedInstance.instance_type !== 'production')"
