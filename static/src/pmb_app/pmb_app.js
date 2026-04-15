@@ -3219,10 +3219,14 @@ class PmbDevopsApp extends Component {
     }
 
     _reconnectAiTerminal() {
-        // Close only the WebSocket, keep scrollback — PTY is still alive on server
+        // Close WebSocket and clear scrollback — forces fresh connection
         if (this._aiWs) { this._aiWs.close(); this._aiWs = null; }
         this.state.aiConnected = false;
-        if (this._aiTerm) this._aiTerm.writeln('\r\n\x1b[33m[Reconectando...]\x1b[0m');
+        this._aiScrollback = [];
+        if (this._aiTerm) {
+            this._aiTerm.clear();
+            this._aiTerm.writeln('\x1b[33m[Reconectando...]\x1b[0m');
+        }
         this._aiTermInitializing = false;
         this._initAiTerminal();
     }

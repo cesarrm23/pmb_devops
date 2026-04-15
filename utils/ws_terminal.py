@@ -252,7 +252,15 @@ class Session:
 
     @property
     def alive(self):
-        return is_pid_alive(self.pid)
+        if not is_pid_alive(self.pid):
+            return False
+        # Also check if the PTY fd is still writable (catches dead SSH sessions)
+        try:
+            import select
+            _, ready, _ = select.select([], [self.master_fd], [], 0)
+            return True
+        except (OSError, ValueError):
+            return False
 
 
 async def terminal_handler(websocket):
