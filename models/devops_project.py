@@ -126,6 +126,13 @@ class DevopsProject(models.Model):
     github_client_id = fields.Char(string='GitHub Client ID')
     github_client_secret = fields.Char(string='GitHub Client Secret')
 
+    # ---- Post-clone script ----
+    post_clone_script = fields.Text(
+        string='Script Post-Clonacion',
+        help='Script Python que se ejecuta en la BD clonada al crear staging/dev. '
+             'Variables disponibles: env, instance_name, instance_type, domain, port, db_name, service_name',
+    )
+
     # ---- Members (NEW) ----
     member_ids = fields.One2many(
         'devops.project.member', 'project_id', string='Miembros',

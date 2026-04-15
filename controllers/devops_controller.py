@@ -539,6 +539,58 @@ echo "done" > {status_file}
         except Exception as e:
             return {'status': 'error', 'error': str(e)}
 
+    @http.route('/devops/instance/run_post_clone', type='json', auth='user')
+    def instance_run_post_clone(self, instance_id):
+        """Run the post-clone script on an instance's database."""
+        if not request.env.user.has_group('pmb_devops.group_devops_developer'):
+            return {'error': 'Se requiere rol Developer o Admin'}
+        inst = request.env['devops.instance'].sudo().browse(instance_id)
+        if not inst.exists():
+            return {'error': 'Instancia no encontrada'}
+        if inst.instance_type == 'production':
+            return {'error': 'No se puede ejecutar en produccion'}
+
+        project = inst.project_id
+        db_name = inst.database_name
+        domain = inst.full_domain or ''
+        port = inst.port or 8069
+
+        # Default SQL: update system params
+        default_sql = f"""
+            UPDATE ir_config_parameter SET value = 'https://{domain}' WHERE key = 'web.base.url';
+            UPDATE ir_config_parameter SET value = 'https://{domain}' WHERE key = 'report.url';
+            UPDATE ir_config_parameter SET value = '{db_name}' WHERE key = 'database.name';
+            DELETE FROM ir_config_parameter WHERE key = 'database.uuid';
+            DELETE FROM ir_config_parameter WHERE key = 'database.enterprise_code';
+            UPDATE ir_mail_server SET active = false;
+            UPDATE fetchmail_server SET active = false WHERE active = true;
+            UPDATE ir_cron SET active = false WHERE active = true
+                AND id NOT IN (SELECT id FROM ir_cron WHERE name ILIKE '%session%'
+                    OR name ILIKE '%autovacuum%' OR name ILIKE '%clean%');
+        """
+
+        results = []
+
+        # Run default SQL
+        try:
+            output = self._cmd_on_project(project, f'psql -q {db_name} -c "{default_sql}" 2>&1', timeout=30)
+            results.append(f'Parametros del sistema actualizados')
+        except Exception as e:
+            results.append(f'Error SQL: {e}')
+
+        # Run custom script if exists
+        custom = project.post_clone_script
+        if custom and custom.strip():
+            try:
+                # Execute custom SQL via psql
+                escaped = custom.strip().replace('"', '\\"')
+                output = self._cmd_on_project(project, f'psql -q {db_name} -c "{escaped}" 2>&1', timeout=30)
+                results.append(f'Script personalizado ejecutado')
+            except Exception as e:
+                results.append(f'Error script: {e}')
+
+        return {'status': 'ok', 'results': results}
+
     def _cmd_on_project(self, project, cmd_str, timeout=30):
         """Run a shell command locally or via SSH depending on project type."""
         import subprocess
@@ -2879,6 +2931,7 @@ Texto:
             'max_staging', 'max_development', 'auto_destroy_hours', 'odoo_service_name',
             'production_branch', 'odoo_project_id',
             'github_client_id', 'github_client_secret',
+            'post_clone_script',
         ]
         write_vals = {k: v for k, v in vals.items() if k in allowed_fields}
 

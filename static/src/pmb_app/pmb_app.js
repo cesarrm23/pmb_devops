@@ -146,6 +146,7 @@ class PmbDevopsApp extends Component {
 
             // Deploy / Upgrade
             deploying: false,
+            postCloneResult: null,
             deployLog: '',
             deployResult: null,
             upgradeRepos: [],
@@ -2624,6 +2625,23 @@ class PmbDevopsApp extends Component {
         if (updated) this.state.selectedInstance = updated;
     }
 
+    async _runPostCloneScript() {
+        if (!this.state.selectedInstance) return;
+        this.state.postCloneResult = ['Ejecutando...'];
+        try {
+            const result = await rpc('/devops/instance/run_post_clone', {
+                instance_id: this.state.selectedInstance.id,
+            });
+            if (result.error) {
+                this.state.postCloneResult = [result.error];
+            } else {
+                this.state.postCloneResult = result.results || ['OK'];
+            }
+        } catch (e) {
+            this.state.postCloneResult = ['Error: ' + e.message];
+        }
+    }
+
     // ------------------------------------------------------------------
     // Server metrics
     // ------------------------------------------------------------------
@@ -2844,6 +2862,7 @@ class PmbDevopsApp extends Component {
                 production_branch: p.production_branch,
                 github_client_id: p.github_client_id,
                 github_client_secret: p.github_client_secret,
+                post_clone_script: p.post_clone_script,
             });
             if (result.error) {
                 alert(result.error);

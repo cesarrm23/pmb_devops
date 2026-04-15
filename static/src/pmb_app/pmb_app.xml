@@ -1337,6 +1337,27 @@
                                         </t>
                                     </div>
                                 </div>
+
+                                <!-- Post-clone script (staging/dev only) -->
+                                <t t-if="state.selectedInstance and state.selectedInstance.instance_type !== 'production'">
+                                    <div class="mt-4" style="border-top: 1px solid #313244; padding-top: 16px;">
+                                        <h6 style="color: #f9e2af;">Configuracion Post-Clonacion</h6>
+                                        <div style="color: #6c7086; font-size: 11px; margin-bottom: 8px;">
+                                            Ejecuta el script de parametrizacion en la BD de esta instancia
+                                            (web.base.url, report.url, desactivar emails, crons, etc.)
+                                        </div>
+                                        <button class="btn btn-sm"
+                                                style="background: #f9e2af; color: #1e1e2e; font-size: 11px; font-weight: 600;"
+                                                t-on-click="_runPostCloneScript">
+                                            Ejecutar script post-clone
+                                        </button>
+                                        <div t-if="state.postCloneResult" class="mt-2" style="font-size: 11px;">
+                                            <t t-foreach="state.postCloneResult" t-as="r" t-key="r_index">
+                                                <div style="color: #a6e3a1;"><t t-esc="r"/></div>
+                                            </t>
+                                        </div>
+                                    </div>
+                                </t>
                             </div>
 
                             <!-- MEET tab -->
@@ -2304,6 +2325,25 @@
                                                 Crear en <a href="https://github.com/settings/developers" target="_blank" style="color: #89b4fa;">github.com/settings/developers</a>
                                                 — Callback: https://<t t-esc="state.settingsProject.domain || 'tudominio.com'"/>/devops/git/github/oauth/callback
                                             </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Post-clone Script -->
+                                <div class="row mt-3" t-if="state.isAdmin">
+                                    <div class="col-12">
+                                        <div style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
+                                            <h6 style="color: #f9e2af; margin-bottom: 8px;">Script Post-Clonacion</h6>
+                                            <div style="color: #6c7086; font-size: 10px; margin-bottom: 8px;">
+                                                SQL que se ejecuta automaticamente al clonar la BD para staging/dev.
+                                                Ya incluye por defecto: web.base.url, report.url, desactivar mail servers y crons.
+                                                Agrega aqui SQL adicional personalizado.
+                                            </div>
+                                            <textarea class="form-control form-control-sm" rows="5"
+                                                      style="background: #11111b; border-color: #313244; color: #a6e3a1; font-family: monospace; font-size: 11px;"
+                                                      placeholder="-- SQL adicional para staging/dev&#10;-- Ejemplo:&#10;-- UPDATE res_company SET name = name || ' (Staging)';&#10;-- UPDATE website SET domain = 'staging.midominio.com' WHERE id = 1;"
+                                                      t-att-value="state.settingsProject.post_clone_script || ''"
+                                                      t-on-change="_onSettingsInput" data-field="post_clone_script"/>
                                         </div>
                                     </div>
                                 </div>

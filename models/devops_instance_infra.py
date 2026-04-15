@@ -201,6 +201,18 @@ if [ -n "{source_db}" ]; then
             ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO {db_user};
             ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO {db_user};
         " 2>/dev/null || echo "WARNING: GRANT failed"
+        # Post-clone: update system parameters for the new instance
+        STEP "Configurando parametros de instancia..."
+        psql -q "{rec.database_name}" -c "
+            UPDATE ir_config_parameter SET value = 'https://{rec.full_domain}' WHERE key = 'web.base.url';
+            UPDATE ir_config_parameter SET value = 'https://{rec.full_domain}' WHERE key = 'report.url';
+            UPDATE ir_config_parameter SET value = '{rec.database_name}' WHERE key = 'database.name';
+            DELETE FROM ir_config_parameter WHERE key = 'database.uuid';
+            DELETE FROM ir_config_parameter WHERE key = 'database.enterprise_code';
+            UPDATE ir_mail_server SET active = false;
+            UPDATE fetchmail_server SET active = false WHERE active = true;
+            UPDATE ir_cron SET active = false WHERE active = true AND id NOT IN (SELECT id FROM ir_cron WHERE name ILIKE '%session%' OR name ILIKE '%autovacuum%' OR name ILIKE '%clean%');
+        " 2>/dev/null || echo "WARNING: post-clone SQL failed"
     else
         echo "DB {rec.database_name} already has data, skipping clone"
     fi
@@ -493,6 +505,18 @@ if [ -n "{source_db}" ]; then
             ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO {db_user};
             ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO {db_user};
         " 2>/dev/null || echo "WARNING: GRANT failed" >> "$LOG"
+        # Post-clone: update system parameters for the new instance
+        STEP "Configurando parametros de instancia..."
+        sudo -u postgres psql -q "{rec.database_name}" -c "
+            UPDATE ir_config_parameter SET value = 'https://{domain}' WHERE key = 'web.base.url';
+            UPDATE ir_config_parameter SET value = 'https://{domain}' WHERE key = 'report.url';
+            UPDATE ir_config_parameter SET value = '{rec.database_name}' WHERE key = 'database.name';
+            DELETE FROM ir_config_parameter WHERE key = 'database.uuid';
+            DELETE FROM ir_config_parameter WHERE key = 'database.enterprise_code';
+            UPDATE ir_mail_server SET active = false;
+            UPDATE fetchmail_server SET active = false WHERE active = true;
+            UPDATE ir_cron SET active = false WHERE active = true AND id NOT IN (SELECT id FROM ir_cron WHERE name ILIKE '%session%' OR name ILIKE '%autovacuum%' OR name ILIKE '%clean%');
+        " 2>/dev/null || echo "WARNING: post-clone SQL failed" >> "$LOG"
         echo "DB cloned successfully" >> "$LOG"
     else
         echo "DB {rec.database_name} already has data, skipping" >> "$LOG"
