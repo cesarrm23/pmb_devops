@@ -1276,6 +1276,11 @@ class PmbDevopsApp extends Component {
             this._shellTerm.open(container);
             this._shellFitAddon.fit();
 
+            // Prevent horizontal scroll from propagating to page
+            container.addEventListener('wheel', (ev) => {
+                if (Math.abs(ev.deltaX) > 0) ev.preventDefault();
+            }, { passive: false });
+
             // Re-fit on container resize
             this._shellResizeObserver = new ResizeObserver(() => {
                 if (this._shellFitAddon) { try { this._shellFitAddon.fit(); } catch (e) {} }
@@ -3136,6 +3141,11 @@ Usa psql -d ${inst.database_name} para ejecutar los comandos SQL.`;
             this._aiTerm.loadAddon(this._aiFitAddon);
             this._aiTerm.open(container);
             this._aiFitAddon.fit();
+
+            // Prevent horizontal scroll from propagating to page
+            container.addEventListener('wheel', (ev) => {
+                if (Math.abs(ev.deltaX) > 0) ev.preventDefault();
+            }, { passive: false });
 
             // Re-fit on container resize
             this._aiResizeObserver = new ResizeObserver(() => {

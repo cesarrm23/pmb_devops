@@ -488,7 +488,11 @@ async def terminal_handler(websocket):
                 elif msg.get('type') in ('image', 'file'):
                     # Save file and make it accessible to the PTY process
                     import base64
-                    file_data = base64.b64decode(msg['data'])
+                    try:
+                        file_data = base64.b64decode(msg['data'])
+                    except Exception:
+                        logger.warning("Invalid base64 data for file upload")
+                        continue
                     filename = msg.get('filename', f'paste_{int(time.time())}.bin')
                     filename = filename.replace('/', '_').replace('..', '_')
                     size_kb = len(file_data) / 1024
@@ -533,8 +537,8 @@ async def terminal_handler(websocket):
                         }))
                     except Exception:
                         pass
-            except (OSError, json.JSONDecodeError):
-                pass
+            except Exception as e:
+                logger.warning("WS message error: %s", e)
 
     except websockets.exceptions.ConnectionClosed:
         pass
