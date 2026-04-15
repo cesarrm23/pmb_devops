@@ -276,11 +276,6 @@
                             </t>
                             <t t-else="">
                                 <span class="px-3 py-2 cursor-pointer"
-                                      t-att-style="state.activeContentTab === 'history' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
-                                      t-on-click="() => this._onContentTabChange('history')">
-                                    📋 HISTORY
-                                </span>
-                                <span class="px-3 py-2 cursor-pointer"
                                       t-att-style="state.activeContentTab === 'ai' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
                                       t-on-click="() => this._onContentTabChange('ai')">
                                     ✨ AI
@@ -360,8 +355,8 @@
                                 </div>
                             </div>
 
-                            <!-- HISTORY tab -->
-                            <div t-if="state.activeContentTab === 'history'" class="p-4" style="color: #cdd6f4; overflow-y: auto; flex: 1 1 0; min-height: 0;">
+                            <!-- HISTORY (removed as separate tab — now inside AI git panel) -->
+                            <div t-if="state.activeContentTab === 'history_REMOVED'" style="display:none;">
                                 <!-- Repo selector + Search bar -->
                                 <div class="mb-3 d-flex gap-2 flex-wrap align-items-center">
                                     <div t-if="state.historyRepos.length > 0" class="d-flex gap-1 flex-wrap">

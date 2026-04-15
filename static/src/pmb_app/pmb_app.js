@@ -24,7 +24,7 @@ class PmbDevopsApp extends Component {
 
             // Navigation
             activeNavTab: "branches", // branches, builds, status, logs, settings
-            activeContentTab: "history", // history, ai, shell, logs, backups, upgrade, tools
+            activeContentTab: "ai", // ai, shell, logs, backups, upgrade, tools
 
             // Sidebar
             sidebarFilter: "",
@@ -423,7 +423,7 @@ class PmbDevopsApp extends Component {
                 this._loadCreationLog(instance.id);
             }
         } else {
-            this.state.activeContentTab = "history";
+            this.state.activeContentTab = "ai";
         }
         // Collapse sidebar on mobile
         if (window.innerWidth <= 768) {
@@ -451,7 +451,7 @@ class PmbDevopsApp extends Component {
             return;
         }
         this.state.selectedBranch = branch;
-        this.state.activeContentTab = "history";
+        this.state.activeContentTab = "ai";
 
         // Find matching instance
         if (branch.instance_id) {
@@ -655,13 +655,15 @@ class PmbDevopsApp extends Component {
 
         this.state.activeContentTab = tab;
 
-        if (tab === 'history') {
-            await this._loadHistoryRepos();
-            await this._loadHistory();
-        } else if (tab === 'ai') {
+        if (tab === 'ai') {
             await this._checkGitAuth();
             await this._refreshGitStatus();
             this._startGitPolling();
+            // Load history for inline commits panel
+            if (!this.state.commits || this.state.commits.length === 0) {
+                await this._loadHistoryRepos();
+                await this._loadHistory();
+            }
             this._loadClaudeSessions();
             // Only start terminal if instance is running AND user has write access
             const canTerminal = this.state.isAdmin ||
@@ -807,7 +809,7 @@ class PmbDevopsApp extends Component {
                     await this._loadProjectData();
                     // Switch to HISTORY when done
                     if (this.state.activeContentTab === 'deploy') {
-                        this.state.activeContentTab = 'history';
+                        this.state.activeContentTab = 'ai';
                     }
                 }
             } catch (e) {
