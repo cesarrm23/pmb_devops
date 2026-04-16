@@ -456,9 +456,9 @@ PROD_PATH="{prod_path}"
 INST_PATH="{inst_path}"
 
 # Auto-detect Python and venv from production service
-PROD_EXEC=$(systemctl show {prod_svc_name} -p ExecStart --value 2>/dev/null | grep -oP '\\S+python\\S*' | head -1)
+PROD_EXEC=$(systemctl show {prod_svc_name} -p ExecStart --value 2>/dev/null | grep -oP '\\S+python\\S*' | head -1 | sed 's/^path=//')
 if [ -z "$PROD_EXEC" ]; then
-    PROD_EXEC=$(grep -oP 'ExecStart=\\K\\S+' /etc/systemd/system/{prod_svc_name}.service 2>/dev/null || echo "python3")
+    PROD_EXEC=$(grep -oP 'ExecStart=\\K\\S+' /etc/systemd/system/{prod_svc_name}.service 2>/dev/null | sed 's/^path=//' || echo "python3")
 fi
 PROD_VENV=$(dirname "$(dirname "$PROD_EXEC")" 2>/dev/null)
 if [ ! -d "$PROD_VENV/bin" ]; then
@@ -468,6 +468,9 @@ if [ ! -d "$PROD_VENV/bin" ]; then
 fi
 PYTHON_BIN="$PROD_VENV/bin/python3"
 if [ ! -f "$PYTHON_BIN" ]; then PYTHON_BIN="$PROD_VENV/bin/python"; fi
+if [ ! -f "$PYTHON_BIN" ]; then PYTHON_BIN=$(which python3 2>/dev/null || echo "/usr/bin/python3"); fi
+# Validate PYTHON_BIN is an absolute path
+case "$PYTHON_BIN" in /*) ;; *) PYTHON_BIN="/usr/bin/python3";; esac
 
 # Auto-detect addons_path from production config
 PROD_ADDONS=$(grep -oP 'addons_path\\s*=\\s*\\K.*' /etc/{prod_svc_name}.conf 2>/dev/null || echo "")
