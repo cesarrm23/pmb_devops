@@ -1080,6 +1080,12 @@
                                                                       t-att-title="'Cliente: ' + task.client_name">
                                                                     <t t-esc="task.client_name.split(' ')[0]"/>
                                                                 </span>
+                                                                <!-- Audio/meeting indicator -->
+                                                                <span t-if="task.meetings and task.meetings.length > 0"
+                                                                      style="color: #94e2d5; font-size: 9px; flex-shrink: 0;"
+                                                                      t-att-title="task.meetings.length + ' meet(s)'">
+                                                                    &#128266;<t t-esc="task.meetings.length"/>
+                                                                </span>
                                                                 <!-- AI button -->
                                                                 <button t-if="state.aiConnected and !task.done"
                                                                         class="btn btn-sm p-0" style="color: #89b4fa; font-size: 10px; flex-shrink: 0; line-height: 1;"
@@ -1125,6 +1131,39 @@
                                                                             <option t-att-value="pu.name"
                                                                                     t-att-selected="task.client_name === pu.name">
                                                                                 <t t-esc="pu.name"/> (<t t-esc="pu.login"/>)
+                                                                            </option>
+                                                                        </t>
+                                                                    </select>
+                                                                </div>
+                                                                <!-- Linked meetings/audio -->
+                                                                <div style="border-top: 1px solid #313244; margin-top: 4px; padding-top: 4px;">
+                                                                    <span style="color: #94e2d5; font-size: 9px; font-weight: 600;">&#128266; Meetings</span>
+                                                                    <t t-if="task.meetings and task.meetings.length > 0">
+                                                                        <t t-foreach="task.meetings" t-as="mt" t-key="mt.id">
+                                                                            <div class="d-flex align-items-center gap-1 py-1" style="font-size: 9px;">
+                                                                                <span t-att-style="'color:' + (mt.state === 'transcribed' ? '#a6e3a1' : mt.state === 'done' ? '#89b4fa' : '#f9e2af')">&#9679;</span>
+                                                                                <span style="color: #cdd6f4; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                                                                                      t-att-title="mt.name"><t t-esc="mt.name"/></span>
+                                                                                <span t-if="mt.recording_count > 0" style="color: #94e2d5;">
+                                                                                    &#127908;<t t-esc="mt.recording_count"/>
+                                                                                </span>
+                                                                                <span style="color: #6c7086;"><t t-esc="mt.date"/></span>
+                                                                                <button class="btn btn-sm p-0" style="color: #f38ba8; font-size: 8px; line-height: 1;"
+                                                                                        t-on-click.stop="() => this._unlinkMeetingFromTask(task.id, mt.id)"
+                                                                                        title="Desvincular">&#10007;</button>
+                                                                            </div>
+                                                                        </t>
+                                                                    </t>
+                                                                    <div t-if="!task.meetings || task.meetings.length === 0"
+                                                                         style="color: #45475a; font-size: 9px;">Sin meetings</div>
+                                                                    <!-- Link meeting selector -->
+                                                                    <select class="form-select form-select-sm mt-1"
+                                                                            style="background: #1e1e2e; border-color: #313244; color: #6c7086; font-size: 9px; padding: 1px 4px; height: auto;"
+                                                                            t-on-change="(ev) => { this._linkMeetingToTask(task.id, ev.target.value); ev.target.value = ''; }">
+                                                                        <option value="">+ Vincular meeting...</option>
+                                                                        <t t-foreach="state.taskMeetings" t-as="pm" t-key="pm.id">
+                                                                            <option t-att-value="pm.id">
+                                                                                <t t-esc="pm.name"/> (<t t-esc="pm.date"/>)
                                                                             </option>
                                                                         </t>
                                                                     </select>

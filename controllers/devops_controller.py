@@ -3131,6 +3131,19 @@ Texto:
                 if tag.name.startswith('Cliente:'):
                     client_name = tag.name[8:].strip()
                     client_tag_id = tag.id
+            # Find linked meetings (reverse M2M via meeting.task_ids)
+            meetings = request.env['devops.meeting'].sudo().search([
+                ('task_ids', 'in', t.id),
+            ])
+            meeting_info = [{
+                'id': m.id,
+                'name': m.name,
+                'date': str(m.date)[:16] if m.date else '',
+                'recording_count': len(m.recording_ids),
+                'has_transcription': bool(m.transcription),
+                'state': m.state,
+            } for m in meetings]
+
             task_list.append({
                 'id': t.id,
                 'name': t.name,
@@ -3145,8 +3158,15 @@ Texto:
                 'tags': [tag.name for tag in t.tag_ids if not tag.name.startswith('Cliente:')],
                 'done': t.stage_id.fold if t.stage_id else False,
                 'pending_review': t.stage_id.name == 'Pendiente de revisión' if t.stage_id else False,
+                'meetings': meeting_info,
             })
-        return {'tasks': task_list, 'stages': stage_list, 'members': member_list}
+        # Project meetings (for linking)
+        proj_meetings = request.env['devops.meeting'].sudo().search([
+            ('project_id', '=', project_id),
+        ], order='date desc', limit=20)
+        meeting_list = [{'id': m.id, 'name': m.name, 'date': str(m.date)[:10] if m.date else ''} for m in proj_meetings]
+
+        return {'tasks': task_list, 'stages': stage_list, 'members': member_list, 'meetings': meeting_list}
 
     @http.route('/devops/project/task/create', type='json', auth='user')
     def project_task_create(self, project_id, name, description=''):
@@ -3214,6 +3234,18 @@ Texto:
             write_vals['name'] = vals['name']
         if write_vals:
             task.write(write_vals)
+        return {'status': 'ok'}
+
+    @http.route('/devops/project/task/link_meeting', type='json', auth='user')
+    def project_task_link_meeting(self, task_id, meeting_id, action='link'):
+        """Link or unlink a task to a meeting."""
+        meeting = request.env['devops.meeting'].sudo().browse(meeting_id)
+        if not meeting.exists():
+            return {'error': 'Meeting no encontrado'}
+        if action == 'link':
+            meeting.write({'task_ids': [(4, task_id)]})
+        elif action == 'unlink':
+            meeting.write({'task_ids': [(3, task_id)]})
         return {'status': 'ok'}
 
     @http.route('/devops/project/task/approve', type='json', auth='user')

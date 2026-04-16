@@ -57,6 +57,7 @@ class PmbDevopsApp extends Component {
             projectTasks: [],
             taskStages: [],
             taskMembers: [],
+            taskMeetings: [],  // project meetings for linking
             productionUsers: [],
             showNewTask: false,
             newTaskName: '',
@@ -1062,6 +1063,7 @@ class PmbDevopsApp extends Component {
             this.state.projectTasks = result.tasks || [];
             this.state.taskStages = result.stages || [];
             this.state.taskMembers = result.members || [];
+            this.state.taskMeetings = result.meetings || [];
         } catch (e) { /* ignore */ }
     }
 
@@ -1144,6 +1146,29 @@ class PmbDevopsApp extends Component {
             action,
         ].filter(Boolean).join('\n');
         this._aiWs.send(JSON.stringify({ type: 'input', data: lines + '\n' }));
+    }
+
+    async _linkMeetingToTask(taskId, meetingId) {
+        if (!meetingId) return;
+        try {
+            await rpc('/devops/project/task/link_meeting', {
+                task_id: taskId,
+                meeting_id: parseInt(meetingId),
+                action: 'link',
+            });
+            await this._loadProjectTasks();
+        } catch (e) { /* ignore */ }
+    }
+
+    async _unlinkMeetingFromTask(taskId, meetingId) {
+        try {
+            await rpc('/devops/project/task/link_meeting', {
+                task_id: taskId,
+                meeting_id: meetingId,
+                action: 'unlink',
+            });
+            await this._loadProjectTasks();
+        } catch (e) { /* ignore */ }
     }
 
     async _approveTask(taskId, action) {
