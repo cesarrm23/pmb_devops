@@ -1043,28 +1043,83 @@
                                                     <button class="btn btn-sm" style="background: #a6e3a1; color: #1e1e2e; font-size: 10px; white-space: nowrap;"
                                                             t-on-click="_createTask">OK</button>
                                                 </div>
-                                                <div style="max-height: 150px; overflow-y: auto;">
+                                                <div style="max-height: 250px; overflow-y: auto;">
                                                     <t t-foreach="state.projectTasks || []" t-as="task" t-key="task.id">
-                                                        <div class="py-1 d-flex align-items-center gap-1" style="font-size: 10px; border-bottom: 1px solid #181825;">
-                                                            <span t-att-style="task.priority === '1' ? 'color: #f38ba8;' : 'color: #f9e2af;'" style="flex-shrink: 0;">
-                                                                <t t-if="task.priority === '1'">&#9733;</t>
-                                                                <t t-else="">&#9675;</t>
-                                                            </span>
-                                                            <span style="color: #cdd6f4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;"
-                                                                  t-att-title="task.name">
-                                                                <t t-esc="task.name"/>
-                                                            </span>
-                                                            <span t-if="task.assignees.length > 0" style="color: #6c7086; font-size: 9px; flex-shrink: 0;"
-                                                                  t-att-title="task.assignees.map(a => a.name).join(', ')">
-                                                                <t t-esc="task.assignees[0].name.split(' ')[0]"/>
-                                                            </span>
-                                                            <span t-if="task.assignees.length === 0" style="color: #45475a; font-size: 9px; flex-shrink: 0;">
-                                                                --
-                                                            </span>
-                                                            <button t-if="state.aiConnected"
-                                                                    class="btn btn-sm p-0" style="color: #89b4fa; font-size: 10px; flex-shrink: 0; line-height: 1;"
-                                                                    t-on-click="() => this._sendTaskToAi(task)"
-                                                                    title="Analizar con IA">&#9889;</button>
+                                                        <!-- Task row -->
+                                                        <div class="py-1" style="font-size: 10px; border-bottom: 1px solid #181825;">
+                                                            <div class="d-flex align-items-center gap-1 cursor-pointer"
+                                                                 t-on-click="() => this._toggleTask(task.id)">
+                                                                <!-- Stage badge -->
+                                                                <span t-att-style="'font-size:8px;padding:0 3px;border-radius:3px;flex-shrink:0;color:#1e1e2e;background:' + (task.stage === 'Levantamiento' ? '#89b4fa' : task.stage === 'Development' ? '#cba6f7' : task.stage === 'Staging' ? '#f9e2af' : task.stage === 'Producción' ? '#a6e3a1' : '#6c7086')">
+                                                                    <t t-esc="(task.stage || 'N/A').substring(0,3).toUpperCase()"/>
+                                                                </span>
+                                                                <!-- Done indicator -->
+                                                                <span t-if="task.done" style="color: #a6e3a1; flex-shrink: 0;">&#10003;</span>
+                                                                <!-- Name -->
+                                                                <span t-att-style="'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;' + (task.done ? 'color:#6c7086;text-decoration:line-through;' : 'color:#cdd6f4;')"
+                                                                      t-att-title="task.name">
+                                                                    <t t-esc="task.name"/>
+                                                                </span>
+                                                                <!-- Dev assignee -->
+                                                                <span t-if="task.dev_assignees.length > 0" style="color: #89b4fa; font-size: 8px; flex-shrink: 0;"
+                                                                      t-att-title="'Dev: ' + task.dev_assignees[0].name">
+                                                                    <t t-esc="task.dev_assignees[0].name.split(' ')[0]"/>
+                                                                </span>
+                                                                <!-- Client assignee -->
+                                                                <span t-if="task.client_name" style="color: #f9e2af; font-size: 8px; flex-shrink: 0;"
+                                                                      t-att-title="'Cliente: ' + task.client_name">
+                                                                    <t t-esc="task.client_name.split(' ')[0]"/>
+                                                                </span>
+                                                                <!-- AI button -->
+                                                                <button t-if="state.aiConnected and !task.done"
+                                                                        class="btn btn-sm p-0" style="color: #89b4fa; font-size: 10px; flex-shrink: 0; line-height: 1;"
+                                                                        t-on-click.stop="() => this._sendTaskToAi(task)"
+                                                                        title="Analizar con IA">&#9889;</button>
+                                                            </div>
+                                                            <!-- Expanded task detail -->
+                                                            <div t-if="state.expandedTaskId === task.id" class="mt-1 p-2" style="background: #181825; border-radius: 4px; font-size: 10px;">
+                                                                <!-- Stage selector -->
+                                                                <div class="d-flex align-items-center gap-1 mb-1">
+                                                                    <span style="color: #6c7086; width: 40px;">Etapa:</span>
+                                                                    <select class="form-select form-select-sm"
+                                                                            style="background: #1e1e2e; border-color: #313244; color: #cdd6f4; font-size: 9px; padding: 1px 4px; height: auto;"
+                                                                            t-on-change="(ev) => this._updateTaskStage(task.id, parseInt(ev.target.value))">
+                                                                        <t t-foreach="state.taskStages" t-as="st" t-key="st.id">
+                                                                            <option t-att-value="st.id" t-att-selected="st.id === task.stage_id"><t t-esc="st.name"/></option>
+                                                                        </t>
+                                                                    </select>
+                                                                </div>
+                                                                <!-- Dev assignee selector -->
+                                                                <div class="d-flex align-items-center gap-1 mb-1">
+                                                                    <span style="color: #6c7086; width: 40px;">Dev:</span>
+                                                                    <select class="form-select form-select-sm"
+                                                                            style="background: #1e1e2e; border-color: #313244; color: #cdd6f4; font-size: 9px; padding: 1px 4px; height: auto;"
+                                                                            t-on-change="(ev) => this._assignTaskDev(task.id, parseInt(ev.target.value) || false)">
+                                                                        <option value="">-- Sin asignar --</option>
+                                                                        <t t-foreach="state.taskMembers" t-as="m" t-key="m.id">
+                                                                            <option t-att-value="m.id"
+                                                                                    t-att-selected="task.dev_assignees.some(a => a.id === m.id)">
+                                                                                <t t-esc="m.name"/> (<t t-esc="m.role"/>)
+                                                                            </option>
+                                                                        </t>
+                                                                    </select>
+                                                                </div>
+                                                                <!-- Client assignee selector -->
+                                                                <div class="d-flex align-items-center gap-1 mb-1">
+                                                                    <span style="color: #6c7086; width: 40px;">Cliente:</span>
+                                                                    <select class="form-select form-select-sm"
+                                                                            style="background: #1e1e2e; border-color: #313244; color: #cdd6f4; font-size: 9px; padding: 1px 4px; height: auto;"
+                                                                            t-on-change="(ev) => this._assignTaskClient(task.id, ev.target.value)">
+                                                                        <option value="">-- Sin asignar --</option>
+                                                                        <t t-foreach="state.productionUsers" t-as="pu" t-key="pu.id">
+                                                                            <option t-att-value="pu.name"
+                                                                                    t-att-selected="task.client_name === pu.name">
+                                                                                <t t-esc="pu.name"/> (<t t-esc="pu.login"/>)
+                                                                            </option>
+                                                                        </t>
+                                                                    </select>
+                                                                </div>
+                                                            </div>
                                                         </div>
                                                     </t>
                                                     <div t-if="!state.projectTasks || state.projectTasks.length === 0" style="color: #6c7086; font-size: 10px;">

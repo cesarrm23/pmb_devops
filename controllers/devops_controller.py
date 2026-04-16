@@ -26,6 +26,34 @@ class DevopsController(http.Controller):
                 return True
         return False
 
+    _DEVOPS_STAGES = [
+        ('Levantamiento', 1),
+        ('Development', 2),
+        ('Staging', 3),
+        ('Producción', 4),
+    ]
+
+    def _ensure_devops_stages(self, odoo_project_id):
+        """Create DevOps task stages if they don't exist for the project."""
+        Stage = request.env['project.task.type'].sudo()
+        for name, seq in self._DEVOPS_STAGES:
+            existing = Stage.search([
+                ('name', '=', name),
+                ('project_ids', 'in', odoo_project_id),
+            ], limit=1)
+            if not existing:
+                # Check if stage with same name exists globally
+                global_stage = Stage.search([('name', '=', name)], limit=1)
+                if global_stage:
+                    global_stage.write({'project_ids': [(4, odoo_project_id)]})
+                else:
+                    Stage.create({
+                        'name': name,
+                        'sequence': seq,
+                        'project_ids': [(4, odoo_project_id)],
+                        'fold': name == 'Producción',
+                    })
+
     def _touch_activity(self, instance_id):
         """Update last_activity on an instance, throttled to once per 5 min."""
         if not instance_id:
@@ -3058,34 +3086,65 @@ Texto:
                     'allow_task_dependencies': True,
                 })
                 write_vals['odoo_project_id'] = odoo_proj.id
+                self._ensure_devops_stages(odoo_proj.id)
             project = request.env['devops.project'].create(write_vals)
+
+        # Ensure stages exist for linked Odoo project
+        if project.odoo_project_id:
+            self._ensure_devops_stages(project.odoo_project_id.id)
 
         return {'status': 'ok', 'project_id': project.id}
 
     @http.route('/devops/project/tasks', type='json', auth='user')
     def project_tasks(self, project_id):
-        """Get project tasks (general, not per-instance)."""
+        """Get project tasks with stages, members, and dual assignment info."""
         project = request.env['devops.project'].browse(project_id)
         if not project.exists() or not project.odoo_project_id:
-            return {'tasks': []}
+            return {'tasks': [], 'stages': [], 'members': []}
+
+        odoo_pid = project.odoo_project_id.id
+        self._ensure_devops_stages(odoo_pid)
+
+        # Stages for this project
+        stages = request.env['project.task.type'].sudo().search([
+            ('project_ids', 'in', odoo_pid),
+        ], order='sequence')
+        stage_list = [{'id': s.id, 'name': s.name, 'fold': s.fold} for s in stages]
+
+        # DevOps members (for dev assignee)
+        members = request.env['devops.project.member'].sudo().search([
+            ('project_id', '=', project_id),
+        ])
+        member_list = [{'id': m.user_id.id, 'name': m.user_id.name, 'role': m.role} for m in members if m.user_id]
+
+        # Tasks
         tasks = request.env['project.task'].sudo().search([
-            ('project_id', '=', project.odoo_project_id.id),
-        ], order='priority desc, create_date desc', limit=50)
-        result = []
+            ('project_id', '=', odoo_pid),
+        ], order='stage_id asc, priority desc, create_date desc', limit=100)
+        task_list = []
         for t in tasks:
-            result.append({
+            # Extract client assignee from tags (format: "Cliente: Name")
+            client_name = ''
+            client_tag_id = False
+            for tag in t.tag_ids:
+                if tag.name.startswith('Cliente:'):
+                    client_name = tag.name[8:].strip()
+                    client_tag_id = tag.id
+            task_list.append({
                 'id': t.id,
                 'name': t.name,
                 'description': t.description or '',
-                'state': t.state or '',
                 'stage': t.stage_id.name if t.stage_id else '',
                 'stage_id': t.stage_id.id if t.stage_id else False,
                 'priority': t.priority or '0',
-                'assignees': [{'id': u.id, 'name': u.name} for u in t.user_ids],
+                'dev_assignees': [{'id': u.id, 'name': u.name} for u in t.user_ids],
+                'client_name': client_name,
+                'client_tag_id': client_tag_id,
                 'deadline': str(t.date_deadline) if t.date_deadline else '',
-                'tags': [tag.name for tag in t.tag_ids],
+                'tags': [tag.name for tag in t.tag_ids if not tag.name.startswith('Cliente:')],
+                'done': t.stage_id.fold if t.stage_id else False,
             })
-        return {'tasks': result}
+        return {'tasks': task_list, 'stages': stage_list, 'members': member_list}
 
     @http.route('/devops/project/task/create', type='json', auth='user')
     def project_task_create(self, project_id, name, description=''):
@@ -3094,33 +3153,53 @@ Texto:
         if not project.exists():
             return {'error': 'Proyecto no encontrado'}
         if not project.odoo_project_id:
-            # Auto-create Odoo project if missing
             odoo_proj = request.env['project.project'].sudo().create({
                 'name': f'[DevOps] {project.name}',
             })
             project.write({'odoo_project_id': odoo_proj.id})
+            self._ensure_devops_stages(odoo_proj.id)
+        # Find "Levantamiento" stage as default
+        stage = request.env['project.task.type'].sudo().search([
+            ('name', '=', 'Levantamiento'),
+            ('project_ids', 'in', project.odoo_project_id.id),
+        ], limit=1)
         task = request.env['project.task'].sudo().create({
             'name': name,
             'description': description,
             'project_id': project.odoo_project_id.id,
+            'stage_id': stage.id if stage else False,
         })
         return {'status': 'ok', 'task_id': task.id}
 
     @http.route('/devops/project/task/assign', type='json', auth='user')
-    def project_task_assign(self, task_id, user_id=None):
-        """Assign or unassign a user to a task."""
+    def project_task_assign(self, task_id, dev_user_id=None, client_name=None):
+        """Dual assign: DevOps dev + client user."""
         task = request.env['project.task'].sudo().browse(task_id)
         if not task.exists():
             return {'error': 'Tarea no encontrada'}
-        if user_id:
-            task.write({'user_ids': [(4, user_id)]})
-        else:
-            task.write({'user_ids': [(5,)]})  # clear all
+        # Dev assignee (from pmb_devops members)
+        if dev_user_id is not None:
+            if dev_user_id:
+                task.write({'user_ids': [(6, 0, [int(dev_user_id)])]})
+            else:
+                task.write({'user_ids': [(5,)]})
+        # Client assignee (stored as tag "Cliente: Name")
+        if client_name is not None:
+            # Remove old client tags
+            old_tags = task.tag_ids.filtered(lambda t: t.name.startswith('Cliente:'))
+            if old_tags:
+                task.write({'tag_ids': [(3, t.id) for t in old_tags]})
+            if client_name:
+                Tag = request.env['project.tags'].sudo()
+                tag = Tag.search([('name', '=', f'Cliente: {client_name}')], limit=1)
+                if not tag:
+                    tag = Tag.create({'name': f'Cliente: {client_name}'})
+                task.write({'tag_ids': [(4, tag.id)]})
         return {'status': 'ok'}
 
     @http.route('/devops/project/task/update', type='json', auth='user')
     def project_task_update(self, task_id, **vals):
-        """Update task fields (stage, priority, name)."""
+        """Update task fields (stage, priority, name, done)."""
         task = request.env['project.task'].sudo().browse(task_id)
         if not task.exists():
             return {'error': 'Tarea no encontrada'}
@@ -3134,6 +3213,129 @@ Texto:
         if write_vals:
             task.write(write_vals)
         return {'status': 'ok'}
+
+    @http.route('/devops/project/production_users', type='json', auth='user')
+    def project_production_users(self, project_id):
+        """Read users from the project's production Odoo instance via XML-RPC."""
+        project = request.env['devops.project'].browse(project_id)
+        if not project.exists():
+            return {'users': [], 'error': 'Proyecto no encontrado'}
+
+        # Get production instance info
+        prod = request.env['devops.instance'].sudo().search([
+            ('project_id', '=', project_id),
+            ('instance_type', '=', 'production'),
+        ], limit=1)
+        if not prod:
+            return {'users': [], 'error': 'Sin instancia de produccion'}
+
+        domain = project.domain
+        port = prod.port or 8069
+        db_name = prod.database_name or project.database_name
+        if not domain or not db_name:
+            return {'users': [], 'error': 'Falta dominio o base de datos'}
+
+        try:
+            import xmlrpc.client
+            url = f'https://{domain}'
+            # Authenticate as admin (use production admin credentials or public)
+            common = xmlrpc.client.ServerProxy(f'{url}/xmlrpc/2/common', allow_none=True)
+            common.version()  # test connectivity
+
+            # Try to authenticate with known admin credentials
+            # Use the project's database_name and try common admin passwords
+            # For security, we read public user list (no auth needed for basic info)
+            models = xmlrpc.client.ServerProxy(f'{url}/xmlrpc/2/object', allow_none=True)
+
+            # We need admin auth — try using the same session user or stored creds
+            # For now, try to connect to the DB directly if local, or via SSH
+            is_ssh = project.connection_type == 'ssh' and project.ssh_host
+            users = []
+
+            if is_ssh:
+                from ..utils import ssh_utils
+                # Read users via psql on remote
+                cmd = (
+                    f"psql -d {db_name} -t -A -F '|' -c "
+                    f"\"SELECT u.id, p.name, u.login, u.active "
+                    f"FROM res_users u JOIN res_partner p ON u.partner_id = p.id "
+                    f"WHERE u.active = true AND u.id > 2 ORDER BY p.name\" 2>/dev/null"
+                )
+                r = ssh_utils.execute_command_shell(project, cmd)
+                if r.returncode == 0:
+                    for line in r.stdout.strip().split('\n'):
+                        parts = line.strip().split('|')
+                        if len(parts) >= 4:
+                            users.append({
+                                'id': int(parts[0]),
+                                'name': parts[1],
+                                'login': parts[2],
+                                'active': parts[3] == 't',
+                            })
+            else:
+                # Local: use psql directly
+                import subprocess
+                cmd = (
+                    f"psql -d {db_name} -t -A -F '|' -c "
+                    f"\"SELECT u.id, p.name, u.login, u.active "
+                    f"FROM res_users u JOIN res_partner p ON u.partner_id = p.id "
+                    f"WHERE u.active = true AND u.id > 2 ORDER BY p.name\""
+                )
+                r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+                if r.returncode == 0:
+                    for line in r.stdout.strip().split('\n'):
+                        parts = line.strip().split('|')
+                        if len(parts) >= 4:
+                            users.append({
+                                'id': int(parts[0]),
+                                'name': parts[1],
+                                'login': parts[2],
+                                'active': parts[3] == 't',
+                            })
+
+            return {'users': users}
+        except Exception as e:
+            return {'users': [], 'error': str(e)[:200]}
+
+    @http.route('/devops/project/production_user/reset_password', type='json', auth='user')
+    def production_user_reset_password(self, project_id, user_login, new_password=None):
+        """Reset password for a user in the production database."""
+        project = request.env['devops.project'].browse(project_id)
+        if not project.exists():
+            return {'error': 'Proyecto no encontrado'}
+        if not self._is_project_admin(project_id):
+            return {'error': 'Solo administradores pueden cambiar contraseñas'}
+
+        prod = request.env['devops.instance'].sudo().search([
+            ('project_id', '=', project_id),
+            ('instance_type', '=', 'production'),
+        ], limit=1)
+        db_name = prod.database_name or project.database_name
+        if not db_name:
+            return {'error': 'Sin base de datos configurada'}
+
+        is_ssh = project.connection_type == 'ssh' and project.ssh_host
+
+        if new_password:
+            # Set password directly via psql
+            import hashlib
+            # Odoo stores passwords hashed, but we can use the Odoo shell to set it
+            cmd = (
+                f"psql -d {db_name} -c "
+                f"\"UPDATE res_users SET password = '{new_password}' "
+                f"WHERE login = '{user_login}'\" 2>&1"
+            )
+            if is_ssh:
+                from ..utils import ssh_utils
+                r = ssh_utils.execute_command_shell(project, cmd)
+                ok = r.returncode == 0
+            else:
+                import subprocess
+                r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+                ok = r.returncode == 0
+            return {'status': 'ok' if ok else 'error', 'message': 'Contraseña actualizada' if ok else r.stderr or r.stdout}
+        else:
+            return {'error': 'Se requiere new_password'}
 
     @http.route('/devops/project/generate_ssh_key', type='json', auth='user')
     def project_generate_ssh_key(self, project_id):

@@ -55,8 +55,12 @@ class PmbDevopsApp extends Component {
 
             // Project tasks (general, not per-instance)
             projectTasks: [],
+            taskStages: [],
+            taskMembers: [],
+            productionUsers: [],
             showNewTask: false,
             newTaskName: '',
+            expandedTaskId: null,
 
             // All builds (for Builds nav tab)
             allBuilds: [],
@@ -1056,6 +1060,18 @@ class PmbDevopsApp extends Component {
                 project_id: this.state.currentProjectId,
             });
             this.state.projectTasks = result.tasks || [];
+            this.state.taskStages = result.stages || [];
+            this.state.taskMembers = result.members || [];
+        } catch (e) { /* ignore */ }
+    }
+
+    async _loadProductionUsers() {
+        if (!this.state.currentProjectId) return;
+        try {
+            const result = await rpc('/devops/project/production_users', {
+                project_id: this.state.currentProjectId,
+            });
+            this.state.productionUsers = result.users || [];
         } catch (e) { /* ignore */ }
     }
 
@@ -1075,11 +1091,31 @@ class PmbDevopsApp extends Component {
         }
     }
 
-    async _assignTask(taskId, userId) {
+    async _assignTaskDev(taskId, userId) {
         try {
             await rpc('/devops/project/task/assign', {
                 task_id: taskId,
-                user_id: userId || null,
+                dev_user_id: userId || false,
+            });
+            await this._loadProjectTasks();
+        } catch (e) { /* ignore */ }
+    }
+
+    async _assignTaskClient(taskId, clientName) {
+        try {
+            await rpc('/devops/project/task/assign', {
+                task_id: taskId,
+                client_name: clientName || '',
+            });
+            await this._loadProjectTasks();
+        } catch (e) { /* ignore */ }
+    }
+
+    async _updateTaskStage(taskId, stageId) {
+        try {
+            await rpc('/devops/project/task/update', {
+                task_id: taskId,
+                stage_id: stageId,
             });
             await this._loadProjectTasks();
         } catch (e) { /* ignore */ }
@@ -1087,8 +1123,17 @@ class PmbDevopsApp extends Component {
 
     _sendTaskToAi(task) {
         if (!this._aiWs || this._aiWs.readyState !== WebSocket.OPEN) return;
-        const prompt = `Analiza esta tarea y sugiere una implementación:\n\nTarea: ${task.name}\n${task.description ? 'Descripción: ' + task.description.replace(/<[^>]*>/g, '') : ''}\n`;
+        const desc = task.description ? task.description.replace(/<[^>]*>/g, '').substring(0, 500) : '';
+        const prompt = `Analiza esta tarea y sugiere una implementación:\n\nTarea: ${task.name}\n${desc ? 'Descripción: ' + desc + '\n' : ''}Etapa actual: ${task.stage || 'Sin etapa'}\n`;
         this._aiWs.send(JSON.stringify({ type: 'input', data: prompt + '\n' }));
+    }
+
+    _toggleTask(taskId) {
+        this.state.expandedTaskId = this.state.expandedTaskId === taskId ? null : taskId;
+        // Load production users on first expand
+        if (this.state.expandedTaskId && this.state.productionUsers.length === 0) {
+            this._loadProductionUsers();
+        }
     }
 
     async _loadHistory(search = '', offset = 0) {
