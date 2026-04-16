@@ -12,3 +12,4 @@ from . import devops_plugin
 from . import res_config_settings
 from . import res_users
 from . import devops_meeting
+from . import project_task_inherit

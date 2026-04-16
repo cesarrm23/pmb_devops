@@ -27,6 +27,7 @@ class DevopsController(http.Controller):
         return False
 
     _DEVOPS_STAGES = [
+        ('Pendiente de revisión', 0),
         ('Levantamiento', 1),
         ('Development', 2),
         ('Staging', 3),
@@ -3143,6 +3144,7 @@ Texto:
                 'deadline': str(t.date_deadline) if t.date_deadline else '',
                 'tags': [tag.name for tag in t.tag_ids if not tag.name.startswith('Cliente:')],
                 'done': t.stage_id.fold if t.stage_id else False,
+                'pending_review': t.stage_id.name == 'Pendiente de revisión' if t.stage_id else False,
             })
         return {'tasks': task_list, 'stages': stage_list, 'members': member_list}
 
@@ -3213,6 +3215,27 @@ Texto:
         if write_vals:
             task.write(write_vals)
         return {'status': 'ok'}
+
+    @http.route('/devops/project/task/approve', type='json', auth='user')
+    def project_task_approve(self, task_id, action='approve'):
+        """Approve or reject a client-submitted task."""
+        task = request.env['project.task'].sudo().browse(task_id)
+        if not task.exists():
+            return {'error': 'Tarea no encontrada'}
+        if action == 'approve':
+            # Move from "Pendiente de revisión" to "Levantamiento"
+            lev = request.env['project.task.type'].sudo().search([
+                ('name', '=', 'Levantamiento'),
+                ('project_ids', 'in', task.project_id.id),
+            ], limit=1)
+            if lev:
+                task.write({'stage_id': lev.id})
+            return {'status': 'ok', 'message': 'Tarea aprobada'}
+        elif action == 'reject':
+            # Archive the task
+            task.write({'active': False})
+            return {'status': 'ok', 'message': 'Tarea rechazada'}
+        return {'error': 'Acción no válida'}
 
     @http.route('/devops/project/production_users', type='json', auth='user')
     def project_production_users(self, project_id):

@@ -1123,9 +1123,34 @@ class PmbDevopsApp extends Component {
 
     _sendTaskToAi(task) {
         if (!this._aiWs || this._aiWs.readyState !== WebSocket.OPEN) return;
-        const desc = task.description ? task.description.replace(/<[^>]*>/g, '').substring(0, 500) : '';
-        const prompt = `Analiza esta tarea y sugiere una implementación:\n\nTarea: ${task.name}\n${desc ? 'Descripción: ' + desc + '\n' : ''}Etapa actual: ${task.stage || 'Sin etapa'}\n`;
-        this._aiWs.send(JSON.stringify({ type: 'input', data: prompt + '\n' }));
+        const desc = task.description ? task.description.replace(/<[^>]*>/g, '').trim().substring(0, 800) : '';
+        const project = this.state.currentProject;
+        const repo = this.state.historyRepos.find(r => r.path === this.state.gitSelectedRepo);
+        const stageMap = {
+            'Levantamiento': 'Analiza los requerimientos de esta tarea, identifica los archivos relevantes y propón un plan de implementación paso a paso.',
+            'Development': 'Implementa esta tarea. Busca los archivos relevantes, haz los cambios necesarios y muestra un resumen de lo que modificaste.',
+            'Staging': 'Revisa que esta tarea esté correctamente implementada. Busca posibles bugs, valida la lógica y sugiere mejoras si las hay.',
+            'Producción': 'Verifica que esta tarea funcione correctamente en producción. Revisa logs recientes y confirma que no hay errores relacionados.',
+        };
+        const action = stageMap[task.stage] || 'Analiza esta tarea y sugiere cómo implementarla. Identifica archivos relevantes y propón los cambios.';
+        const lines = [
+            `## Tarea: ${task.name}`,
+            desc ? `Descripción: ${desc}` : '',
+            `Etapa: ${task.stage || 'Sin etapa'}`,
+            task.dev_assignees.length ? `Dev: ${task.dev_assignees.map(a => a.name).join(', ')}` : '',
+            task.client_name ? `Cliente: ${task.client_name}` : '',
+            repo ? `Repo: ${repo.path} (${repo.branch})` : '',
+            '',
+            action,
+        ].filter(Boolean).join('\n');
+        this._aiWs.send(JSON.stringify({ type: 'input', data: lines + '\n' }));
+    }
+
+    async _approveTask(taskId, action) {
+        try {
+            await rpc('/devops/project/task/approve', { task_id: taskId, action });
+            await this._loadProjectTasks();
+        } catch (e) { /* ignore */ }
     }
 
     _toggleTask(taskId) {

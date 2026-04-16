@@ -1050,11 +1050,21 @@
                                                             <div class="d-flex align-items-center gap-1 cursor-pointer"
                                                                  t-on-click="() => this._toggleTask(task.id)">
                                                                 <!-- Stage badge -->
-                                                                <span t-att-style="'font-size:8px;padding:0 3px;border-radius:3px;flex-shrink:0;color:#1e1e2e;background:' + (task.stage === 'Levantamiento' ? '#89b4fa' : task.stage === 'Development' ? '#cba6f7' : task.stage === 'Staging' ? '#f9e2af' : task.stage === 'Producción' ? '#a6e3a1' : '#6c7086')">
-                                                                    <t t-esc="(task.stage || 'N/A').substring(0,3).toUpperCase()"/>
+                                                                <span t-att-style="'font-size:8px;padding:0 3px;border-radius:3px;flex-shrink:0;color:#1e1e2e;background:' + (task.pending_review ? '#fab387' : task.stage === 'Levantamiento' ? '#89b4fa' : task.stage === 'Development' ? '#cba6f7' : task.stage === 'Staging' ? '#f9e2af' : task.stage === 'Producción' ? '#a6e3a1' : '#6c7086')">
+                                                                    <t t-if="task.pending_review">REV</t>
+                                                                    <t t-else=""><t t-esc="(task.stage || 'N/A').substring(0,3).toUpperCase()"/></t>
                                                                 </span>
                                                                 <!-- Done indicator -->
                                                                 <span t-if="task.done" style="color: #a6e3a1; flex-shrink: 0;">&#10003;</span>
+                                                                <!-- Approve/Reject for pending review -->
+                                                                <t t-if="task.pending_review and state.isAdmin">
+                                                                    <button class="btn btn-sm p-0 px-1" style="color: #a6e3a1; font-size: 9px; flex-shrink: 0; line-height: 1;"
+                                                                            t-on-click.stop="() => this._approveTask(task.id, 'approve')"
+                                                                            title="Aprobar tarea">&#10003;</button>
+                                                                    <button class="btn btn-sm p-0 px-1" style="color: #f38ba8; font-size: 9px; flex-shrink: 0; line-height: 1;"
+                                                                            t-on-click.stop="() => this._approveTask(task.id, 'reject')"
+                                                                            title="Rechazar tarea">&#10007;</button>
+                                                                </t>
                                                                 <!-- Name -->
                                                                 <span t-att-style="'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;' + (task.done ? 'color:#6c7086;text-decoration:line-through;' : 'color:#cdd6f4;')"
                                                                       t-att-title="task.name">
