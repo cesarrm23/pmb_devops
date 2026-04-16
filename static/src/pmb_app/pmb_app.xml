@@ -12,28 +12,28 @@
                 <span class="px-3 py-2 cursor-pointer"
                       t-att-style="state.activeNavTab === 'branches' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
                       t-on-click="() => this._onNavTabChange('branches')">
-                    🌿 Branches
+                    🌿 Ramas
                 </span>
                 <span class="px-3 py-2 cursor-pointer"
                       t-att-style="state.activeNavTab === 'builds' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
                       t-on-click="() => this._onNavTabChange('builds')">
-                    🔨 Builds
+                    🔨 Despliegues
                 </span>
                 <span class="px-3 py-2 cursor-pointer"
                       t-att-style="state.activeNavTab === 'status' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
                       t-on-click="() => this._onNavTabChange('status')">
-                    📊 Status
+                    📊 Estado
                 </span>
                 <span class="px-3 py-2 cursor-pointer"
                       t-att-style="state.activeNavTab === 'logs' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
                       t-on-click="() => this._onNavTabChange('logs')">
-                    📜 Logs
+                    📜 Registros
                 </span>
                 <!-- Settings (admin only) -->
                 <span t-if="state.isAdmin" class="px-3 py-2 cursor-pointer"
                       t-att-style="state.activeNavTab === 'settings' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
                       t-on-click="() => this._onNavTabChange('settings')">
-                    ⚙ Settings
+                    ⚙ Ajustes
                 </span>
 
                 <!-- Spacer -->
@@ -224,7 +224,7 @@
                             <button t-if="canModify" class="btn btn-sm"
                                     style="background: #313244; color: #cdd6f4; border: 1px solid #45475a; font-size: 12px;"
                                     t-on-click="() => this._onAction('Clone')">
-                                Clone
+                                Clonar
                             </button>
                             <button t-if="state.isAdmin or state.isDeveloper" class="btn btn-sm"
                                     style="background: #313244; color: #cdd6f4; border: 1px solid #45475a; font-size: 12px;"
@@ -299,27 +299,27 @@
                                 <span class="px-3 py-2 cursor-pointer"
                                       t-att-style="state.activeContentTab === 'backups' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
                                       t-on-click="() => this._onContentTabChange('backups')">
-                                    💾 BACKUPS
+                                    💾 RESPALDOS
                                 </span>
                                 <span class="px-3 py-2 cursor-pointer"
                                       t-att-style="state.activeContentTab === 'upgrade' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
                                       t-on-click="() => this._onContentTabChange('upgrade')">
-                                    ⚙ UPGRADE
+                                    ⚙ ACTUALIZAR
                                 </span>
                                 <span class="px-3 py-2 cursor-pointer"
                                       t-att-style="state.activeContentTab === 'tools' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
                                       t-on-click="() => this._onContentTabChange('tools')">
-                                    🔧 TOOLS
+                                    🔧 HERRAMIENTAS
                                 </span>
                                 <span class="px-3 py-2 cursor-pointer"
                                       t-att-style="state.activeContentTab === 'meet' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
                                       t-on-click="() => this._onContentTabChange('meet')">
-                                    🎥 MEET
+                                    🎥 REUNIONES
                                 </span>
                                 <span class="px-3 py-2 cursor-pointer"
                                       t-att-style="state.activeContentTab === 'docs' ? 'color: #cdd6f4; border-bottom: 2px solid #89b4fa; font-size: 13px;' : 'color: #6c7086; font-size: 13px;'"
                                       t-on-click="() => this._onContentTabChange('docs')">
-                                    📖 DOCS
+                                    📖 DOCUMENTACION
                                 </span>
                             </t>
                         </div>
@@ -605,7 +605,7 @@
                                                         </svg>
                                                     </t>
                                                     <t t-else="">
-                                                        &#9660; Git Changes
+                                                        &#9660; Cambios Git
                                                     </t>
                                                 </span>
                                                 <div t-if="!state.gitPanelCollapsed" class="d-flex gap-1">
@@ -710,7 +710,7 @@
                                                 </t>
                                             </select>
 
-                                            <!-- === Git Changes section (scrollable top) === -->
+                                            <!-- === Cambios Git section (scrollable top) === -->
                                             <div t-att-style="'overflow-y: auto; min-height: 40px; flex: 0 0 ' + state.gitSplitPercent + '%;'">
 
                                             <!-- Outgoing commits (not pushed) -->
@@ -724,7 +724,7 @@
                                                                 style="background: #a6e3a1; color: #1e1e2e; font-size: 10px; font-weight: 600;"
                                                                 t-att-disabled="state.gitPushing"
                                                                 t-on-click="_gitPush">
-                                                            <t t-if="state.gitPushing">Pushing...</t>
+                                                            <t t-if="state.gitPushing">Enviando...</t>
                                                             <t t-else="">Push</t>
                                                         </button>
                                                     </div>
@@ -741,7 +741,7 @@
                                             <t t-if="state.gitStaged.length > 0">
                                                 <div class="mb-2">
                                                     <div style="color: #a6e3a1; font-size: 11px; font-weight: 600;" class="mb-1">
-                                                        &#10003; Staged (<t t-esc="state.gitStaged.length"/>)
+                                                        &#10003; Preparados (<t t-esc="state.gitStaged.length"/>)
                                                     </div>
                                                     <t t-foreach="state.gitStaged" t-as="f" t-key="f.path">
                                                         <div class="py-1 d-flex cursor-pointer rounded px-1"
@@ -762,11 +762,11 @@
                                                 <div class="mb-2">
                                                     <div class="d-flex align-items-center justify-content-between mb-1">
                                                         <span style="color: #f9e2af; font-size: 11px; font-weight: 600;">
-                                                            &#9679; Modified (<t t-esc="state.gitUnstaged.length"/>)
+                                                            &#9679; Modificados (<t t-esc="state.gitUnstaged.length"/>)
                                                         </span>
                                                         <button class="btn btn-sm py-0 px-1"
                                                                 style="background: #313244; color: #a6e3a1; font-size: 10px;"
-                                                                t-on-click="_gitStageAll">Stage all</button>
+                                                                t-on-click="_gitStageAll">Preparar todo</button>
                                                     </div>
                                                     <t t-foreach="state.gitUnstaged" t-as="f" t-key="f.path">
                                                         <div class="py-1 d-flex cursor-pointer rounded px-1"
@@ -786,7 +786,7 @@
                                             <t t-if="state.gitUntracked.length > 0">
                                                 <div class="mb-2">
                                                     <div style="color: #6c7086; font-size: 11px; font-weight: 600;" class="mb-1">
-                                                        ? Untracked (<t t-esc="state.gitUntracked.length"/>)
+                                                        ? Sin rastrear (<t t-esc="state.gitUntracked.length"/>)
                                                     </div>
                                                     <t t-foreach="state.gitUntracked" t-as="f" t-key="f">
                                                         <div class="py-1" style="font-size: 11px; color: #6c7086;">
@@ -801,7 +801,7 @@
                                                 <div class="mt-2 pt-2" style="border-top: 1px solid #313244;">
                                                     <div class="d-flex align-items-center justify-content-between mb-2">
                                                         <div class="d-flex align-items-center gap-2">
-                                                            <span t-if="state.gitDiffStaged" style="background: #a6e3a1; color: #1e1e2e; font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 4px;">STAGED</span>
+                                                            <span t-if="state.gitDiffStaged" style="background: #a6e3a1; color: #1e1e2e; font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 4px;">PREPARADO</span>
                                                             <span t-else="" style="background: #f9e2af; color: #1e1e2e; font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 4px;">MODIFIED</span>
                                                             <code style="color: #89b4fa; font-size: 10px;"><t t-esc="state.gitDiffFile"/></code>
                                                         </div>
@@ -867,7 +867,7 @@
                                                                 t-att-disabled="!state.gitCommitMessage.trim() or state.gitCommitting or state.gitPushing"
                                                                 t-on-click="_gitCommitAndPush">
                                                             <t t-if="state.gitCommitting or state.gitPushing">...</t>
-                                                            <t t-else="">Commit + Push</t>
+                                                            <t t-else="">Commit + Enviar</t>
                                                         </button>
                                                     </div>
                                                 </div>
@@ -880,13 +880,13 @@
                                                             style="background: #a6e3a1; color: #1e1e2e; font-size: 11px; font-weight: 600;"
                                                             t-att-disabled="state.gitPushing"
                                                             t-on-click="_gitPush">
-                                                        <t t-if="state.gitPushing">Pushing...</t>
+                                                        <t t-if="state.gitPushing">Enviando...</t>
                                                         <t t-else="">Push <t t-esc="state.gitOutgoing.length"/> commit(s)</t>
                                                     </button>
                                                 </div>
                                             </t>
 
-                                            </div><!-- end Git Changes scroll -->
+                                            </div><!-- end Cambios Git scroll -->
 
                                             <!-- Split drag handle -->
                                             <div style="height: 4px; cursor: row-resize; background: #313244; flex-shrink: 0; margin: 2px 0;"
@@ -1137,7 +1137,7 @@
                                                                 </div>
                                                                 <!-- Linked meetings/audio -->
                                                                 <div style="border-top: 1px solid #313244; margin-top: 4px; padding-top: 4px;">
-                                                                    <span style="color: #94e2d5; font-size: 9px; font-weight: 600;">&#128266; Meetings</span>
+                                                                    <span style="color: #94e2d5; font-size: 9px; font-weight: 600;">&#128266; Reuniones</span>
                                                                     <t t-if="task.meetings and task.meetings.length > 0">
                                                                         <t t-foreach="task.meetings" t-as="mt" t-key="mt.id">
                                                                             <div class="d-flex align-items-center gap-1 py-1" style="font-size: 9px;">
@@ -1155,12 +1155,12 @@
                                                                         </t>
                                                                     </t>
                                                                     <div t-if="!task.meetings || task.meetings.length === 0"
-                                                                         style="color: #45475a; font-size: 9px;">Sin meetings</div>
+                                                                         style="color: #45475a; font-size: 9px;">Sin reuniones</div>
                                                                     <!-- Link meeting selector -->
                                                                     <select class="form-select form-select-sm mt-1"
                                                                             style="background: #1e1e2e; border-color: #313244; color: #6c7086; font-size: 9px; padding: 1px 4px; height: auto;"
                                                                             t-on-change="(ev) => { this._linkMeetingToTask(task.id, ev.target.value); ev.target.value = ''; }">
-                                                                        <option value="">+ Vincular meeting...</option>
+                                                                        <option value="">+ Vincular reunión...</option>
                                                                         <t t-foreach="state.taskMeetings" t-as="pm" t-key="pm.id">
                                                                             <option t-att-value="pm.id">
                                                                                 <t t-esc="pm.name"/> (<t t-esc="pm.date"/>)
@@ -1876,7 +1876,7 @@
                                         <tbody>
                                             <tr style="border-color: #313244;"><td style="color: #89b4fa; width: 150px;">Sidebar ◀/▶</td><td>Contraer/expandir el panel de instancias a solo iconos</td></tr>
                                             <tr style="border-color: #313244;"><td style="color: #89b4fa;">HISTORY</td><td>Historial de commits por repositorio, selector de repos, detalle de commits con diff</td></tr>
-                                            <tr style="border-color: #313244;"><td style="color: #89b4fa;">AI</td><td>Terminal Claude Code + panel Git Changes (staged/unstaged/diff)</td></tr>
+                                            <tr style="border-color: #313244;"><td style="color: #89b4fa;">AI</td><td>Terminal Claude Code + panel Cambios Git (staged/unstaged/diff)</td></tr>
                                             <tr style="border-color: #313244;"><td style="color: #89b4fa;">SHELL</td><td>Terminal Linux interactiva con acceso al servidor</td></tr>
                                             <tr style="border-color: #313244;"><td style="color: #89b4fa;">LOGS</td><td>Logs del servicio (journalctl) y del log de Odoo en tiempo real</td></tr>
                                             <tr style="border-color: #313244;"><td style="color: #89b4fa;">EDITOR</td><td>Navegador de archivos del proyecto (todos los paths del addons_path)</td></tr>
@@ -1889,10 +1889,10 @@
 
                                 <!-- AI Tab screenshot -->
                                 <div class="mb-4" style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
-                                    <h6 style="color: #f9e2af;">Tab AI — Terminal + Git Changes</h6>
+                                    <h6 style="color: #f9e2af;">Tab AI — Terminal + Cambios Git</h6>
                                     <img src="/pmb_devops/static/src/docs/img/04_ai.jpg" class="mb-3" style="width: 100%; border-radius: 6px; border: 1px solid #313244;" alt="AI Tab"/>
                                     <div style="font-size: 12px; color: #a6adc8;">
-                                        <div class="mb-1"><span style="background:#89b4fa;color:#1e1e2e;border-radius:50%;padding:1px 6px;font-size:10px;font-weight:600;">1</span> Panel Git Changes: archivos staged/modified/untracked</div>
+                                        <div class="mb-1"><span style="background:#89b4fa;color:#1e1e2e;border-radius:50%;padding:1px 6px;font-size:10px;font-weight:600;">1</span> Panel Cambios Git: archivos staged/modified/untracked</div>
                                         <div class="mb-1"><span style="background:#89b4fa;color:#1e1e2e;border-radius:50%;padding:1px 6px;font-size:10px;font-weight:600;">2</span> Click en archivo para ver diff inline coloreado</div>
                                         <div class="mb-1"><span style="background:#89b4fa;color:#1e1e2e;border-radius:50%;padding:1px 6px;font-size:10px;font-weight:600;">3</span> Commit y Push (requiere autenticacion para no-admin)</div>
                                         <div class="mb-1"><span style="background:#89b4fa;color:#1e1e2e;border-radius:50%;padding:1px 6px;font-size:10px;font-weight:600;">4</span> Botones de teclas especiales (Ctrl+C, Esc, Tab, etc.)</div>
@@ -1931,7 +1931,7 @@
                                         </div>
                                         <ol style="padding-left: 20px; margin: 0;">
                                             <li>Desarrollar en instancia <span style="color: #a6e3a1;">development</span></li>
-                                            <li>Commit + Push desde el panel Git Changes (tab AI)</li>
+                                            <li>Commit + Enviar desde el panel Cambios Git (tab AI)</li>
                                             <li>En <span style="color: #fab387;">staging</span>: Pull cambios (tab UPGRADE)</li>
                                             <li>Verificar que funciona en staging</li>
                                             <li>Merge <span style="color: #fab387;">staging → main</span> (solo admin, desde panel Merge)</li>
@@ -2092,7 +2092,7 @@
                                     <h6 style="color: #89b4fa;">Tips y Extras</h6>
                                     <div style="font-size: 12px; color: #a6adc8;">
                                         <div class="mb-1"><strong>Hard Reset:</strong> Menu usuario → 🔄 Hard Reset (limpia cache de assets de Odoo)</div>
-                                        <div class="mb-1"><strong>Resize Git panel:</strong> Arrastra el borde entre Git Changes y el terminal (se guarda)</div>
+                                        <div class="mb-1"><strong>Resize Git panel:</strong> Arrastra el borde entre Cambios Git y el terminal (se guarda)</div>
                                         <div class="mb-1"><strong>Persistencia:</strong> Sidebar, Git panel, terminales persisten al cambiar tabs</div>
                                         <div class="mb-1"><strong>Sesiones Claude:</strong> Boton 📋 — buscar, resumir (<code>/resume</code>) o eliminar sesiones</div>
                                         <div class="mb-1"><strong>Tareas:</strong> <code style="color: #89b4fa;">closes #ID</code> en commits cierra tareas de Odoo automaticamente</div>
@@ -2115,9 +2115,9 @@
 
                     <!-- BUILDS nav tab -->
                     <div t-if="state.activeNavTab === 'builds'" class="p-4" style="color: #cdd6f4;">
-                        <h4 class="mb-3">Builds</h4>
+                        <h4 class="mb-3">Despliegues</h4>
                         <t t-if="state.allBuilds.length === 0">
-                            <p style="color: #6c7086;">No builds yet.</p>
+                            <p style="color: #6c7086;">Sin despliegues aún.</p>
                         </t>
                         <table t-if="state.allBuilds.length > 0" class="table table-sm" style="color: #cdd6f4;">
                             <thead style="border-color: #313244;">
@@ -2357,8 +2357,8 @@
 
                     <!-- LOGS nav tab -->
                     <div t-if="state.activeNavTab === 'logs'" class="p-4" style="color: #cdd6f4;">
-                        <h4 class="mb-3">System Logs</h4>
-                        <p style="color: #6c7086;">Select an instance from the Branches tab to view its logs.</p>
+                        <h4 class="mb-3">Registros del Sistema</h4>
+                        <p style="color: #6c7086;">Selecciona una instancia desde la pestaña Ramas para ver sus registros.</p>
                     </div>
 
                     <!-- SETTINGS nav tab -->
