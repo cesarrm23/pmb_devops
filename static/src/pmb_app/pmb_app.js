@@ -1576,9 +1576,23 @@ class PmbDevopsApp extends Component {
 
     _instanceUrlWithDebug(url) {
         if (!url) return '';
-        if (url.includes('debug=assets')) return url;
-        const sep = url.includes('?') ? '&' : '?';
-        return url + sep + 'debug=assets';
+        let u;
+        try {
+            u = new URL(url);
+        } catch (e) {
+            // Not a parseable URL — fall back to naive append
+            if (url.includes('debug=assets')) return url;
+            const sep = url.includes('?') ? '&' : '?';
+            return url + sep + 'debug=assets';
+        }
+        // Ensure the path lands on /odoo so the SPA opens (instead of the bare
+        // hostname which redirects through /web and may drop the debug flag).
+        const path = u.pathname.replace(/\/+$/, '');
+        if (!path || path === '' || path === '/') {
+            u.pathname = '/odoo';
+        }
+        u.searchParams.set('debug', 'assets');
+        return u.toString();
     }
 
     _aiLastPromptKey(instanceId) {
