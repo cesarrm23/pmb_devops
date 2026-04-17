@@ -4162,17 +4162,15 @@ Usa psql -d ${inst.database_name} para ejecutar los comandos SQL.`;
                 if (this.state.activeContentTab !== 'ai') return;
                 const items = ev.clipboardData && ev.clipboardData.items;
                 if (!items) return;
-                // Check if there's plain text — if so, let xterm handle it normally
-                let hasText = false;
+                // Any file item wins — image paste often also ships text metadata
                 let fileItem = null;
                 for (const item of items) {
-                    if (item.kind === 'string' && item.type === 'text/plain') hasText = true;
-                    if (item.kind === 'file') fileItem = item;
+                    if (item.kind === 'file') { fileItem = item; break; }
                 }
-                // Only handle file if there's no text (pure file paste/drop)
-                if (!fileItem || hasText) return;
+                if (!fileItem) return;
                 ev.preventDefault();
                 ev.stopPropagation();
+                if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
                 const blob = fileItem.getAsFile();
                 if (!blob) return;
                 // Block files > 8MB (server limit is 10MB but base64 adds ~33%)
@@ -4209,8 +4207,8 @@ Usa psql -d ${inst.database_name} para ejecutar los comandos SQL.`;
                 };
                 reader.readAsDataURL(blob);
             };
-            // Single listener on document only — capturing once is enough
-            document.addEventListener('paste', this._aiPasteHandler, false);
+            // Capture phase so we beat xterm.js's helper textarea paste handler
+            document.addEventListener('paste', this._aiPasteHandler, true);
 
             // Drag & drop file support
             this._aiDropHandler = (ev) => {
@@ -4442,6 +4440,32 @@ Usa psql -d ${inst.database_name} para ejecutar los comandos SQL.`;
 
     async _pasteToAiTerminal() {
         if (!this._aiWs || this._aiWs.readyState !== WebSocket.OPEN) return;
+        // First try the async Clipboard API for files (images/pdfs/etc).
+        // readText() returns empty when the clipboard holds only a Blob.
+        if (navigator.clipboard && navigator.clipboard.read) {
+            try {
+                const items = await navigator.clipboard.read();
+                for (const item of items) {
+                    const fileType = item.types.find(t =>
+                        t.startsWith('image/') ||
+                        t === 'application/pdf' ||
+                        t.startsWith('application/') ||
+                        t.startsWith('audio/') ||
+                        t.startsWith('video/')
+                    );
+                    if (fileType) {
+                        const blob = await item.getType(fileType);
+                        const ext = fileType.split('/')[1].split('+')[0] || 'bin';
+                        const filename = `paste_${Date.now()}.${ext}`;
+                        this._sendBlobToAiTerminal(blob, filename, fileType);
+                        if (this._aiTerm) this._aiTerm.focus();
+                        return;
+                    }
+                }
+            } catch (e) {
+                // fall through to text path
+            }
+        }
         try {
             const text = await navigator.clipboard.readText();
             if (text) {
@@ -4450,13 +4474,45 @@ Usa psql -d ${inst.database_name} para ejecutar los comandos SQL.`;
                 if (this._aiTerm) this._aiTerm.focus();
             }
         } catch (e) {
-            // Fallback: prompt
             const text = prompt('Pegar texto:');
             if (text) {
                 this._aiWs.send(JSON.stringify({ type: 'input', data: text }));
                 this._captureTypedInput(text);
             }
         }
+    }
+
+    _sendBlobToAiTerminal(blob, filename, mimetype) {
+        if (!blob) return;
+        if (blob.size > 8 * 1024 * 1024) {
+            if (this._aiTerm) {
+                this._aiTerm.writeln(`\x1b[31m[Error: Archivo demasiado grande (${(blob.size/1024/1024).toFixed(1)}MB). Máximo 8MB]\x1b[0m`);
+            }
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+            const base64 = reader.result.split(',')[1];
+            if (!this._aiWs || this._aiWs.readyState !== WebSocket.OPEN) {
+                if (this._aiTerm) this._aiTerm.writeln('\x1b[31m[WS cerrado]\x1b[0m');
+                return;
+            }
+            try {
+                this._aiWs.send(JSON.stringify({
+                    type: 'file',
+                    data: base64,
+                    filename: filename,
+                    mimetype: mimetype || blob.type || 'application/octet-stream',
+                }));
+                if (this._aiTerm) {
+                    const size = blob.size > 1024 ? `${(blob.size/1024).toFixed(1)}KB` : `${blob.size}B`;
+                    this._aiTerm.writeln(`\x1b[33m[Archivo: ${filename} (${size})]\x1b[0m`);
+                }
+            } catch (e) {
+                if (this._aiTerm) this._aiTerm.writeln(`\x1b[31m[Error al enviar archivo: ${e.message}]\x1b[0m`);
+            }
+        };
+        reader.readAsDataURL(blob);
     }
 
     _attachFileToTerminal() {
@@ -4513,7 +4569,7 @@ Usa psql -d ${inst.database_name} para ejecutar los comandos SQL.`;
 
     _cleanupAiTerminal() {
         if (this._aiPasteHandler) {
-            document.removeEventListener('paste', this._aiPasteHandler, false);
+            document.removeEventListener('paste', this._aiPasteHandler, true);
             this._aiPasteHandler = null;
         }
         this._aiDropHandler = null;
