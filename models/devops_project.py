@@ -874,9 +874,144 @@ class DevopsProject(models.Model):
             },
         }
 
+    def _ensure_remote_project_id(self, conn):
+        """Return a live remote project ID — creates on remote if missing, and
+        clears stale mappings/pointers if the cached remote project was deleted."""
+        self.ensure_one()
+        uid, models_proxy, db, login, pw = conn
+        remote_pid = self.production_project_id_remote
+        if remote_pid:
+            try:
+                exists = models_proxy.execute_kw(
+                    db, uid, pw, 'project.project', 'search_count',
+                    [[('id', '=', remote_pid)]],
+                )
+                if not exists:
+                    self.env['devops.stage.mapping'].sudo().search([
+                        ('project_id', '=', self.id),
+                    ]).unlink()
+                    if self.odoo_project_id:
+                        self.env['project.task'].sudo().search([
+                            ('project_id', '=', self.odoo_project_id.id),
+                            ('pmb_remote_task_id', '!=', 0),
+                        ]).write({'pmb_remote_task_id': 0})
+                    self.sudo().write({'production_project_id_remote': 0})
+                    remote_pid = 0
+            except Exception as e:
+                _logger.warning('Project %s: remote project validation error: %s', self.name, e)
+        if not remote_pid:
+            remote_pid = models_proxy.execute_kw(
+                db, uid, pw, 'project.project', 'create',
+                [{'name': f'[DevOps] {self.name}'}],
+            )
+            self.sudo().write({'production_project_id_remote': remote_pid})
+            _logger.info('Project %s: auto-created remote project id=%s', self.name, remote_pid)
+        return remote_pid
+
+    def action_resync_stages_to_production(self):
+        """Push ALL local stages of this project to the remote and validate existing mappings.
+
+        Per local stage:
+          - Cached mapping + remote alive → repair name/sequence/fold drift.
+          - Cached mapping + remote missing → drop stale mapping, re-resolve by
+            name on remote, or create fresh.
+          - No mapping → match-by-name on remote or create.
+
+        Idempotent. Call at the start of any bulk task sync so create finds the
+        right remote stage_id. Returns a summary dict."""
+        self.ensure_one()
+        if not self.sync_tasks_to_production:
+            return {'status': 'disabled', 'errors': ['sync_tasks_to_production is disabled']}
+        if not self.odoo_project_id:
+            return {'status': 'no_project', 'errors': ['no odoo_project_id linked']}
+        conn = self._get_production_xmlrpc()
+        if not conn:
+            return {'status': 'auth_failed', 'errors': ['could not connect/authenticate']}
+        uid, models_proxy, db, login, pw = conn
+        try:
+            remote_pid = self._ensure_remote_project_id(conn)
+        except Exception as e:
+            return {'status': 'error', 'errors': [f'remote project: {e}']}
+
+        local_stages = self.env['project.task.type'].sudo().search([
+            ('project_ids', 'in', self.odoo_project_id.id),
+        ])
+        created, matched, repaired, errors = 0, 0, 0, []
+        StageMap = self.env['devops.stage.mapping'].sudo()
+
+        for stage in local_stages:
+            try:
+                mapping = StageMap.search([
+                    ('project_id', '=', self.id),
+                    ('local_stage_id', '=', stage.id),
+                ], limit=1)
+                if mapping:
+                    alive = models_proxy.execute_kw(
+                        db, uid, pw, 'project.task.type', 'search_count',
+                        [[('id', '=', mapping.remote_stage_id)]],
+                    )
+                    if alive:
+                        info = models_proxy.execute_kw(
+                            db, uid, pw, 'project.task.type', 'read',
+                            [[mapping.remote_stage_id], ['name', 'sequence', 'fold']],
+                        )[0]
+                        update_vals = {}
+                        if info.get('name') != stage.name:
+                            update_vals['name'] = stage.name
+                        if (info.get('sequence') or 0) != (stage.sequence or 10):
+                            update_vals['sequence'] = stage.sequence or 10
+                        if bool(info.get('fold')) != bool(stage.fold):
+                            update_vals['fold'] = bool(stage.fold)
+                        if update_vals:
+                            models_proxy.execute_kw(
+                                db, uid, pw, 'project.task.type', 'write',
+                                [[mapping.remote_stage_id], update_vals],
+                            )
+                            repaired += 1
+                        mapping.write({'name_snapshot': stage.name})
+                        continue
+                    mapping.unlink()
+                existing = models_proxy.execute_kw(
+                    db, uid, pw, 'project.task.type', 'search',
+                    [[('name', '=', stage.name), ('project_ids', 'in', remote_pid)]],
+                    {'limit': 1},
+                )
+                if existing:
+                    remote_stage_id = existing[0]
+                    matched += 1
+                else:
+                    remote_stage_id = models_proxy.execute_kw(
+                        db, uid, pw, 'project.task.type', 'create',
+                        [{
+                            'name': stage.name,
+                            'sequence': stage.sequence or 10,
+                            'project_ids': [(4, remote_pid)],
+                            'fold': bool(stage.fold),
+                        }],
+                    )
+                    created += 1
+                StageMap.create({
+                    'project_id': self.id,
+                    'local_stage_id': stage.id,
+                    'remote_stage_id': remote_stage_id,
+                    'name_snapshot': stage.name,
+                })
+            except Exception as e:
+                errors.append(f'{stage.name}: {e}')
+                _logger.warning('Resync stages: %s failed: %s', stage.name, e)
+
+        return {
+            'status': 'ok',
+            'stages_local': len(local_stages),
+            'created': created, 'matched': matched, 'repaired': repaired,
+            'mappings': StageMap.search_count([('project_id', '=', self.id)]),
+            'errors': errors[:20],
+        }
+
     def action_resync_unsynced_tasks(self):
         """Push every local task that lacks pmb_remote_task_id to the remote.
 
+        Always syncs stages first (so task create finds the right remote stage_id).
         Used to recover from tasks that were created with `skip_task_sync` context
         (e.g. meeting analysis seeding) or before sync was enabled. Safe to run
         repeatedly — already-synced tasks are skipped. Returns a summary dict."""
@@ -887,6 +1022,7 @@ class DevopsProject(models.Model):
         if not self.odoo_project_id:
             return {'status': 'no_project', 'synced': 0, 'failed': 0, 'skipped': 0,
                     'errors': ['no odoo_project_id linked']}
+        stages_summary = self.action_resync_stages_to_production()
         tasks = self.env['project.task'].sudo().search([
             ('project_id', '=', self.odoo_project_id.id),
             ('pmb_remote_task_id', 'in', [0, False]),
@@ -906,7 +1042,8 @@ class DevopsProject(models.Model):
                 _logger.warning('Resync: task %s failed: %s', t.id, e)
         return {'status': 'ok', 'synced': synced, 'failed': failed,
                 'skipped': 0, 'total': len(tasks),
-                'errors': errors[:20]}
+                'errors': errors[:20],
+                'stages': stages_summary}
 
     def _sync_task_update_to_production(self, task, vals):
         """Update the matching task on the remote Odoo (looked up by stored remote ID).

@@ -3632,7 +3632,8 @@ Texto:
     @http.route('/devops/project/resync_tasks', type='json', auth='user')
     def project_resync_tasks(self, project_id):
         """Admin-only: push every local task missing pmb_remote_task_id to the remote.
-        Recovers tasks created with skip_task_sync context (meeting analysis seeding)."""
+        Recovers tasks created with skip_task_sync context (meeting analysis seeding).
+        Syncs stages first as part of the same operation."""
         if not request.env.user.has_group('pmb_devops.group_devops_admin'):
             return {'error': 'Solo administradores pueden forzar el resync'}
         project = request.env['devops.project'].sudo().browse(int(project_id))
@@ -3640,6 +3641,19 @@ Texto:
             return {'error': 'Proyecto no encontrado'}
         try:
             return project.action_resync_unsynced_tasks()
+        except Exception as e:
+            return {'error': str(e)}
+
+    @http.route('/devops/project/resync_stages', type='json', auth='user')
+    def project_resync_stages(self, project_id):
+        """Admin-only: push every local stage to the remote + validate/repair drift."""
+        if not request.env.user.has_group('pmb_devops.group_devops_admin'):
+            return {'error': 'Solo administradores pueden forzar el resync de etapas'}
+        project = request.env['devops.project'].sudo().browse(int(project_id))
+        if not project.exists():
+            return {'error': 'Proyecto no encontrado'}
+        try:
+            return project.action_resync_stages_to_production()
         except Exception as e:
             return {'error': str(e)}
 
