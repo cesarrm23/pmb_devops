@@ -87,5 +87,26 @@ for p in model.search([('odoo_service_name', '!=', False)]):
             <field name="interval_type">hours</field>
             <field name="active">True</field>
         </record>
+        <!-- AI Agents: run due agents every 30 min -->
+        <record model="ir.cron" id="cron_ai_agents">
+            <field name="name">PMB DevOps: Ejecutar agentes IA</field>
+            <field name="model_id" ref="pmb_devops.model_devops_ai_agent"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_run_agents()</field>
+            <field name="interval_number">30</field>
+            <field name="interval_type">minutes</field>
+            <field name="active">True</field>
+        </record>
+
+        <!-- Pull remote tasks from production Odoo into pmb_devops every 5 min -->
+        <record model="ir.cron" id="cron_pull_remote_tasks">
+            <field name="name">PMB DevOps: Pull tareas desde producción</field>
+            <field name="model_id" ref="pmb_devops.model_devops_project"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_pull_remote_tasks()</field>
+            <field name="interval_number">5</field>
+            <field name="interval_type">minutes</field>
+            <field name="active">True</field>
+        </record>
     </data>
 </odoo>

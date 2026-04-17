@@ -413,7 +413,7 @@ async def terminal_handler(websocket):
                         'if which npm >/dev/null 2>&1; then npm install -g @anthropic-ai/claude-code 2>&1 | tail -1; '
                         'else echo "ERROR: npm no instalado. Instala Node.js primero: apt install nodejs npm"; exit 1; fi; fi;'
                     )
-                    claude_cmd = f'cd {remote_cwd} && CLAUDE_CODE_DISABLE_AUTOUPDATE=1 claude'
+                    claude_cmd = f'cd {remote_cwd} && CLAUDE_CODE_DISABLE_AUTOUPDATE=1 claude --model claude-opus-4-7'
                     if ssh_instance_user:
                         ssh_cmd += [f'{ensure_claude} sudo -u {ssh_instance_user} -i bash -c \'{claude_cmd}\'']
                     elif ssh_user == 'root':
@@ -431,9 +431,9 @@ async def terminal_handler(websocket):
             elif cmd_type == 'claude':
                 if instance_user:
                     cmd = ['sudo', '-u', instance_user, '-i', 'bash', '-c',
-                           f'cd {cwd} && CLAUDE_CODE_DISABLE_AUTOUPDATE=1 PATH=/opt/odooAL/.local/bin:$PATH claude']
+                           f'cd {cwd} && CLAUDE_CODE_DISABLE_AUTOUPDATE=1 PATH=/opt/odooAL/.local/bin:$PATH claude --model claude-opus-4-7']
                 else:
-                    cmd = [CLAUDE_BIN]
+                    cmd = [CLAUDE_BIN, '--model', 'claude-opus-4-7']
             elif cmd_type == 'shell':
                 if instance_user:
                     cmd = ['sudo', '-u', instance_user, '-i', 'bash', '-c', f'cd {cwd} && exec bash -i']
@@ -486,7 +486,7 @@ async def terminal_handler(websocket):
                     fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsize)
                     os.kill(child_pid, signal.SIGWINCH)
                 elif msg.get('type') in ('image', 'file'):
-                    # Save file and make it accessible to the PTY process
+                    # Save file and send as context to Claude Code
                     import base64
                     try:
                         file_data = base64.b64decode(msg['data'])
@@ -494,19 +494,24 @@ async def terminal_handler(websocket):
                         logger.warning("Invalid base64 data for file upload")
                         continue
                     filename = msg.get('filename', f'paste_{int(time.time())}.bin')
-                    filename = filename.replace('/', '_').replace('..', '_')
+                    # Sanitize: strip path components, keep basename only
+                    filename = os.path.basename(filename).replace('/', '_').replace('\\', '_')
+                    # Prevent leading dots (hidden files / traversal) but preserve dots in name
+                    while filename.startswith('.'):
+                        filename = filename[1:]
+                    if not filename:
+                        filename = f'paste_{int(time.time())}.bin'
                     size_kb = len(file_data) / 1024
+                    mimetype = msg.get('mimetype', '')
+                    is_image = mimetype.startswith('image/')
 
-                    # Determine where to save
-                    save_dir = session.cwd if session else '/tmp'
-                    file_path = os.path.join(save_dir, filename)
+                    # Always save to /tmp for reliable access
+                    file_path = os.path.join('/tmp', filename)
 
                     # Check if this is an SSH session
                     ssh_cfg = session.ssh_config if session else None
                     if ssh_cfg:
-                        # SSH: save locally first, then SCP to remote
-                        local_tmp = os.path.join('/tmp', filename)
-                        with open(local_tmp, 'wb') as f:
+                        with open(file_path, 'wb') as f:
                             f.write(file_data)
                         remote_path = f"/tmp/{filename}"
                         scp_cmd = ['scp', '-o', 'StrictHostKeyChecking=no']
@@ -514,26 +519,34 @@ async def terminal_handler(websocket):
                             scp_cmd += ['-i', ssh_cfg['key']]
                         if ssh_cfg.get('port', 22) != 22:
                             scp_cmd += ['-P', str(ssh_cfg['port'])]
-                        scp_cmd += [local_tmp, f"{ssh_cfg.get('user', 'root')}@{ssh_cfg['host']}:{remote_path}"]
+                        scp_cmd += [file_path, f"{ssh_cfg.get('user', 'root')}@{ssh_cfg['host']}:{remote_path}"]
                         try:
                             import subprocess
                             subprocess.run(scp_cmd, capture_output=True, timeout=30)
-                            os.remove(local_tmp)
                         except Exception as e:
                             logger.warning("SCP failed: %s", e)
                         file_path = remote_path
                     else:
-                        # Local: save directly
                         with open(file_path, 'wb') as f:
                             f.write(file_data)
 
-                    # Send path as input to the terminal
-                    os.write(master_fd, file_path.encode('utf-8'))
-                    logger.info("File saved: %s (%.1f KB, ssh=%s)", file_path, size_kb, bool(ssh_cfg))
+                    # Send a prompt that tells Claude to read/analyze the file
+                    cmd_type = session.cmd_type if session else 'shell'
+                    if cmd_type == 'claude':
+                        if is_image:
+                            prompt = f"Analiza esta imagen que acabo de adjuntar: {file_path}\n"
+                        else:
+                            prompt = f"Revisa este archivo que acabo de adjuntar: {file_path}\n"
+                        os.write(master_fd, prompt.encode('utf-8'))
+                    else:
+                        # Shell: just send the path
+                        os.write(master_fd, file_path.encode('utf-8'))
+
+                    logger.info("File saved: %s (%.1f KB, ssh=%s, cmd=%s)", file_path, size_kb, bool(ssh_cfg), cmd_type)
                     try:
                         await websocket.send(json.dumps({
                             'type': 'info',
-                            'data': f'Archivo: {file_path} ({size_kb:.1f} KB)',
+                            'data': f'Archivo guardado: {file_path} ({size_kb:.1f} KB)',
                         }))
                     except Exception:
                         pass
@@ -571,7 +584,7 @@ async def main():
 
     async with websockets.serve(
         terminal_handler, HOST, PORT,
-        max_size=2**20,
+        max_size=10 * 2**20,  # 10 MB for file uploads
         ping_interval=20,
         ping_timeout=20,
     ):

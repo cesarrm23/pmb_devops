@@ -131,6 +131,14 @@ class DevopsAiChatController(http.Controller):
         if cmd_type not in ('claude', 'shell'):
             cmd_type = 'claude'
 
+        # Claude sessions: inject workspace rules (CLAUDE.md) so the
+        # agent receives project-specific discipline — don't drift to
+        # /tmp, bump module versions, respect the branch it's on.
+        if cmd_type == 'claude' and project:
+            from ..utils import agent_workspace
+            workspace = ssh_config['remote_cwd'] if ssh_config else cwd
+            agent_workspace.ensure_claude_md(project, instance, workspace)
+
         # Generate token
         token = secrets.token_urlsafe(32)
         token_data = {

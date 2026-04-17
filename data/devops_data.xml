@@ -15,7 +15,7 @@
         </record>
         <record id="config_claude_model" model="ir.config_parameter">
             <field name="key">pmb_devops.claude_model</field>
-            <field name="value">claude-opus-4-6-20250414</field>
+            <field name="value">claude-opus-4-7</field>
         </record>
     </data>
 </odoo>

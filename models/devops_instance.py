@@ -60,6 +60,17 @@ class DevopsInstance(models.Model):
         string='Última Actividad', default=fields.Datetime.now,
     )
 
+    # ---- SSL certificate status ----
+    ssl_status = fields.Selection([
+        ('unknown', 'Sin verificar'),
+        ('ok', 'Certificado valido'),
+        ('missing', 'Sin certificado'),
+        ('dns_mismatch', 'DNS no apunta al servidor'),
+        ('error', 'Error certbot'),
+    ], string='SSL', default='unknown', tracking=True)
+    ssl_last_error = fields.Text(string='Último error SSL')
+    ssl_last_checked = fields.Datetime(string='Última verificación SSL')
+
     # ---- GitHub credentials (per instance, for git push) ----
     github_user = fields.Char(string='GitHub Usuario')
     github_token = fields.Char(string='GitHub Token')

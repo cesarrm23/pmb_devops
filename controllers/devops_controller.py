@@ -1,11 +1,33 @@
 """API endpoints for the PMB DevOps SPA."""
 import logging
 import os
+from datetime import datetime
+
+import pytz
 
 from odoo import fields, http
+from odoo.exceptions import UserError
 from odoo.http import request
 
 _logger = logging.getLogger(__name__)
+
+
+def _versions_match(manifest_v, installed_v):
+    """Compare a manifest version to what's stored in ir_module_module.
+
+    Odoo auto-prepends the Odoo series (e.g. "18.0.") when the manifest
+    uses a short version. So manifest="1.3" and installed="18.0.1.3"
+    represent the same build and must compare equal.
+    """
+    if not manifest_v or not installed_v:
+        return False
+    if manifest_v == installed_v:
+        return True
+    if installed_v.endswith('.' + manifest_v):
+        return True
+    if manifest_v.endswith('.' + installed_v):
+        return True
+    return False
 
 
 class DevopsController(http.Controller):
@@ -33,6 +55,20 @@ class DevopsController(http.Controller):
         ('Staging', 3),
         ('Producción', 4),
     ]
+
+    def _user_dt(self, dt, fmt='%Y-%m-%d %H:%M'):
+        """Convert a UTC datetime to the current user's timezone, formatted."""
+        if not dt:
+            return ''
+        return fields.Datetime.context_timestamp(request.env.user, dt).strftime(fmt)
+
+    def _date_to_user_utc(self, date_str):
+        """Parse YYYY-MM-DD as midnight in the user's timezone, return UTC naive datetime."""
+        if not date_str:
+            return False
+        user_tz = pytz.timezone(request.env.user.tz or 'UTC')
+        local_dt = user_tz.localize(datetime.strptime(date_str, '%Y-%m-%d'))
+        return local_dt.astimezone(pytz.utc).replace(tzinfo=None)
 
     def _ensure_devops_stages(self, odoo_project_id):
         """Create DevOps task stages if they don't exist for the project."""
@@ -90,6 +126,17 @@ class DevopsController(http.Controller):
         project = request.env['devops.project'].browse(project_id)
         if not project.exists():
             return {'error': 'Proyecto no encontrado'}
+        # Auto-create linked Odoo project if missing
+        if not project.odoo_project_id:
+            try:
+                odoo_proj = request.env['project.project'].sudo().create({
+                    'name': f'[DevOps] {project.name}',
+                })
+                project.sudo().write({'odoo_project_id': odoo_proj.id})
+                self._ensure_devops_stages(odoo_proj.id)
+                _logger.info("Auto-created Odoo project for %s (id=%s)", project.name, odoo_proj.id)
+            except Exception as e:
+                _logger.warning("Failed to auto-create Odoo project for %s: %s", project.name, e)
         # Refresh service status for SSH projects
         if project.connection_type == 'ssh' and project.ssh_host:
             try:
@@ -801,6 +848,51 @@ echo "done" > {status_file}
         except Exception as e:
             return {'status': 'error', 'error': str(e)}
 
+    @http.route('/devops/instance/obtain_ssl', type='json', auth='user')
+    def instance_obtain_ssl(self, instance_id):
+        """Admin-only: (re)issue a Let's Encrypt cert for the given instance."""
+        if not request.env.user.has_group('pmb_devops.group_devops_admin'):
+            return {'error': 'Solo un administrador puede emitir SSL.'}
+        instance = request.env['devops.instance'].sudo().browse(int(instance_id))
+        if not instance.exists():
+            return {'error': 'Instancia no encontrada'}
+        try:
+            instance.action_obtain_ssl_cert()
+            return {
+                'status': 'ok',
+                'ssl_status': instance.ssl_status,
+                'domain': instance.full_domain,
+            }
+        except UserError as e:
+            return {
+                'status': 'error',
+                'ssl_status': instance.ssl_status,
+                'error': str(e),
+                'ssl_last_error': instance.ssl_last_error or '',
+            }
+        except Exception as e:
+            return {
+                'status': 'error',
+                'error': str(e),
+                'ssl_last_error': instance.ssl_last_error or '',
+            }
+
+    @http.route('/devops/instance/check_ssl', type='json', auth='user')
+    def instance_check_ssl(self, instance_id):
+        """Probe https cert validity and update ssl_status."""
+        instance = request.env['devops.instance'].sudo().browse(int(instance_id))
+        if not instance.exists():
+            return {'error': 'Instancia no encontrada'}
+        instance.action_check_ssl_status()
+        return {
+            'status': 'ok',
+            'ssl_status': instance.ssl_status,
+            'ssl_last_checked': (
+                instance.ssl_last_checked and
+                instance.ssl_last_checked.isoformat() or ''
+            ),
+        }
+
     @http.route('/devops/instance/repos', type='json', auth='user')
     def instance_repos(self, project_id, instance_id=None):
         """Detect available git repos for an instance from its Odoo config."""
@@ -929,10 +1021,13 @@ echo "done" > {status_file}
                                 elif inst_type_ssh == 'staging':
                                     merge_target = prod_branch
 
-                                # Count pending merges
+                                # Count pending merges — compare remote refs so
+                                # the result reflects origin state (local
+                                # clones may be stale after merges run in
+                                # other working copies).
                                 if merge_target:
                                     ssh_run(f'git -C {git_path} fetch origin 2>/dev/null')
-                                    log_out = ssh_run(f'git -C {git_path} log --oneline origin/{merge_target}..{branch} 2>/dev/null')
+                                    log_out = ssh_run(f'git -C {git_path} log --oneline origin/{merge_target}..origin/{branch} 2>/dev/null')
                                     if log_out:
                                         for l in log_out.strip().split('\n')[:10]:
                                             if l.strip():
@@ -941,7 +1036,7 @@ echo "done" > {status_file}
                                                 merge_pending_commits.append({'hash': parts[0], 'message': parts[1] if len(parts) > 1 else ''})
 
                                 # Count sync pending (production → this branch)
-                                sync_out = ssh_run(f'git -C {git_path} log --oneline {branch}..origin/{prod_branch} 2>/dev/null')
+                                sync_out = ssh_run(f'git -C {git_path} log --oneline origin/{branch}..origin/{prod_branch} 2>/dev/null')
                                 if sync_out:
                                     for l in sync_out.strip().split('\n')[:10]:
                                         if l.strip():
@@ -1129,8 +1224,15 @@ echo "done" > {status_file}
                 merge_target = project.production_branch or 'main'
             if merge_target:
                 try:
+                    # Use origin/{branch} so a stale local working copy
+                    # doesn't hide commits that were pushed via a different
+                    # clone (e.g. the merge ran in the dev instance's repo).
+                    subprocess.run(
+                        ['git', 'fetch', 'origin', branch, merge_target],
+                        capture_output=True, text=True, timeout=30, cwd=git_path,
+                    )
                     r5 = subprocess.run(
-                        ['git', 'log', '--oneline', f'origin/{merge_target}..{branch}'],
+                        ['git', 'log', '--oneline', f'origin/{merge_target}..origin/{branch}'],
                         capture_output=True, text=True, timeout=5, cwd=git_path,
                     )
                     if r5.returncode == 0 and r5.stdout.strip():
@@ -1151,7 +1253,7 @@ echo "done" > {status_file}
             if inst_type in ('staging', 'development'):
                 try:
                     r6 = subprocess.run(
-                        ['git', 'log', '--oneline', f'{branch}..origin/{prod_branch}'],
+                        ['git', 'log', '--oneline', f'origin/{branch}..origin/{prod_branch}'],
                         capture_output=True, text=True, timeout=5, cwd=git_path,
                     )
                     if r6.returncode == 0 and r6.stdout.strip():
@@ -1381,6 +1483,92 @@ echo "done" > {status_file}
             ], cwd=cwd)
 
         return {'diff': result.stdout if result.returncode == 0 else 'No diff available'}
+
+    @http.route('/devops/commit/link', type='json', auth='user')
+    def commit_link(self, project_id, task_id, commit_hash, repo_path='',
+                    short_hash='', message='', author='', date=''):
+        """Link a commit to a task (many-to-many). Idempotent."""
+        project = request.env['devops.project'].browse(int(project_id))
+        if not project.exists():
+            return {'error': 'Proyecto no encontrado'}
+        task = request.env['project.task'].browse(int(task_id))
+        if not task.exists():
+            return {'error': 'Tarea no encontrada'}
+        repo = repo_path or project.repo_path or ''
+        if not repo or not commit_hash:
+            return {'error': 'Faltan datos (repo/commit)'}
+        link = request.env['devops.commit.link']._link(
+            task.id, project.id, repo, commit_hash,
+            short_hash=short_hash, message=message, author=author, date=date)
+        return {
+            'status': 'ok',
+            'link_id': link.id,
+            'commit_hash': link.commit_hash,
+            'short_hash': link.short_hash,
+            'task_id': link.task_id.id,
+            'task_name': link.task_id.name,
+        }
+
+    @http.route('/devops/commit/unlink', type='json', auth='user')
+    def commit_unlink(self, link_id=None, task_id=None, project_id=None,
+                      repo_path='', commit_hash=''):
+        """Remove a commit↔task link, by link_id or by the composite key."""
+        Link = request.env['devops.commit.link'].sudo()
+        if link_id:
+            rec = Link.browse(int(link_id))
+        else:
+            if not (task_id and project_id and commit_hash):
+                return {'error': 'Datos insuficientes'}
+            rec = Link.search([
+                ('task_id', '=', int(task_id)),
+                ('project_id', '=', int(project_id)),
+                ('repo_path', '=', repo_path or ''),
+                ('commit_hash', '=', commit_hash),
+            ], limit=1)
+        if not rec or not rec.exists():
+            return {'status': 'ok', 'removed': 0}
+        rec.unlink()
+        return {'status': 'ok', 'removed': 1}
+
+    @http.route('/devops/task/commits', type='json', auth='user')
+    def task_commits(self, task_id, project_id=None):
+        """List commits linked to a task."""
+        domain = [('task_id', '=', int(task_id))]
+        if project_id:
+            domain.append(('project_id', '=', int(project_id)))
+        links = request.env['devops.commit.link'].sudo().search(domain)
+        return {
+            'commits': [{
+                'link_id': l.id,
+                'project_id': l.project_id.id,
+                'project_name': l.project_id.name,
+                'repo_path': l.repo_path,
+                'commit_hash': l.commit_hash,
+                'short_hash': l.short_hash,
+                'message': l.commit_message or '',
+                'author': l.commit_author or '',
+                'date': l.commit_date or '',
+            } for l in links],
+        }
+
+    @http.route('/devops/commit/tasks', type='json', auth='user')
+    def commit_tasks(self, project_id, commit_hash, repo_path=''):
+        """List tasks linked to a commit."""
+        domain = [
+            ('project_id', '=', int(project_id)),
+            ('commit_hash', '=', commit_hash),
+        ]
+        if repo_path:
+            domain.append(('repo_path', '=', repo_path))
+        links = request.env['devops.commit.link'].sudo().search(domain)
+        return {
+            'tasks': [{
+                'link_id': l.id,
+                'task_id': l.task_id.id,
+                'name': l.task_id.name,
+                'stage': l.task_id.stage_id.name or '',
+            } for l in links],
+        }
 
     def _get_editor_allowed_paths(self, project, instance_id=None):
         """Return the instance root + any external addons paths (SSH-aware)."""
@@ -1991,7 +2179,7 @@ echo "done" > {status_file}
         return {'meetings': [{
             'id': m.id,
             'name': m.name,
-            'date': m.date.isoformat() if m.date else '',
+            'date': self._user_dt(m.date, '%Y-%m-%dT%H:%M:%S'),
             'meet_url': m.meet_url or '',
             'meet_type': m.meet_type or 'jitsi',
             'jitsi_room': m.jitsi_room or '',
@@ -2290,7 +2478,7 @@ Texto:
             if api_key and not api_key.startswith('sk-ant-oat'):
                 resp = http_req.post('https://api.anthropic.com/v1/messages',
                     headers={'anthropic-version': '2023-06-01', 'content-type': 'application/json', 'x-api-key': api_key},
-                    json={'model': 'claude-haiku-4-5-20251001', 'max_tokens': 2000,
+                    json={'model': 'claude-haiku-4-5', 'max_tokens': 2000,
                           'messages': [{'role': 'user', 'content': prompt}]}, timeout=60)
                 if resp.status_code == 200:
                     content = resp.json().get('content', [{}])[0].get('text', '[]')
@@ -2446,7 +2634,7 @@ Texto:
                 tasks.append({
                     'id': t.id, 'name': t.name, 'state': t.state,
                     'priority': t.priority, 'stage': t.stage_id.name if t.stage_id else '',
-                    'date': t.create_date.isoformat() if t.create_date else '',
+                    'date': self._user_dt(t.create_date, '%Y-%m-%dT%H:%M:%S'),
                     'user': t.user_ids[0].name if t.user_ids else '',
                     'tags': [tag.name for tag in t.tag_ids],
                 })
@@ -2652,6 +2840,117 @@ Texto:
         if not request.env.user.has_group('pmb_devops.group_devops_admin'):
             return {'error': 'Solo administradores'}
         request.env['ir.config_parameter'].sudo().set_param('pmb_devops.groq_api_key', key)
+        return {'status': 'ok'}
+
+    @http.route('/devops/admin/propagate_claude_model', type='json', auth='user')
+    def admin_propagate_claude_model(self, target_model='claude-opus-4-7'):
+        """Propagate the Claude model param to every DB of every project (and local)."""
+        if not request.env.user.has_group('pmb_devops.group_devops_admin'):
+            return {'error': 'Solo administradores'}
+        summary = request.env['devops.project'].sudo()._propagate_claude_model_to_all(target_model)
+        return {'status': 'ok', 'target_model': target_model, 'summary': summary}
+
+    @http.route('/devops/copilot/start_auth', type='json', auth='user')
+    def copilot_start_auth(self):
+        """Start GitHub OAuth Device Flow for Copilot."""
+        if not request.env.user.has_group('pmb_devops.group_devops_admin'):
+            return {'error': 'Solo administradores'}
+        import requests as req
+        try:
+            resp = req.post(
+                'https://github.com/login/device/code',
+                headers={'Accept': 'application/json'},
+                data={'client_id': 'Iv1.b507a08c87ecfe98', 'scope': 'read:user'},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return {
+                'device_code': data['device_code'],
+                'user_code': data['user_code'],
+                'verification_uri': data['verification_uri'],
+                'interval': data.get('interval', 5),
+                'expires_in': data.get('expires_in', 900),
+            }
+        except Exception as e:
+            return {'error': f'Error iniciando autenticación: {e}'}
+
+    @http.route('/devops/copilot/poll_auth', type='json', auth='user')
+    def copilot_poll_auth(self, device_code):
+        """Poll GitHub to check if device authorization is complete."""
+        if not request.env.user.has_group('pmb_devops.group_devops_admin'):
+            return {'error': 'Solo administradores'}
+        import requests as req
+        try:
+            resp = req.post(
+                'https://github.com/login/oauth/access_token',
+                headers={'Accept': 'application/json'},
+                data={
+                    'client_id': 'Iv1.b507a08c87ecfe98',
+                    'device_code': device_code,
+                    'grant_type': 'urn:ietf:params:oauth:grant-type:device_code',
+                },
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+            if 'error' in data:
+                err = data['error']
+                if err == 'authorization_pending':
+                    return {'status': 'pending'}
+                elif err == 'slow_down':
+                    return {'status': 'slow_down', 'interval': data.get('interval', 10)}
+                elif err == 'expired_token':
+                    return {'status': 'expired'}
+                elif err == 'access_denied':
+                    return {'status': 'denied'}
+                return {'status': 'error', 'message': data.get('error_description', err)}
+
+            # Success — store GitHub token
+            github_token = data['access_token']
+            ICP = request.env['ir.config_parameter'].sudo()
+            ICP.set_param('pmb_devops.github_token', github_token)
+            ICP.set_param('pmb_devops.copilot_token', '')
+            ICP.set_param('pmb_devops.copilot_token_expires', '')
+
+            # Get GitHub username
+            github_user = 'unknown'
+            try:
+                u = req.get('https://api.github.com/user',
+                            headers={'Authorization': f'Bearer {github_token}', 'Accept': 'application/json'},
+                            timeout=10)
+                if u.status_code == 200:
+                    github_user = u.json().get('login', 'unknown')
+            except Exception:
+                pass
+            ICP.set_param('pmb_devops.github_user', github_user)
+
+            return {'status': 'success', 'github_user': github_user}
+        except Exception as e:
+            return {'status': 'error', 'message': str(e)}
+
+    @http.route('/devops/copilot/status', type='json', auth='user')
+    def copilot_status(self):
+        """Check Copilot authentication status."""
+        ICP = request.env['ir.config_parameter'].sudo()
+        token = ICP.get_param('pmb_devops.github_token', '')
+        user = ICP.get_param('pmb_devops.github_user', '')
+        return {
+            'authenticated': bool(token),
+            'github_user': user,
+        }
+
+    @http.route('/devops/copilot/disconnect', type='json', auth='user')
+    def copilot_disconnect(self):
+        """Disconnect GitHub Copilot."""
+        if not request.env.user.has_group('pmb_devops.group_devops_admin'):
+            return {'error': 'Solo administradores'}
+        ICP = request.env['ir.config_parameter'].sudo()
+        ICP.set_param('pmb_devops.github_token', '')
+        ICP.set_param('pmb_devops.copilot_token', '')
+        ICP.set_param('pmb_devops.copilot_token_expires', '')
+        ICP.set_param('pmb_devops.github_user', '')
         return {'status': 'ok'}
 
     @http.route('/devops/user/prefs', type='json', auth='user')
@@ -2907,19 +3206,47 @@ Texto:
         if not is_ssh and (not repo_path or not os.path.isdir(repo_path)):
             return {'error': 'Repo path not found'}
 
-        # Validate merge direction
-        # Promote: development → staging → main (admin required for → main)
-        # Sync:    main → staging, main → development (admin only)
+        # Validate merge direction using the project's real branch layout.
+        # Promote: <any dev branch> → staging → production  (admin required for → production)
+        # Sync:    production → staging, production → <any dev branch>  (admin only)
         is_admin = self._is_project_admin(project_id)
-        allowed_merges = {
-            'development': ['staging'],
-        }
-        if is_admin:
-            allowed_merges['staging'] = ['main']
-            allowed_merges.setdefault('main', [])
-            allowed_merges['main'].extend(['staging', 'development'])
-        allowed_targets = allowed_merges.get(source_branch, [])
-        if target_branch not in allowed_targets:
+        # Prefer the branch actually used by the staging instance (instance
+        # type is canonical), fall back to project.staging_branch, then
+        # the literal 'staging'. Same idea for production.
+        staging_inst = request.env['devops.instance'].sudo().search([
+            ('project_id', '=', project_id),
+            ('instance_type', '=', 'staging'),
+        ], limit=1)
+        staging_branch = (
+            (staging_inst.branch_id.name if staging_inst and staging_inst.branch_id else None)
+            or (project.staging_branch or '').strip()
+            or 'staging'
+        )
+        prod_inst = request.env['devops.instance'].sudo().search([
+            ('project_id', '=', project_id),
+            ('instance_type', '=', 'production'),
+        ], limit=1)
+        prod_branch = (
+            (prod_inst.branch_id.name if prod_inst and prod_inst.branch_id else None)
+            or (project.production_branch or '').strip()
+            or 'main'
+        )
+
+        def _is_dev_branch(name):
+            return bool(name) and name != prod_branch and name != staging_branch
+
+        allowed = False
+        if source_branch == prod_branch and is_admin:
+            # Sync from production back down
+            allowed = (target_branch == staging_branch) or _is_dev_branch(target_branch)
+        elif source_branch == staging_branch and is_admin:
+            # Promote staging to production
+            allowed = (target_branch == prod_branch)
+        elif _is_dev_branch(source_branch):
+            # Promote a development branch to staging
+            allowed = (target_branch == staging_branch)
+
+        if not allowed:
             return {'error': f'No se permite merge de {source_branch} → {target_branch}.'}
 
         from ..utils import ssh_utils
@@ -2972,8 +3299,16 @@ Texto:
                 if original_branch:
                     ssh_utils.execute_command(project, git_cmd + ['checkout', original_branch], cwd=repo_path, timeout=15)
                 return {'error': f'Conflicto de merge: {result.stderr.strip() or result.stdout.strip()}'}
-            # Push
-            push_r = ssh_utils.execute_command(project, git_cmd + ['push', 'origin', target_branch], cwd=repo_path, timeout=60)
+            # Push. Use --no-verify to skip the local pre-push guard we
+            # install on dev/staging clones: branch_merge already validated
+            # the direction + admin requirement, so the legitimate
+            # promotion must not be blocked by the same guard that prevents
+            # ad-hoc pushes to protected branches.
+            push_r = ssh_utils.execute_command(
+                project,
+                git_cmd + ['push', '--no-verify', 'origin', target_branch],
+                cwd=repo_path, timeout=60,
+            )
             # Return to original branch and restore stash
             if original_branch and original_branch != target_branch:
                 ssh_utils.execute_command(project, git_cmd + ['checkout', original_branch], cwd=repo_path, timeout=15)
@@ -3052,6 +3387,10 @@ Texto:
             'production_branch': project.production_branch or 'main',
             'odoo_project_id': project.odoo_project_id.id if project.odoo_project_id else False,
             'odoo_project_name': project.odoo_project_id.name if project.odoo_project_id else '',
+            'sync_tasks_to_production': project.sync_tasks_to_production,
+            'production_admin_login': project.production_admin_login or '',
+            'production_admin_password': project.production_admin_password or '',
+            'production_project_id_remote': project.production_project_id_remote or 0,
             'ssh_key_configured': bool(project.ssh_key_path and os.path.exists(project.ssh_key_path)),
             'github_client_id': project.github_client_id or '',
             'github_client_secret': project.github_client_secret or '',
@@ -3069,6 +3408,8 @@ Texto:
             'production_branch', 'odoo_project_id',
             'github_client_id', 'github_client_secret',
             'post_clone_script',
+            'sync_tasks_to_production', 'production_admin_login',
+            'production_admin_password', 'production_project_id_remote',
         ]
         write_vals = {k: v for k, v in vals.items() if k in allowed_fields}
 
@@ -3100,8 +3441,20 @@ Texto:
     def project_tasks(self, project_id):
         """Get project tasks with stages, members, and dual assignment info."""
         project = request.env['devops.project'].browse(project_id)
-        if not project.exists() or not project.odoo_project_id:
+        if not project.exists():
             return {'tasks': [], 'stages': [], 'members': []}
+
+        # Auto-create linked Odoo project if missing
+        if not project.odoo_project_id:
+            try:
+                odoo_proj = request.env['project.project'].sudo().create({
+                    'name': f'[DevOps] {project.name}',
+                })
+                project.sudo().write({'odoo_project_id': odoo_proj.id})
+                _logger.info("Auto-created Odoo project for %s (id=%s)", project.name, odoo_proj.id)
+            except Exception as e:
+                _logger.warning("Failed to auto-create Odoo project: %s", e)
+                return {'tasks': [], 'stages': [], 'members': []}
 
         odoo_pid = project.odoo_project_id.id
         self._ensure_devops_stages(odoo_pid)
@@ -3138,7 +3491,7 @@ Texto:
             meeting_info = [{
                 'id': m.id,
                 'name': m.name,
-                'date': str(m.date)[:16] if m.date else '',
+                'date': self._user_dt(m.date),
                 'recording_count': len(m.recording_ids),
                 'has_transcription': bool(m.transcription),
                 'state': m.state,
@@ -3154,19 +3507,76 @@ Texto:
                 'dev_assignees': [{'id': u.id, 'name': u.name} for u in t.user_ids],
                 'client_name': client_name,
                 'client_tag_id': client_tag_id,
-                'deadline': str(t.date_deadline) if t.date_deadline else '',
+                'deadline': self._user_dt(t.date_deadline, '%Y-%m-%d'),
                 'tags': [tag.name for tag in t.tag_ids if not tag.name.startswith('Cliente:')],
                 'done': t.stage_id.fold if t.stage_id else False,
                 'pending_review': t.stage_id.name == 'Pendiente de revisión' if t.stage_id else False,
                 'meetings': meeting_info,
+                'create_date': self._user_dt(t.create_date),
+                'write_date': self._user_dt(t.write_date),
+                'create_uid': t.create_uid.name if t.create_uid else '',
             })
         # Project meetings (for linking)
         proj_meetings = request.env['devops.meeting'].sudo().search([
             ('project_id', '=', project_id),
         ], order='date desc', limit=20)
-        meeting_list = [{'id': m.id, 'name': m.name, 'date': str(m.date)[:10] if m.date else ''} for m in proj_meetings]
+        meeting_list = [{'id': m.id, 'name': m.name, 'date': self._user_dt(m.date, '%Y-%m-%d')} for m in proj_meetings]
 
-        return {'tasks': task_list, 'stages': stage_list, 'members': member_list, 'meetings': meeting_list}
+        is_admin = request.env.user.has_group('pmb_devops.group_devops_admin')
+        return {'tasks': task_list, 'stages': stage_list, 'members': member_list,
+                'meetings': meeting_list, 'is_admin': is_admin}
+
+    @http.route('/devops/project/task/delete', type='json', auth='user')
+    def project_task_delete(self, task_id):
+        """Delete a task. Admin-only at controller level (defense in depth:
+        the unlink override also enforces the group check)."""
+        if not request.env.user.has_group('pmb_devops.group_devops_admin'):
+            return {'error': 'Solo administradores pueden eliminar tareas'}
+        task = request.env['project.task'].sudo().browse(int(task_id))
+        if not task.exists():
+            return {'error': 'Tarea no encontrada'}
+        task.unlink()
+        return {'status': 'ok'}
+
+    @http.route('/devops/project/pull_remote_tasks', type='json', auth='user')
+    def project_pull_remote_tasks(self, project_id):
+        """Admin-only: force an immediate pull of tasks from the remote Odoo.
+        Normally the cron does this every 5 minutes; this endpoint bypasses the wait."""
+        if not request.env.user.has_group('pmb_devops.group_devops_admin'):
+            return {'error': 'Solo administradores pueden forzar el pull'}
+        project = request.env['devops.project'].sudo().browse(int(project_id))
+        if not project.exists():
+            return {'error': 'Proyecto no encontrado'}
+        try:
+            project._pull_remote_tasks()
+            return {'status': 'ok'}
+        except Exception as e:
+            return {'error': str(e)}
+
+    @http.route('/devops/project/upgrade_claude_cli', type='json', auth='user')
+    def project_upgrade_claude_cli(self, project_id):
+        """Admin-only: run `npm i -g @anthropic-ai/claude-code@latest` on
+        the target host via SSH. Returns {status, version} or {error}."""
+        if not request.env.user.has_group('pmb_devops.group_devops_admin'):
+            return {'error': 'Solo administradores pueden actualizar Claude CLI'}
+        project = request.env['devops.project'].sudo().browse(int(project_id))
+        if not project.exists():
+            return {'error': 'Proyecto no encontrado'}
+        try:
+            result = project.action_upgrade_claude_cli()
+            return {'status': 'ok', 'version': result.get('version', ''),
+                    'stdout': (result.get('stdout') or '')[-2000:]}
+        except Exception as e:
+            return {'error': str(e)}
+
+    @http.route('/devops/project/task/update_description', type='json', auth='user')
+    def project_task_update_description(self, task_id, description):
+        """Update task description (HTML). Triggers forward sync to remote."""
+        task = request.env['project.task'].sudo().browse(int(task_id))
+        if not task.exists():
+            return {'error': 'Tarea no encontrada'}
+        task.write({'description': description or False})
+        return {'status': 'ok'}
 
     @http.route('/devops/project/task/create', type='json', auth='user')
     def project_task_create(self, project_id, name, description=''):
@@ -3232,6 +3642,12 @@ Texto:
             write_vals['priority'] = vals['priority']
         if 'name' in vals:
             write_vals['name'] = vals['name']
+        if 'deadline' in vals:
+            # Empty string clears the deadline; otherwise expects YYYY-MM-DD
+            # interpreted as midnight in the user's timezone (stored as UTC).
+            write_vals['date_deadline'] = self._date_to_user_utc(vals['deadline'])
+        if 'description' in vals:
+            write_vals['description'] = vals['description']
         if write_vals:
             task.write(write_vals)
         return {'status': 'ok'}
@@ -3468,3 +3884,444 @@ Texto:
                 return {'status': 'error', 'message': result.stderr or 'Sin respuesta'}
         except Exception as e:
             return {'status': 'error', 'message': str(e)}
+
+    # ------------------------------------------------------------------
+    # AI Agents
+    # ------------------------------------------------------------------
+    @http.route('/devops/agents', type='json', auth='user')
+    def agents_list(self, project_id):
+        """List AI agents for a project."""
+        if not self._is_project_admin(project_id):
+            return {'error': 'Sin permisos'}
+        agents = request.env['devops.ai.agent'].sudo().search([
+            ('project_id', '=', int(project_id)),
+        ])
+        return {
+            'agents': [{
+                'id': a.id,
+                'name': a.name,
+                'agent_type': a.agent_type,
+                'active': a.active,
+                'interval_number': a.interval_number,
+                'interval_type': a.interval_type,
+                'branch': a.branch or 'HEAD',
+                'last_run': str(a.last_run) if a.last_run else None,
+                'last_commit_hash': a.last_commit_hash or '',
+                'run_count': a.run_count,
+                'provider': a.provider or 'copilot',
+                'copilot_model': a.copilot_model or '',
+            } for a in agents],
+        }
+
+    @http.route('/devops/agent/create', type='json', auth='user')
+    def agent_create(self, project_id, name, agent_type='git_docs', branch='HEAD',
+                     interval_number=1, interval_type='days',
+                     provider='copilot', copilot_model='claude-sonnet-4'):
+        """Create a new AI agent."""
+        if not self._is_project_admin(project_id):
+            return {'error': 'Sin permisos'}
+        vals = {
+            'name': name,
+            'agent_type': agent_type,
+            'project_id': int(project_id),
+            'branch': branch,
+            'interval_number': int(interval_number),
+            'interval_type': interval_type,
+            'provider': provider or 'copilot',
+        }
+        if provider == 'copilot' and copilot_model:
+            vals['copilot_model'] = copilot_model
+        agent = request.env['devops.ai.agent'].sudo().create(vals)
+        return {'id': agent.id, 'name': agent.name}
+
+    @http.route('/devops/agent/toggle', type='json', auth='user')
+    def agent_toggle(self, agent_id):
+        """Toggle agent active/inactive."""
+        agent = request.env['devops.ai.agent'].sudo().browse(int(agent_id))
+        if not agent.exists():
+            return {'error': 'Agente no encontrado'}
+        if not self._is_project_admin(agent.project_id.id):
+            return {'error': 'Sin permisos'}
+        agent.write({'active': not agent.active})
+        return {'active': agent.active}
+
+    @http.route('/devops/agent/delete', type='json', auth='user')
+    def agent_delete(self, agent_id):
+        """Delete an agent."""
+        agent = request.env['devops.ai.agent'].sudo().browse(int(agent_id))
+        if not agent.exists():
+            return {'error': 'Agente no encontrado'}
+        if not self._is_project_admin(agent.project_id.id):
+            return {'error': 'Sin permisos'}
+        agent.unlink()
+        return {'status': 'ok'}
+
+    @http.route('/devops/agent/run', type='json', auth='user')
+    def agent_run(self, agent_id):
+        """Manually trigger an agent execution."""
+        agent = request.env['devops.ai.agent'].sudo().browse(int(agent_id))
+        if not agent.exists():
+            return {'error': 'Agente no encontrado'}
+        if not self._is_project_admin(agent.project_id.id):
+            return {'error': 'Sin permisos'}
+        run = agent._execute()
+        return {
+            'run_id': run.id,
+            'status': run.status,
+            'commits_processed': run.commits_processed,
+            'summary': run.summary or run.error_message or '',
+        }
+
+    @http.route('/devops/agent/runs', type='json', auth='user')
+    def agent_runs(self, agent_id, limit=10):
+        """List recent runs for an agent."""
+        agent = request.env['devops.ai.agent'].sudo().browse(int(agent_id))
+        if not agent.exists():
+            return {'error': 'Agente no encontrado'}
+        runs = request.env['devops.ai.agent.run'].sudo().search([
+            ('agent_id', '=', int(agent_id)),
+        ], limit=int(limit), order='start_time desc')
+        return {
+            'runs': [{
+                'id': r.id,
+                'status': r.status,
+                'start_time': str(r.start_time) if r.start_time else '',
+                'end_time': str(r.end_time) if r.end_time else '',
+                'commits_processed': r.commits_processed,
+                'summary': r.summary or '',
+                'error_message': r.error_message or '',
+            } for r in runs],
+        }
+
+    # ---- Module inventory & upgrade panel ---------------------------------
+    @http.route('/devops/instance/modules', type='json', auth='user')
+    def instance_modules(self, instance_id):
+        """List every Odoo module reachable by an instance and compare
+        the manifest version with what's installed in the instance's DB.
+
+        Result: [{repo_path, repo_name, modules: [{technical_name, name,
+        manifest_version, installed_version, state, status}]}]
+
+        status ∈ {up_to_date, upgrade_available, not_installed,
+                  uninstalled, missing_version, error}
+        """
+        import ast
+        import os as _os
+        import shlex as _shlex
+
+        instance = request.env['devops.instance'].browse(instance_id)
+        if not instance.exists():
+            return {'error': 'Instancia no encontrada'}
+        project = instance.project_id
+        svc = instance.service_name or project.odoo_service_name or ''
+        if not svc:
+            return {'error': 'Instancia sin service_name configurado'}
+
+        detected = self.project_autodetect(svc, project.id)
+        addons_path = detected.get('addons_path', '')
+        db_name = instance.database_name or detected.get('database_name', '')
+        if not addons_path:
+            return {'error': 'No se detectó addons_path para el servicio'}
+
+        from ..utils import ssh_utils
+
+        def run_sh(cmd_str, timeout=30):
+            r = ssh_utils.execute_command_shell(project, cmd_str, timeout=timeout)
+            return (r.stdout or '') if r.returncode == 0 else ''
+
+        # 1. Installed modules from the instance's own DB via psql
+        installed = {}
+        if db_name:
+            query = (
+                "SELECT name, state, COALESCE(latest_version,'') "
+                "FROM ir_module_module;"
+            )
+            # Prefer sudo -u postgres, fall back to direct psql if postgres user
+            # isn't available (handles both managed and DIY installs).
+            psql_cmd = (
+                f"(sudo -u postgres psql -d {_shlex.quote(db_name)} -A -t -F'|' -c {_shlex.quote(query)}"
+                f" 2>/dev/null "
+                f"|| psql -U odoo -d {_shlex.quote(db_name)} -A -t -F'|' -c {_shlex.quote(query)} 2>/dev/null)"
+            )
+            out = run_sh(psql_cmd, timeout=20)
+            for line in out.split('\n'):
+                line = line.strip()
+                if not line or '|' not in line:
+                    continue
+                parts = line.split('|')
+                if len(parts) >= 3:
+                    installed[parts[0]] = {
+                        'state': parts[1],
+                        'version': parts[2],
+                    }
+
+        # 2. Scan each addons-path entry for __manifest__.py files.
+        # Dump every manifest in one SSH round-trip: marker + content,
+        # one after another. Hundreds of `cat` calls would time out.
+        paths = [p.strip() for p in addons_path.split(',') if p.strip()]
+        repos = []
+        SEP = '\x01PMB_MANIFEST\x01'
+        for path in paths:
+            # -L follows symlinks: Odoo installs commonly symlink
+            # /opt/<proj>/enterprise -> /opt/odoo18/enterprise etc.
+            bulk_cmd = (
+                f"find -L {_shlex.quote(path)} -mindepth 2 -maxdepth 2 "
+                f"-name '__manifest__.py' 2>/dev/null | sort | "
+                f"while read f; do printf '{SEP}%s{SEP}\\n' \"$f\"; cat \"$f\"; done"
+            )
+            dump = run_sh(bulk_cmd, timeout=60)
+            modules = []
+            # Split on the sentinel marker; every other chunk is a path,
+            # the following chunk is the manifest body.
+            chunks = dump.split(SEP)
+            # chunks layout: ['', path1, '\n<body1>', path2, '\n<body2>', ...]
+            i = 1
+            while i + 1 < len(chunks):
+                manifest_path = chunks[i].strip()
+                content = chunks[i + 1]
+                # Content ends with a newline; strip the trailing marker line
+                # which was consumed by the outer split already.
+                i += 2
+                if not manifest_path:
+                    continue
+                mod_dir = _os.path.dirname(manifest_path)
+                mod_name = _os.path.basename(mod_dir)
+                mf_version = ''
+                mf_label = mod_name
+                mf_installable = True
+                try:
+                    data = ast.literal_eval(content.strip())
+                    if isinstance(data, dict):
+                        mf_version = str(data.get('version', '') or '').strip()
+                        mf_label = str(data.get('name', mod_name) or mod_name)
+                        mf_installable = bool(data.get('installable', True))
+                except Exception:
+                    pass
+                if not mf_installable:
+                    continue
+                inst = installed.get(mod_name, {})
+                inst_state = inst.get('state', '')
+                inst_version = inst.get('version', '')
+                if not inst:
+                    status = 'not_installed'
+                elif inst_state == 'uninstalled':
+                    status = 'uninstalled'
+                elif inst_state in ('uninstallable',):
+                    status = 'error'
+                elif not mf_version:
+                    status = 'missing_version'
+                elif inst_version and not _versions_match(mf_version, inst_version):
+                    status = 'upgrade_available'
+                else:
+                    status = 'up_to_date'
+                modules.append({
+                    'technical_name': mod_name,
+                    'name': mf_label,
+                    'manifest_version': mf_version,
+                    'installed_version': inst_version,
+                    'state': inst_state,
+                    'status': status,
+                })
+            repos.append({
+                'path': path,
+                'name': _os.path.basename(path.rstrip('/')) or path,
+                'modules': modules,
+            })
+
+        totals = {'up_to_date': 0, 'upgrade_available': 0,
+                  'not_installed': 0, 'uninstalled': 0,
+                  'missing_version': 0, 'error': 0}
+        for rp in repos:
+            for m in rp['modules']:
+                totals[m['status']] = totals.get(m['status'], 0) + 1
+
+        return {
+            'repos': repos,
+            'database_name': db_name,
+            'totals': totals,
+        }
+
+    # --- pmb-module-op helper unit (installed on demand, idempotent) ---
+    #
+    # Self-upgrading the hub (`systemctl stop odooAL` while running inside
+    # odooAL's own cgroup) used to kill the upgrade before `odoo-bin -u` could
+    # run. We run the operation under a transient systemd instance of this
+    # template unit so it lives in its own cgroup and survives the target
+    # service being stopped.
+    _PMB_MODULE_OP_UNIT_PATH = '/etc/systemd/system/pmb-module-op@.service'
+    _PMB_MODULE_OP_UNIT_TEMPLATE = """[Unit]
+Description=PMB DevOps module operation (%i)
+After=postgresql.service network.target
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=-/run/pmb/module_op/%i.env
+ExecStart=/bin/bash {script} %i
+TimeoutStartSec=1800
+"""
+
+    def _ensure_module_op_unit(self, project):
+        """Idempotently ensure pmb-module-op@.service + script exist on the
+        host that runs `project`. Safe to call every time — returns fast
+        when the unit is already installed with the expected content."""
+        from ..utils import ssh_utils
+        import shlex as _shlex
+
+        # The script ships with the module; we install the unit to point at
+        # its absolute path on the host. For local projects this is the hub's
+        # own checkout; for remote projects we assume the module is also
+        # deployed at the same path (they share the same module).
+        script = '/opt/odooAL/custom_addons/pmb_devops/scripts/module_op.sh'
+        unit = self._PMB_MODULE_OP_UNIT_TEMPLATE.format(script=script)
+
+        # Cheap check first: read the unit file and compare content.
+        probe = ssh_utils.execute_command_shell(
+            project,
+            f'cat {_shlex.quote(self._PMB_MODULE_OP_UNIT_PATH)} 2>/dev/null',
+            timeout=10,
+        )
+        if probe.returncode == 0 and probe.stdout.strip() == unit.strip():
+            return True
+
+        # Install (or replace) the unit file and reload systemd.
+        install_cmd = (
+            f"sudo tee {_shlex.quote(self._PMB_MODULE_OP_UNIT_PATH)} >/dev/null <<'PMB_UNIT_EOF'\n"
+            f"{unit}"
+            f"PMB_UNIT_EOF\n"
+            f"sudo chmod 0644 {_shlex.quote(self._PMB_MODULE_OP_UNIT_PATH)} && "
+            f"sudo systemctl daemon-reload && "
+            f"sudo mkdir -p /run/pmb/module_op /var/log/pmb && "
+            f"sudo chmod 0755 /run/pmb /run/pmb/module_op /var/log/pmb"
+        )
+        rx = ssh_utils.execute_command_shell(project, install_cmd, timeout=30)
+        return rx.returncode == 0
+
+    @http.route('/devops/instance/module_action', type='json', auth='user')
+    def instance_module_action(self, instance_id, module_name, action):
+        """Install, upgrade, or uninstall a module on an instance using
+        that instance's own Odoo binary + config + DB.
+
+        Delegates to the pmb-module-op@<op_id>.service helper unit so the
+        actual `odoo-bin -u/-i` lives outside the target service's cgroup
+        and survives `systemctl stop <svc>` even when the hub is the
+        target (self-upgrade)."""
+        import shlex as _shlex
+        import re as _re
+        import time as _time
+
+        if action not in ('install', 'upgrade', 'uninstall'):
+            return {'error': 'Acción inválida'}
+        if not _re.match(r'^[a-z0-9_]+$', module_name or ''):
+            return {'error': 'Nombre de módulo inválido'}
+
+        instance = request.env['devops.instance'].browse(instance_id)
+        if not instance.exists():
+            return {'error': 'Instancia no encontrada'}
+        if not self._is_project_admin(instance.project_id.id):
+            return {'error': 'Solo admin puede instalar/actualizar módulos'}
+
+        project = instance.project_id
+        svc = instance.service_name or project.odoo_service_name or ''
+        if not svc:
+            return {'error': 'Instancia sin service_name'}
+
+        detected = self.project_autodetect(svc, project.id)
+        config_path = detected.get('config_path', '')
+        db_name = instance.database_name or detected.get('database_name', '')
+        inst_path = instance.instance_path or detected.get('instance_path', '')
+        if not (config_path and db_name and inst_path):
+            return {'error': 'No se pudo detectar config/bd/ruta de la instancia'}
+
+        from ..utils import ssh_utils
+
+        # Locate the venv's python for this instance.
+        venv_probe = (
+            f"for p in "
+            f"{_shlex.quote(inst_path)}/.venv/bin/python "
+            f"{_shlex.quote(inst_path)}/venv/bin/python "
+            f"/opt/odooAL/.venv/bin/python "
+            f"$(which python3); do "
+            f"[ -x \"$p\" ] && echo \"$p\" && break; done"
+        )
+        r = ssh_utils.execute_command_shell(project, venv_probe, timeout=10)
+        py = (r.stdout or '').strip().split('\n')[0] if r.returncode == 0 else 'python3'
+        odoo_bin = f'{inst_path}/odoo/odoo-bin'
+
+        if not self._ensure_module_op_unit(project):
+            return {'error': 'No se pudo instalar la unidad helper pmb-module-op'}
+
+        # Unique op id per instance+timestamp; the test polls until the
+        # `.done` marker appears, then reads the log.
+        op_id = f"{instance.id}-{int(_time.time())}"
+        env_path = f"/run/pmb/module_op/{op_id}.env"
+        log_path = f"/var/log/pmb/module_op-{op_id}.log"
+        done_path = f"/run/pmb/module_op/{op_id}.done"
+
+        env_body = (
+            f"PMB_PY={_shlex.quote(py)}\n"
+            f"PMB_ODOO_BIN={_shlex.quote(odoo_bin)}\n"
+            f"PMB_CONFIG={_shlex.quote(config_path)}\n"
+            f"PMB_DB={_shlex.quote(db_name)}\n"
+            f"PMB_MODULE={_shlex.quote(module_name)}\n"
+            f"PMB_ACTION={_shlex.quote(action)}\n"
+            f"PMB_SERVICE={_shlex.quote(svc)}\n"
+            f"PMB_LOG={_shlex.quote(log_path)}\n"
+            f"PMB_DONE={_shlex.quote(done_path)}\n"
+        )
+        write_env = (
+            f"sudo tee {_shlex.quote(env_path)} >/dev/null <<'PMB_ENV_EOF'\n"
+            f"{env_body}"
+            f"PMB_ENV_EOF\n"
+            f"sudo chmod 0640 {_shlex.quote(env_path)} && "
+            f"sudo systemctl start --no-block pmb-module-op@{_shlex.quote(op_id)}.service"
+        )
+        rx = ssh_utils.execute_command_shell(project, write_env, timeout=20)
+        if rx.returncode != 0:
+            return {
+                'error': 'No se pudo programar la operación',
+                'detail': (rx.stdout or '') + (rx.stderr or ''),
+            }
+
+        return {
+            'status': 'scheduled',
+            'action': action,
+            'module': module_name,
+            'op_id': op_id,
+            'log_path': log_path,
+            'done_path': done_path,
+        }
+
+    @http.route('/devops/instance/module_action_status', type='json', auth='user')
+    def instance_module_action_status(self, instance_id, op_id):
+        """Poll the status of a scheduled module operation."""
+        import shlex as _shlex
+        import re as _re
+
+        if not _re.match(r'^[0-9]+-[0-9]+$', op_id or ''):
+            return {'error': 'op_id inválido'}
+        instance = request.env['devops.instance'].browse(instance_id)
+        if not instance.exists():
+            return {'error': 'Instancia no encontrada'}
+        if not self._is_project_admin(instance.project_id.id):
+            return {'error': 'Solo admin'}
+
+        project = instance.project_id
+        done_path = f"/run/pmb/module_op/{op_id}.done"
+        log_path = f"/var/log/pmb/module_op-{op_id}.log"
+        from ..utils import ssh_utils
+        cmd = (
+            f"if [ -f {_shlex.quote(done_path)} ]; then "
+            f"  cat {_shlex.quote(done_path)}; echo '--- LOG ---'; "
+            f"  sudo tail -200 {_shlex.quote(log_path)} 2>/dev/null; "
+            f"else echo 'running'; "
+            f"  sudo tail -40 {_shlex.quote(log_path)} 2>/dev/null || true; "
+            f"fi"
+        )
+        rx = ssh_utils.execute_command_shell(project, cmd, timeout=15)
+        out = (rx.stdout or '') + (rx.stderr or '')
+        rc_match = _re.search(r'^rc=(-?\d+)', out, _re.MULTILINE)
+        if rc_match:
+            rc = int(rc_match.group(1))
+            return {'status': 'ok' if rc == 0 else 'error', 'rc': rc, 'output': out[-3000:]}
+        return {'status': 'running', 'output': out[-3000:]}

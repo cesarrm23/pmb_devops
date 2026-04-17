@@ -19,14 +19,14 @@ class ResConfigSettings(models.TransientModel):
     )
     devops_claude_model = fields.Selection(
         [
-            ('claude-opus-4-6-20250414', 'Claude Opus 4.6'),
-            ('claude-sonnet-4-6-20250414', 'Claude Sonnet 4.6'),
-            ('claude-sonnet-4-20250514', 'Claude Sonnet 4'),
-            ('claude-haiku-4-5-20251001', 'Claude Haiku 4.5'),
+            ('claude-opus-4-7', 'Claude Opus 4.7'),
+            ('claude-opus-4-6', 'Claude Opus 4.6'),
+            ('claude-sonnet-4-6', 'Claude Sonnet 4.6'),
+            ('claude-haiku-4-5', 'Claude Haiku 4.5'),
         ],
         string='Modelo Claude',
         config_parameter='pmb_devops.claude_model',
-        default='claude-sonnet-4-20250514',
+        default='claude-opus-4-7',
     )
     devops_claude_installed = fields.Boolean(
         string='Claude CLI Instalado',

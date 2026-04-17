@@ -1,6 +1,6 @@
 /** @odoo-module **/
 
-import { Component, onMounted, onWillUnmount, useRef, useState } from "@odoo/owl";
+import { Component, markup, onMounted, onWillUnmount, useEffect, useRef, useState } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { rpc } from "@web/core/network/rpc";
 
@@ -55,6 +55,16 @@ class PmbDevopsApp extends Component {
 
             // Project tasks (general, not per-instance)
             projectTasks: [],
+            taskStatusFilter: 'all', // all|done|in_progress — set when entering from Status
+            statusTasksOverlayOpen: false, // tasks panel rendered inline within Status tab
+            // Modules panel state
+            modulesInstanceId: null,
+            modulesData: null,
+            modulesLoading: false,
+            modulesFilter: '',
+            modulesRepoPath: '',  // '' = all repos; otherwise filter to one
+            moduleActionRunning: false,
+            moduleActionOutput: null,
             taskStages: [],
             taskMembers: [],
             taskMeetings: [],  // project meetings for linking
@@ -62,6 +72,24 @@ class PmbDevopsApp extends Component {
             showNewTask: false,
             newTaskName: '',
             expandedTaskId: null,
+            taskFullscreenId: null,
+            taskFullscreen: null,
+            taskDescEditingId: null,
+            taskDescDraft: '',
+            taskNameEditingId: null,
+            taskNameDraft: '',
+            isDevopsAdmin: false,
+
+            // SSL certificate issuance
+            sslIssuing: false,
+
+            // Commit ↔ task links
+            taskLinkedCommits: [],        // commits linked to the open task
+            taskCommitPickerOpen: false,  // show commit picker on task fullscreen
+            taskCommitPickerSearch: '',   // search filter for picker
+            commitLinkedTasks: {},        // { "<full_hash>": [ {task_id, name, ...}, ... ] }
+            commitTaskPickerFor: null,    // commit full_hash whose picker is open
+            commitTaskPickerSearch: '',
 
             // All builds (for Builds nav tab)
             allBuilds: [],
@@ -106,6 +134,12 @@ class PmbDevopsApp extends Component {
             meetTasksId: null,          // meeting showing created tasks
             meetTasks: [],              // created Odoo tasks
             groqApiKey: '',
+            copilotAuthenticated: false,
+            copilotGithubUser: '',
+            copilotAuthCode: '',
+            copilotAuthUri: '',
+            copilotAuthPolling: false,
+            copilotDeviceCode: '',
             projectMembers: [],
             availableUsers: [],
             memberNewLogin: '',
@@ -146,6 +180,9 @@ class PmbDevopsApp extends Component {
             // AI terminal (WebSocket)
             aiConnected: false,
             aiError: '',
+            aiLastPrompt: '',
+            aiPromptHistory: [],
+            aiPromptHistoryOpen: false,
 
             // Creation log
             creationLog: '',
@@ -162,6 +199,22 @@ class PmbDevopsApp extends Component {
             deployLog: '',
             deployResult: null,
             upgradeRepos: [],
+
+            // AI Agents
+            agents: [],
+            agentRuns: [],
+            agentExpandedId: null,
+            agentRunning: null,  // agent_id currently executing
+            showNewAgent: false,
+            newAgentName: '',
+            claudePropagateResult: '',
+            claudeCliUpgrading: false,
+            claudeCliUpgradeResult: '',
+            newAgentBranch: 'HEAD',
+            newAgentInterval: 1,
+            newAgentIntervalType: 'days',
+            newAgentProvider: 'copilot',
+            newAgentCopilotModel: 'claude-sonnet-4',
 
             // Server metrics
             serverMetrics: null,
@@ -180,6 +233,12 @@ class PmbDevopsApp extends Component {
         this.terminalLogsRef = useRef("terminalLogs");
         this._pollTimer = null;
         this._termPollTimeout = null;
+
+        // Reload per-instance persisted "last prompt" when selection changes
+        useEffect(
+            (id) => { this._loadAiLastPromptForInstance(id); },
+            () => [this.state.selectedInstance && this.state.selectedInstance.id],
+        );
 
         onMounted(async () => {
             // Set DevOps favicon
@@ -218,6 +277,14 @@ class PmbDevopsApp extends Component {
             // Poll sidebar state every 30s to keep status indicators fresh
             this._statusPollTimer = setInterval(() => this._refreshSidebarState(), 30000);
 
+            // Poll project tasks every 10s while AI tab is open — picks up tasks
+            // pulled from client DBs by the cron (devops.project._cron_pull_remote_tasks).
+            this._tasksPollTimer = setInterval(() => {
+                if (this.state.activeContentTab === 'ai' && this.state.currentProjectId) {
+                    this._loadProjectTasks();
+                }
+            }, 10000);
+
             if (window.visualViewport) {
                 this._onViewportResize = () => {
                     this._refitTerminals();
@@ -242,6 +309,10 @@ class PmbDevopsApp extends Component {
             if (this._statusPollTimer) {
                 clearInterval(this._statusPollTimer);
                 this._statusPollTimer = null;
+            }
+            if (this._tasksPollTimer) {
+                clearInterval(this._tasksPollTimer);
+                this._tasksPollTimer = null;
             }
             this._cleanupTerminal();
             this._cleanupShellTerminal();
@@ -273,6 +344,7 @@ class PmbDevopsApp extends Component {
                         "max_staging",
                         "max_development",
                         "production_branch",
+                        "odoo_project_id",
                     ],
                     limit: 100,
                 },
@@ -351,6 +423,8 @@ class PmbDevopsApp extends Component {
                         "subdomain",
                         "last_activity",
                         "git_branch",
+                        "ssl_status",
+                        "ssl_last_error",
                     ],
                     limit: 200,
                 },
@@ -388,10 +462,18 @@ class PmbDevopsApp extends Component {
                 // Update the selected instance data without changing selection
                 this.state.selectedInstance = stillExists;
             } else if (instances.length > 0) {
+                // Restore last-selected instance from localStorage if available
+                let restored = null;
+                try {
+                    const savedId = parseInt(localStorage.getItem(
+                        'pmb.selectedInstance.' + this.state.currentProjectId
+                    ));
+                    if (savedId) restored = instances.find(i => i.id === savedId);
+                } catch (e) { /* ignore */ }
                 const production = instances.find(
                     (i) => i.instance_type === "production"
                 );
-                this._selectInstance(production || instances[0]);
+                this._selectInstance(restored || production || instances[0]);
             } else {
                 this.state.selectedInstance = null;
                 this.state.selectedBranch = null;
@@ -409,6 +491,10 @@ class PmbDevopsApp extends Component {
         if (!instance) {
             return;
         }
+        try {
+            const pid = this.state.currentProjectId || 'default';
+            localStorage.setItem('pmb.selectedInstance.' + pid, instance.id);
+        } catch (e) { /* ignore */ }
         // Cleanup terminals when switching instances
         if (this._termConnected || this._term) {
             this._cleanupTerminal();
@@ -458,7 +544,7 @@ class PmbDevopsApp extends Component {
                     await this._loadHistoryRepos();
                     await this._loadHistory();
                 }
-                const canTerminal = this.state.isAdmin ||
+                const canTerminal = this.state.isAdmin || this.state.isDeveloper ||
                     (instance.instance_type !== 'production');
                 if (canTerminal && instance.state === 'running') {
                     this._initAiTerminal();
@@ -567,6 +653,13 @@ class PmbDevopsApp extends Component {
         this.state.claudeSessionsVisible = false;
         this.state.settingsProject = null;
         this.state.dashboard = null;
+        // Reset modules panel state so the previous project's instance/path
+        // doesn't leak into the new project's view.
+        this.state.modulesInstanceId = null;
+        this.state.modulesData = null;
+        this.state.modulesFilter = '';
+        this.state.modulesRepoPath = '';
+        this.state.moduleActionOutput = null;
         // Re-check admin/developer role for this project
         try {
             const authCheck = await rpc('/devops/git/auth/check', { project_id: val || null });
@@ -580,6 +673,7 @@ class PmbDevopsApp extends Component {
             await this._loadSettings();
             await this._loadMembers();
             await this._loadAvailableUsers();
+            this._loadAgents();
         } else if (tab === 'status') {
             await this._loadMetrics();
             await this._loadDashboard();
@@ -653,7 +747,7 @@ class PmbDevopsApp extends Component {
         }
         // Re-init terminal when returning to branches with AI tab active
         if (tab === 'branches' && this.state.activeContentTab === 'ai') {
-            const canTerminal = this.state.isAdmin ||
+            const canTerminal = this.state.isAdmin || this.state.isDeveloper ||
                 (this.state.selectedInstance && this.state.selectedInstance.instance_type !== 'production');
             if (canTerminal && this.state.selectedInstance && this.state.selectedInstance.state === 'running') {
                 setTimeout(() => this._initAiTerminal(), 300);
@@ -664,12 +758,172 @@ class PmbDevopsApp extends Component {
         }
         if (tab === 'settings') {
             await this._loadSettings();
+            this._loadAgents();
         } else if (tab === 'status') {
             await this._loadMetrics();
             await this._loadDashboard();
         } else if (tab === 'builds') {
             await this._loadAllBuilds();
+        } else if (tab === 'modules') {
+            if (!this.state.modulesInstanceId && this.state.instances?.length) {
+                const prod = this.state.instances.find(
+                    (i) => i.instance_type === 'production');
+                this.state.modulesInstanceId = (prod || this.state.instances[0]).id;
+            }
+            if (this.state.modulesInstanceId) {
+                await this._loadModules();
+            }
         }
+    }
+
+    async _onModulesInstanceChange(ev) {
+        const v = ev.target.value;
+        this.state.modulesInstanceId = v ? parseInt(v, 10) : null;
+        this.state.modulesData = null;
+        if (this.state.modulesInstanceId) {
+            await this._loadModules();
+        }
+    }
+
+    async _reloadModules() {
+        if (!this.state.modulesInstanceId) return;
+        await this._loadModules();
+    }
+
+    async _loadModules() {
+        this.state.modulesLoading = true;
+        this.state.modulesData = null;
+        try {
+            const r = await rpc('/devops/instance/modules', {
+                instance_id: this.state.modulesInstanceId,
+            });
+            this.state.modulesData = r || {};
+        } catch (e) {
+            this.state.modulesData = { error: String(e.message || e) };
+        } finally {
+            this.state.modulesLoading = false;
+        }
+    }
+
+    _filteredModules(repo) {
+        const q = (this.state.modulesFilter || '').trim().toLowerCase();
+        if (!q) return repo.modules;
+        return repo.modules.filter((m) =>
+            m.technical_name.toLowerCase().includes(q)
+            || (m.name || '').toLowerCase().includes(q));
+    }
+
+    _filteredRepos() {
+        const repos = this.state.modulesData?.repos || [];
+        const sel = (this.state.modulesRepoPath || '').trim();
+        if (!sel) return repos;
+        return repos.filter((r) => r.path === sel);
+    }
+
+    _onModulesRepoChange(ev) {
+        this.state.modulesRepoPath = ev.target.value || '';
+    }
+
+    async _runModuleAction(mod, action) {
+        const verb = action === 'install' ? 'instalar'
+            : action === 'uninstall' ? 'desinstalar' : 'actualizar';
+        if (!confirm(`¿${verb[0].toUpperCase() + verb.slice(1)} el módulo "${mod.technical_name}"? El servicio se reiniciará.`)) {
+            return;
+        }
+        this.state.moduleActionRunning = true;
+        this.state.moduleActionOutput = {
+            action, module: mod.technical_name,
+            status: 'running', output: 'Programando operación…',
+        };
+        try {
+            const r = await rpc('/devops/instance/module_action', {
+                instance_id: this.state.modulesInstanceId,
+                module_name: mod.technical_name,
+                action,
+            });
+            if (r.error) {
+                this.state.moduleActionOutput = {
+                    action, module: mod.technical_name, status: 'error',
+                    output: r.error + (r.detail ? '\n' + r.detail : ''),
+                };
+                this.state.moduleActionRunning = false;
+                return;
+            }
+            // New async flow: the helper unit runs outside the target
+            // service's cgroup. The service is stopped & restarted during
+            // the op; we poll the status endpoint until rc is reported.
+            this.state.moduleActionOutput = {
+                action, module: mod.technical_name, status: 'running',
+                output: 'Operación en progreso (el servicio se reiniciará)…',
+            };
+            const opId = r.op_id;
+            // Brief wait so the service has time to go down.
+            await new Promise((res) => setTimeout(res, 4000));
+            const deadline = Date.now() + 10 * 60 * 1000;  // 10 min cap
+            let finalStatus = null;
+            while (Date.now() < deadline) {
+                try {
+                    const st = await rpc('/devops/instance/module_action_status', {
+                        instance_id: this.state.modulesInstanceId, op_id: opId,
+                    });
+                    if (st.status === 'ok' || st.status === 'error') {
+                        finalStatus = st;
+                        break;
+                    }
+                } catch (e) { /* service may still be down */ }
+                await new Promise((res) => setTimeout(res, 3000));
+            }
+            if (!finalStatus) {
+                this.state.moduleActionOutput = {
+                    action, module: mod.technical_name, status: 'error',
+                    output: 'Timeout esperando resultado de la operación',
+                };
+            } else {
+                this.state.moduleActionOutput = {
+                    action, module: mod.technical_name,
+                    status: finalStatus.status,
+                    output: finalStatus.output || '',
+                };
+                if (finalStatus.status === 'ok') {
+                    await this._loadModules();
+                }
+            }
+        } catch (e) {
+            this.state.moduleActionOutput = {
+                action, module: mod.technical_name, status: 'error',
+                output: String(e.message || e),
+            };
+        } finally {
+            this.state.moduleActionRunning = false;
+        }
+    }
+
+    _filteredProjectTasks() {
+        const tasks = this.state.projectTasks || [];
+        const f = this.state.taskStatusFilter || 'all';
+        if (f === 'done') return tasks.filter((t) => t.done);
+        if (f === 'in_progress') return tasks.filter((t) => !t.done);
+        return tasks;
+    }
+
+    async _navigateToTasksFromStatus(filter) {
+        // Open the tasks panel inline within the Status tab (no nav redirect).
+        this.state.taskStatusFilter = filter || 'all';
+        this.state.statusTasksOverlayOpen = true;
+        if (!this.state.selectedInstance && this.state.instances && this.state.instances.length) {
+            const prod = this.state.instances.find((i) => i.instance_type === 'production');
+            this._selectInstance(prod || this.state.instances[0]);
+        }
+        try { await this._loadProjectTasks(); } catch (e) {}
+        if (!this.state.productionUsers || !this.state.productionUsers.length) {
+            try { await this._loadProductionUsers(); } catch (e) {}
+        }
+    }
+
+    _closeStatusTasksOverlay() {
+        this.state.statusTasksOverlayOpen = false;
+        this.state.taskFullscreenId = null;
+        this.state.taskFullscreen = null;
     }
 
     async _loadAllBuilds() {
@@ -715,7 +969,7 @@ class PmbDevopsApp extends Component {
             this._loadClaudeSessions();
             this._loadProjectTasks();
             // Only start terminal if instance is running AND user has write access
-            const canTerminal = this.state.isAdmin ||
+            const canTerminal = this.state.isAdmin || this.state.isDeveloper ||
                 (this.state.selectedInstance && this.state.selectedInstance.instance_type !== 'production');
             if (canTerminal && this.state.selectedInstance && this.state.selectedInstance.state === 'running') {
                 setTimeout(() => this._initAiTerminal(), 200);
@@ -870,6 +1124,34 @@ class PmbDevopsApp extends Component {
     // ------------------------------------------------------------------
     // Destroy
     // ------------------------------------------------------------------
+
+    async _obtainSslCert(instanceId) {
+        if (!instanceId) return;
+        if (!confirm('Emitir/renovar certificado Let\'s Encrypt para esta '
+                     + 'instancia? Se verificará DNS antes de contactar a '
+                     + 'certbot.')) return;
+        this.state.sslIssuing = true;
+        try {
+            const res = await rpc('/devops/instance/obtain_ssl',
+                                  { instance_id: instanceId });
+            if (res.status === 'ok') {
+                alert('SSL emitido correctamente para ' + (res.domain || ''));
+            } else {
+                const detail = res.ssl_last_error || res.error || 'Error desconocido';
+                alert('No se pudo emitir SSL:\n\n' + detail);
+            }
+            await this._loadProjectData();
+            if (this.state.selectedInstance) {
+                const fresh = this.state.instances.find(
+                    i => i.id === this.state.selectedInstance.id);
+                if (fresh) this.state.selectedInstance = fresh;
+            }
+        } catch (e) {
+            alert('Error: ' + (e.message || e));
+        } finally {
+            this.state.sslIssuing = false;
+        }
+    }
 
     async _destroyInstance() {
         const inst = this.state.selectedInstance;
@@ -1050,6 +1332,14 @@ class PmbDevopsApp extends Component {
         }
     }
 
+    _onHistoryRepoChange(ev) {
+        const path = ev.target.value || '';
+        if (path && path !== this.state.historyRepoPath) {
+            this.state.historyRepoPath = path;
+            this._loadHistory();
+        }
+    }
+
     // ------------------------------------------------------------------
     // Project Tasks
     // ------------------------------------------------------------------
@@ -1060,11 +1350,111 @@ class PmbDevopsApp extends Component {
             const result = await rpc('/devops/project/tasks', {
                 project_id: this.state.currentProjectId,
             });
-            this.state.projectTasks = result.tasks || [];
+            const tasks = (result.tasks || []).map(t => ({
+                ...t,
+                description: t.description ? markup(t.description) : t.description,
+            }));
+            this.state.projectTasks = tasks;
             this.state.taskStages = result.stages || [];
             this.state.taskMembers = result.members || [];
             this.state.taskMeetings = result.meetings || [];
+            this.state.isDevopsAdmin = !!result.is_admin;
+            // Refresh fullscreen overlay if open
+            if (this.state.taskFullscreenId) {
+                const updated = tasks.find(t => t.id === this.state.taskFullscreenId);
+                if (updated) {
+                    this.state.taskFullscreen = { ...updated };
+                } else {
+                    this.state.taskFullscreen = null;
+                    this.state.taskFullscreenId = null;
+                }
+            }
         } catch (e) { /* ignore */ }
+    }
+
+    // ------------------------------------------------------------------
+    // AI Agents
+    // ------------------------------------------------------------------
+    async _loadAgents() {
+        if (!this.state.currentProjectId || !this.state.isAdmin) return;
+        try {
+            const result = await rpc('/devops/agents', {
+                project_id: this.state.currentProjectId,
+            });
+            this.state.agents = result.agents || [];
+        } catch (e) { this.state.agents = []; }
+    }
+
+    async _createAgent() {
+        const name = this.state.newAgentName.trim();
+        if (!name || !this.state.currentProjectId) return;
+        try {
+            await rpc('/devops/agent/create', {
+                project_id: this.state.currentProjectId,
+                name: name,
+                branch: this.state.newAgentBranch || 'HEAD',
+                interval_number: this.state.newAgentInterval || 1,
+                interval_type: this.state.newAgentIntervalType || 'days',
+                provider: this.state.newAgentProvider || 'copilot',
+                copilot_model: this.state.newAgentCopilotModel || 'claude-sonnet-4',
+            });
+            this.state.newAgentName = '';
+            this.state.showNewAgent = false;
+            await this._loadAgents();
+        } catch (e) {
+            alert('Error: ' + (e.message || e));
+        }
+    }
+
+    async _toggleAgent(agentId) {
+        try {
+            await rpc('/devops/agent/toggle', { agent_id: agentId });
+            await this._loadAgents();
+        } catch (e) { /* ignore */ }
+    }
+
+    async _deleteAgent(agentId) {
+        if (!confirm('Eliminar este agente?')) return;
+        try {
+            await rpc('/devops/agent/delete', { agent_id: agentId });
+            this.state.agentExpandedId = null;
+            this.state.agentRuns = [];
+            await this._loadAgents();
+        } catch (e) { /* ignore */ }
+    }
+
+    async _runAgent(agentId) {
+        this.state.agentRunning = agentId;
+        try {
+            const result = await rpc('/devops/agent/run', { agent_id: agentId });
+            if (result.error) {
+                alert(result.error);
+            }
+            await this._loadAgents();
+            if (this.state.agentExpandedId === agentId) {
+                await this._loadAgentRuns(agentId);
+            }
+        } catch (e) {
+            alert('Error: ' + (e.message || e));
+        }
+        this.state.agentRunning = null;
+    }
+
+    async _toggleAgentExpand(agentId) {
+        if (this.state.agentExpandedId === agentId) {
+            this.state.agentExpandedId = null;
+            this.state.agentRuns = [];
+        } else {
+            this.state.agentExpandedId = agentId;
+            await this._loadAgentRuns(agentId);
+        }
+    }
+
+    async _loadAgentRuns(agentId) {
+        try {
+            const result = await rpc('/devops/agent/runs', { agent_id: agentId });
+            this.state.agentRuns = result.runs || [];
+        } catch (e) { this.state.agentRuns = []; }
     }
 
     async _loadProductionUsers() {
@@ -1093,11 +1483,12 @@ class PmbDevopsApp extends Component {
         }
     }
 
-    async _assignTaskDev(taskId, userId) {
+    async _assignTaskDev(taskId, userIdRaw) {
+        const userId = parseInt(userIdRaw) || false;
         try {
             await rpc('/devops/project/task/assign', {
                 task_id: taskId,
-                dev_user_id: userId || false,
+                dev_user_id: userId,
             });
             await this._loadProjectTasks();
         } catch (e) { /* ignore */ }
@@ -1113,7 +1504,9 @@ class PmbDevopsApp extends Component {
         } catch (e) { /* ignore */ }
     }
 
-    async _updateTaskStage(taskId, stageId) {
+    async _updateTaskStage(taskId, stageIdRaw) {
+        const stageId = parseInt(stageIdRaw);
+        if (!stageId) return;
         try {
             await rpc('/devops/project/task/update', {
                 task_id: taskId,
@@ -1121,6 +1514,36 @@ class PmbDevopsApp extends Component {
             });
             await this._loadProjectTasks();
         } catch (e) { /* ignore */ }
+    }
+
+    async _updateTaskPriority(taskId, priority) {
+        try {
+            await rpc('/devops/project/task/update', {
+                task_id: taskId,
+                priority: String(priority),
+            });
+            await this._loadProjectTasks();
+        } catch (e) { /* ignore */ }
+    }
+
+    async _updateTaskDeadline(taskId, deadline) {
+        try {
+            await rpc('/devops/project/task/update', {
+                task_id: taskId,
+                deadline: deadline || '',
+            });
+            await this._loadProjectTasks();
+        } catch (e) { /* ignore */ }
+    }
+
+    _openTaskInOdoo(taskId) {
+        // Open the task in Odoo's standard project.task form view in a new tab
+        const proj = this.state.currentProject;
+        const odooProjectId = proj && proj.odoo_project_id ? (Array.isArray(proj.odoo_project_id) ? proj.odoo_project_id[0] : proj.odoo_project_id) : null;
+        const url = odooProjectId
+            ? `/odoo/project/${odooProjectId}/tasks/${taskId}`
+            : `/web#id=${taskId}&model=project.task&view_type=form`;
+        window.open(url, '_blank');
     }
 
     _sendTaskToAi(task) {
@@ -1146,6 +1569,120 @@ class PmbDevopsApp extends Component {
             action,
         ].filter(Boolean).join('\n');
         this._aiWs.send(JSON.stringify({ type: 'input', data: lines + '\n' }));
+        this._setAiLastPrompt(lines);
+    }
+
+    _instanceUrlWithDebug(url) {
+        if (!url) return '';
+        if (url.includes('debug=assets')) return url;
+        const sep = url.includes('?') ? '&' : '?';
+        return url + sep + 'debug=assets';
+    }
+
+    _aiLastPromptKey(instanceId) {
+        const id = instanceId
+            || (this.state.selectedInstance && this.state.selectedInstance.id)
+            || 'default';
+        return 'pmb.aiLastPrompt.' + id;
+    }
+
+    _aiPromptHistoryKey(instanceId) {
+        const id = instanceId
+            || (this.state.selectedInstance && this.state.selectedInstance.id)
+            || 'default';
+        return 'pmb.aiPromptHistory.' + id;
+    }
+
+    _setAiLastPrompt(text) {
+        if (!text) return;
+        const clean = String(text).replace(/\s+/g, ' ').trim();
+        if (!clean) return;
+        this.state.aiLastPrompt = clean;
+        try { localStorage.setItem(this._aiLastPromptKey(), clean); }
+        catch (e) { /* ignore quota / private mode */ }
+        // Prepend to history (dedup, cap at 30)
+        const history = (this.state.aiPromptHistory || [])
+            .filter((p) => p !== clean);
+        history.unshift(clean);
+        this.state.aiPromptHistory = history.slice(0, 30);
+        try {
+            localStorage.setItem(this._aiPromptHistoryKey(),
+                JSON.stringify(this.state.aiPromptHistory));
+        } catch (e) { /* ignore */ }
+    }
+
+    _loadAiLastPromptForInstance(instanceId) {
+        try {
+            const saved = localStorage.getItem(this._aiLastPromptKey(instanceId));
+            this.state.aiLastPrompt = saved || '';
+        } catch (e) {
+            this.state.aiLastPrompt = '';
+        }
+        try {
+            const raw = localStorage.getItem(
+                this._aiPromptHistoryKey(instanceId));
+            this.state.aiPromptHistory = raw ? JSON.parse(raw) : [];
+        } catch (e) {
+            this.state.aiPromptHistory = [];
+        }
+        this.state.aiPromptHistoryOpen = false;
+    }
+
+    _clearAiLastPrompt() {
+        this.state.aiLastPrompt = '';
+        try { localStorage.removeItem(this._aiLastPromptKey()); }
+        catch (e) { /* ignore */ }
+    }
+
+    _toggleAiPromptHistory() {
+        this.state.aiPromptHistoryOpen = !this.state.aiPromptHistoryOpen;
+    }
+
+    _clearAiPromptHistory() {
+        this.state.aiPromptHistory = [];
+        this.state.aiPromptHistoryOpen = false;
+        try { localStorage.removeItem(this._aiPromptHistoryKey()); }
+        catch (e) { /* ignore */ }
+    }
+
+    _resendAiPrompt(prompt) {
+        if (!prompt) return;
+        // Resend to the AI terminal: close history, update active prompt,
+        // and pipe the text through the WebSocket so Claude actually receives it.
+        this.state.aiPromptHistoryOpen = false;
+        if (this._aiWs && this._aiWs.readyState === WebSocket.OPEN) {
+            this._aiWs.send(JSON.stringify({
+                type: 'input', data: prompt + '\n',
+            }));
+        }
+        this._setAiLastPrompt(prompt);
+        if (this._aiTerm) this._aiTerm.focus();
+    }
+
+    _captureTypedInput(data) {
+        // Accumulates manual keystrokes into a buffer; on Enter commits as last prompt.
+        if (!data) return;
+        if (this._aiInputBuffer === undefined) this._aiInputBuffer = '';
+        // Ignore ANSI escape sequences (arrows, function keys, etc.)
+        if (data.charCodeAt(0) === 0x1b) return;
+        for (const ch of data) {
+            const code = ch.charCodeAt(0);
+            if (code === 0x0d || code === 0x0a) {
+                // Enter: commit buffer as last prompt
+                if (this._aiInputBuffer.trim()) {
+                    this._setAiLastPrompt(this._aiInputBuffer);
+                }
+                this._aiInputBuffer = '';
+            } else if (code === 0x7f || code === 0x08) {
+                // Backspace
+                this._aiInputBuffer = this._aiInputBuffer.slice(0, -1);
+            } else if (code === 0x03) {
+                // Ctrl+C: clear buffer
+                this._aiInputBuffer = '';
+            } else if (code >= 0x20) {
+                this._aiInputBuffer += ch;
+            }
+        }
     }
 
     async _linkMeetingToTask(taskId, meetingId) {
@@ -1184,6 +1721,219 @@ class PmbDevopsApp extends Component {
         if (this.state.expandedTaskId && this.state.productionUsers.length === 0) {
             this._loadProductionUsers();
         }
+    }
+
+    _openTaskFullscreen(taskId) {
+        const task = this.state.projectTasks.find(tk => tk.id === taskId);
+        if (task) {
+            this.state.taskFullscreen = { ...task };
+            this.state.taskFullscreenId = taskId;
+        }
+        if (this.state.productionUsers.length === 0) {
+            this._loadProductionUsers();
+        }
+        this.state.taskLinkedCommits = [];
+        this.state.taskCommitPickerOpen = false;
+        this._loadTaskLinkedCommits(taskId);
+    }
+
+    async _deleteTaskFullscreen(taskId) {
+        if (!this.state.isDevopsAdmin) return;
+        if (!confirm('¿Eliminar esta tarea? Se borrará también en producción.')) return;
+        try {
+            const res = await rpc('/devops/project/task/delete', { task_id: taskId });
+            if (res && res.error) { alert(res.error); return; }
+            this.state.taskFullscreen = null;
+            this.state.taskFullscreenId = null;
+            await this._loadProjectTasks();
+        } catch (e) { alert('Error eliminando tarea: ' + e.message); }
+    }
+
+    _startEditTaskDescription(taskId) {
+        const task = this.state.projectTasks.find(tk => tk.id === taskId);
+        // toString() unwraps Markup back to raw HTML for the textarea
+        this.state.taskDescDraft = task && task.description ? task.description.toString() : '';
+        this.state.taskDescEditingId = taskId;
+    }
+
+    _cancelEditTaskDescription() {
+        this.state.taskDescEditingId = null;
+        this.state.taskDescDraft = '';
+    }
+
+    async _saveTaskDescription(taskId) {
+        const draft = this.state.taskDescDraft;
+        this.state.taskDescEditingId = null;
+        this.state.taskDescDraft = '';
+        try {
+            const res = await rpc('/devops/project/task/update_description', {
+                task_id: taskId, description: draft,
+            });
+            if (res && res.error) { alert(res.error); return; }
+            await this._loadProjectTasks();
+        } catch (e) { alert('Error guardando descripción: ' + e.message); }
+    }
+
+    _startEditTaskName(taskId) {
+        const task = this.state.projectTasks.find(tk => tk.id === taskId);
+        this.state.taskNameDraft = task && task.name ? task.name.toString() : '';
+        this.state.taskNameEditingId = taskId;
+    }
+
+    _cancelEditTaskName() {
+        this.state.taskNameEditingId = null;
+        this.state.taskNameDraft = '';
+    }
+
+    _onTaskNameKeydown(ev) {
+        if (ev.key === 'Enter') {
+            ev.preventDefault();
+            this._saveTaskName(this.state.taskFullscreenId);
+        } else if (ev.key === 'Escape') {
+            this._cancelEditTaskName();
+        }
+    }
+
+    async _saveTaskName(taskId) {
+        const draft = (this.state.taskNameDraft || '').trim();
+        if (!draft) { alert('El título no puede estar vacío'); return; }
+        this.state.taskNameEditingId = null;
+        this.state.taskNameDraft = '';
+        try {
+            const res = await rpc('/devops/project/task/update', {
+                task_id: taskId, name: draft,
+            });
+            if (res && res.error) { alert(res.error); return; }
+            if (this.state.taskFullscreen && this.state.taskFullscreenId === taskId) {
+                this.state.taskFullscreen = { ...this.state.taskFullscreen, name: draft };
+            }
+            await this._loadProjectTasks();
+        } catch (e) { alert('Error guardando título: ' + e.message); }
+    }
+
+    // ---- Commit ↔ task linking ----------------------------------------
+
+    async _loadTaskLinkedCommits(taskId) {
+        if (!taskId) { this.state.taskLinkedCommits = []; return; }
+        try {
+            const res = await rpc('/devops/task/commits', {
+                task_id: taskId,
+                project_id: this.state.currentProjectId,
+            });
+            this.state.taskLinkedCommits = res.commits || [];
+        } catch (e) {
+            this.state.taskLinkedCommits = [];
+        }
+    }
+
+    _toggleCommitPickerForTask() {
+        this.state.taskCommitPickerOpen = !this.state.taskCommitPickerOpen;
+        this.state.taskCommitPickerSearch = '';
+        if (this.state.taskCommitPickerOpen
+            && (!this.state.commits || this.state.commits.length === 0)) {
+            this._loadHistoryRepos().then(() => this._loadHistory());
+        }
+    }
+
+    _onTaskCommitPickerSearch(ev) {
+        this.state.taskCommitPickerSearch = (ev.target.value || '').toLowerCase();
+    }
+
+    async _linkCommitToOpenTask(commit) {
+        const taskId = this.state.taskFullscreenId;
+        if (!taskId || !this.state.currentProjectId) return;
+        try {
+            const res = await rpc('/devops/commit/link', {
+                project_id: this.state.currentProjectId,
+                task_id: taskId,
+                repo_path: this.state.historyRepoPath || '',
+                commit_hash: commit.full_hash || commit.short_hash,
+                short_hash: commit.short_hash || '',
+                message: commit.message || '',
+                author: commit.author || '',
+                date: commit.date || '',
+            });
+            if (res && res.error) { alert(res.error); return; }
+            await this._loadTaskLinkedCommits(taskId);
+            this.state.taskCommitPickerOpen = false;
+        } catch (e) { alert('Error enlazando commit: ' + e.message); }
+    }
+
+    async _unlinkCommitFromOpenTask(linkId) {
+        if (!linkId) return;
+        if (!confirm('¿Quitar este commit de la tarea?')) return;
+        try {
+            const res = await rpc('/devops/commit/unlink', { link_id: linkId });
+            if (res && res.error) { alert(res.error); return; }
+            await this._loadTaskLinkedCommits(this.state.taskFullscreenId);
+        } catch (e) { alert('Error: ' + e.message); }
+    }
+
+    async _loadCommitLinkedTasks(commit) {
+        const hash = commit.full_hash || commit.short_hash;
+        if (!hash || !this.state.currentProjectId) return;
+        try {
+            const res = await rpc('/devops/commit/tasks', {
+                project_id: this.state.currentProjectId,
+                commit_hash: hash,
+                repo_path: this.state.historyRepoPath || '',
+            });
+            this.state.commitLinkedTasks = {
+                ...this.state.commitLinkedTasks,
+                [hash]: res.tasks || [],
+            };
+        } catch (e) {
+            this.state.commitLinkedTasks = {
+                ...this.state.commitLinkedTasks, [hash]: [],
+            };
+        }
+    }
+
+    _toggleTaskPickerForCommit(commit) {
+        const hash = commit.full_hash || commit.short_hash;
+        this.state.commitTaskPickerFor =
+            this.state.commitTaskPickerFor === hash ? null : hash;
+        this.state.commitTaskPickerSearch = '';
+    }
+
+    _onCommitTaskPickerSearch(ev) {
+        this.state.commitTaskPickerSearch = (ev.target.value || '').toLowerCase();
+    }
+
+    async _linkTaskToCommit(commit, taskId) {
+        if (!this.state.currentProjectId || !taskId) return;
+        try {
+            const res = await rpc('/devops/commit/link', {
+                project_id: this.state.currentProjectId,
+                task_id: taskId,
+                repo_path: this.state.historyRepoPath || '',
+                commit_hash: commit.full_hash || commit.short_hash,
+                short_hash: commit.short_hash || '',
+                message: commit.message || '',
+                author: commit.author || '',
+                date: commit.date || '',
+            });
+            if (res && res.error) { alert(res.error); return; }
+            await this._loadCommitLinkedTasks(commit);
+            this.state.commitTaskPickerFor = null;
+            // Refresh task panel if it's for the same task
+            if (this.state.taskFullscreenId === taskId) {
+                await this._loadTaskLinkedCommits(taskId);
+            }
+        } catch (e) { alert('Error enlazando tarea: ' + e.message); }
+    }
+
+    async _unlinkTaskFromCommit(commit, linkId, taskId) {
+        if (!linkId) return;
+        if (!confirm('¿Quitar esta tarea del commit?')) return;
+        try {
+            const res = await rpc('/devops/commit/unlink', { link_id: linkId });
+            if (res && res.error) { alert(res.error); return; }
+            await this._loadCommitLinkedTasks(commit);
+            if (this.state.taskFullscreenId === taskId) {
+                await this._loadTaskLinkedCommits(taskId);
+            }
+        } catch (e) { alert('Error: ' + e.message); }
     }
 
     async _loadHistory(search = '', offset = 0) {
@@ -1326,6 +2076,7 @@ class PmbDevopsApp extends Component {
             commit._body = 'Error loading detail';
         }
         commit._loading = false;
+        this._loadCommitLinkedTasks(commit);
     }
 
     // ------------------------------------------------------------------
@@ -2834,6 +3585,67 @@ class PmbDevopsApp extends Component {
         await rpc('/devops/settings/groq_key', { key });
     }
 
+    async _copilotLoadStatus() {
+        try {
+            const res = await rpc('/devops/copilot/status');
+            this.state.copilotAuthenticated = res.authenticated || false;
+            this.state.copilotGithubUser = res.github_user || '';
+        } catch (e) { /* ignore */ }
+    }
+
+    async _copilotStartAuth() {
+        this.state.copilotAuthCode = '';
+        this.state.copilotAuthUri = '';
+        try {
+            const res = await rpc('/devops/copilot/start_auth');
+            if (res.error) { alert(res.error); return; }
+            this.state.copilotAuthCode = res.user_code;
+            this.state.copilotAuthUri = res.verification_uri;
+            this.state.copilotDeviceCode = res.device_code;
+            // Open GitHub in new tab
+            window.open(res.verification_uri, '_blank');
+            // Start polling
+            this._copilotPoll(res.device_code, res.interval || 5);
+        } catch (e) { alert('Error: ' + (e.message || e)); }
+    }
+
+    async _copilotPoll(deviceCode, interval) {
+        this.state.copilotAuthPolling = true;
+        const maxAttempts = 60;
+        for (let i = 0; i < maxAttempts; i++) {
+            await new Promise(r => setTimeout(r, interval * 1000));
+            if (!this.state.copilotAuthPolling) break;
+            try {
+                const res = await rpc('/devops/copilot/poll_auth', { device_code: deviceCode });
+                if (res.status === 'success') {
+                    this.state.copilotAuthenticated = true;
+                    this.state.copilotGithubUser = res.github_user || '';
+                    this.state.copilotAuthCode = '';
+                    this.state.copilotAuthPolling = false;
+                    return;
+                } else if (res.status === 'slow_down') {
+                    interval = res.interval || interval + 5;
+                } else if (res.status === 'expired' || res.status === 'denied' || res.status === 'error') {
+                    this.state.copilotAuthCode = '';
+                    this.state.copilotAuthPolling = false;
+                    alert('Autenticación ' + (res.status === 'expired' ? 'expirada' : 'denegada') + '. Intenta de nuevo.');
+                    return;
+                }
+                // 'pending' — continue
+            } catch (e) { break; }
+        }
+        this.state.copilotAuthPolling = false;
+    }
+
+    async _copilotDisconnect() {
+        if (!confirm('Desconectar GitHub Copilot?')) return;
+        try {
+            await rpc('/devops/copilot/disconnect');
+            this.state.copilotAuthenticated = false;
+            this.state.copilotGithubUser = '';
+        } catch (e) { /* ignore */ }
+    }
+
     // ---- Diagnostics ----
 
     async _runDiagnose() {
@@ -2905,6 +3717,7 @@ Usa psql -d ${inst.database_name} para ejecutar los comandos SQL.`;
         setTimeout(() => {
             if (this._aiWs && this._aiWs.readyState === WebSocket.OPEN) {
                 this._aiWs.send(JSON.stringify({ type: 'input', data: prompt + '\n' }));
+                this._setAiLastPrompt(prompt);
             }
         }, 2000);
     }
@@ -3032,10 +3845,11 @@ Usa psql -d ${inst.database_name} para ejecutar los comandos SQL.`;
         } catch (e) {
             this.state.settingsProject = null;
         }
-        // Load members, available users, and Odoo projects
+        // Load members, available users, Odoo projects, and Copilot status
         await this._loadMembers();
         await this._loadAvailableUsers();
         await this._loadOdooProjects();
+        this._copilotLoadStatus();
     }
 
     async _loadOdooProjects() {
@@ -3127,6 +3941,10 @@ Usa psql -d ${inst.database_name} para ejecutar los comandos SQL.`;
                 github_client_secret: p.github_client_secret,
                 post_clone_script: p.post_clone_script,
                 odoo_project_id: p.odoo_project_id || false,
+                sync_tasks_to_production: !!p.sync_tasks_to_production,
+                production_admin_login: p.production_admin_login || '',
+                production_admin_password: p.production_admin_password || '',
+                production_project_id_remote: p.production_project_id_remote || 0,
             });
             if (result.error) {
                 alert(result.error);
@@ -3173,6 +3991,53 @@ Usa psql -d ${inst.database_name} para ejecutar los comandos SQL.`;
         if (!field || !this.state.settingsProject) return;
         const val = ev.target.dataset.type === 'int' ? parseInt(ev.target.value) || 0 : ev.target.value;
         this.state.settingsProject[field] = val;
+    }
+
+    _onSettingsCheckbox(ev, field) {
+        if (!this.state.settingsProject) return;
+        this.state.settingsProject[field] = ev.target.checked;
+    }
+
+    async _propagateClaudeModel() {
+        this.state.claudePropagateResult = 'Propagando...';
+        try {
+            const res = await rpc('/devops/admin/propagate_claude_model', { target_model: 'claude-opus-4-7' });
+            if (res.error) {
+                this.state.claudePropagateResult = 'ERROR: ' + res.error;
+                return;
+            }
+            const lines = ['Target: ' + res.target_model, ''];
+            Object.keys(res.summary || {}).forEach(proj => {
+                lines.push(proj + ':');
+                Object.keys(res.summary[proj]).forEach(db => {
+                    lines.push('  ' + db + ': ' + res.summary[proj][db]);
+                });
+            });
+            this.state.claudePropagateResult = lines.join('\n');
+        } catch (e) {
+            this.state.claudePropagateResult = 'Error: ' + (e.message || e);
+        }
+    }
+
+    async _upgradeClaudeCli() {
+        const p = this.state.settingsProject;
+        if (!p || !p.id) return;
+        this.state.claudeCliUpgrading = true;
+        this.state.claudeCliUpgradeResult = 'Ejecutando npm install en ' + (p.ssh_host || 'local') + '...';
+        try {
+            const res = await rpc('/devops/project/upgrade_claude_cli', { project_id: p.id });
+            if (res.error) {
+                this.state.claudeCliUpgradeResult = 'ERROR: ' + res.error;
+            } else {
+                const lines = ['Version: ' + (res.version || 'desconocida'), ''];
+                if (res.stdout) lines.push(res.stdout);
+                this.state.claudeCliUpgradeResult = lines.join('\n');
+            }
+        } catch (e) {
+            this.state.claudeCliUpgradeResult = 'Error: ' + (e.message || e);
+        } finally {
+            this.state.claudeCliUpgrading = false;
+        }
     }
 
     _onConnectionTypeChange(ev) {
@@ -3259,6 +4124,7 @@ Usa psql -d ${inst.database_name} para ejecutar los comandos SQL.`;
             this._aiTerm.onData((data) => {
                 if (this._aiWs && this._aiWs.readyState === WebSocket.OPEN) {
                     this._aiWs.send(JSON.stringify({ type: 'input', data: data }));
+                    this._captureTypedInput(data);
                 }
             });
 
@@ -3266,6 +4132,8 @@ Usa psql -d ${inst.database_name} para ejecutar los comandos SQL.`;
             // Only intercept if clipboard contains files AND no plain text
             // (so normal text paste always works for xterm)
             this._aiPasteHandler = (ev) => {
+                // Guard: only handle when AI tab is active (avoid double-fire)
+                if (this.state.activeContentTab !== 'ai') return;
                 const items = ev.clipboardData && ev.clipboardData.items;
                 if (!items) return;
                 // Check if there's plain text — if so, let xterm handle it normally
@@ -3281,18 +4149,32 @@ Usa psql -d ${inst.database_name} para ejecutar los comandos SQL.`;
                 ev.stopPropagation();
                 const blob = fileItem.getAsFile();
                 if (!blob) return;
+                // Block files > 8MB (server limit is 10MB but base64 adds ~33%)
+                if (blob.size > 8 * 1024 * 1024) {
+                    if (this._aiTerm) {
+                        this._aiTerm.writeln(`\x1b[31m[Error: Archivo demasiado grande (${(blob.size/1024/1024).toFixed(1)}MB). Máximo 8MB]\x1b[0m`);
+                    }
+                    return;
+                }
                 const ext = blob.name ? blob.name.split('.').pop() : (fileItem.type.split('/')[1] || 'bin');
                 const filename = blob.name || `paste_${Date.now()}.${ext}`;
                 const reader = new FileReader();
                 reader.onload = () => {
                     const base64 = reader.result.split(',')[1];
                     if (this._aiWs && this._aiWs.readyState === WebSocket.OPEN) {
-                        this._aiWs.send(JSON.stringify({
-                            type: 'file',
-                            data: base64,
-                            filename: filename,
-                            mimetype: fileItem.type,
-                        }));
+                        try {
+                            this._aiWs.send(JSON.stringify({
+                                type: 'file',
+                                data: base64,
+                                filename: filename,
+                                mimetype: fileItem.type,
+                            }));
+                        } catch (e) {
+                            if (this._aiTerm) {
+                                this._aiTerm.writeln(`\x1b[31m[Error al enviar archivo: ${e.message}]\x1b[0m`);
+                            }
+                            return;
+                        }
                         if (this._aiTerm) {
                             const size = blob.size > 1024 ? `${(blob.size/1024).toFixed(1)}KB` : `${blob.size}B`;
                             this._aiTerm.writeln(`\x1b[33m[Archivo: ${filename} (${size})]\x1b[0m`);
@@ -3301,7 +4183,7 @@ Usa psql -d ${inst.database_name} para ejecutar los comandos SQL.`;
                 };
                 reader.readAsDataURL(blob);
             };
-            container.addEventListener('paste', this._aiPasteHandler, true);
+            // Single listener on document only — capturing once is enough
             document.addEventListener('paste', this._aiPasteHandler, false);
 
             // Drag & drop file support
@@ -3318,8 +4200,8 @@ Usa psql -d ${inst.database_name} para ejecutar los comandos SQL.`;
             container.addEventListener('drop', this._aiDropHandler, true);
             container.addEventListener('dragover', this._aiDragOverHandler, true);
 
-            // If WebSocket already connected, replay client scrollback and reattach
-            if (this._aiWs && this._aiWs.readyState === WebSocket.OPEN) {
+            // If WebSocket already connected OR connecting, reattach instead of creating new
+            if (this._aiWs && (this._aiWs.readyState === WebSocket.OPEN || this._aiWs.readyState === WebSocket.CONNECTING)) {
                 // Replay saved scrollback to new xterm
                 if (this._aiScrollback && this._aiScrollback.length > 0) {
                     for (const chunk of this._aiScrollback) {
@@ -3501,15 +4383,29 @@ Usa psql -d ${inst.database_name} para ejecutar los comandos SQL.`;
 
     _sendFileToTerminal(file) {
         if (!this._aiWs || this._aiWs.readyState !== WebSocket.OPEN) return;
+        // Block files > 8MB
+        if (file.size > 8 * 1024 * 1024) {
+            if (this._aiTerm) {
+                this._aiTerm.writeln(`\x1b[31m[Error: Archivo demasiado grande (${(file.size/1024/1024).toFixed(1)}MB). Máximo 8MB]\x1b[0m`);
+            }
+            return;
+        }
         const reader = new FileReader();
         reader.onload = () => {
             const base64 = reader.result.split(',')[1];
-            this._aiWs.send(JSON.stringify({
-                type: 'file',
-                data: base64,
-                filename: file.name,
-                mimetype: file.type,
-            }));
+            try {
+                this._aiWs.send(JSON.stringify({
+                    type: 'file',
+                    data: base64,
+                    filename: file.name,
+                    mimetype: file.type,
+                }));
+            } catch (e) {
+                if (this._aiTerm) {
+                    this._aiTerm.writeln(`\x1b[31m[Error al enviar archivo: ${e.message}]\x1b[0m`);
+                }
+                return;
+            }
             if (this._aiTerm) {
                 const size = file.size > 1024 ? `${(file.size/1024).toFixed(1)}KB` : `${file.size}B`;
                 this._aiTerm.writeln(`\x1b[33m[Archivo: ${file.name} (${size})]\x1b[0m`);
@@ -3524,6 +4420,7 @@ Usa psql -d ${inst.database_name} para ejecutar los comandos SQL.`;
             const text = await navigator.clipboard.readText();
             if (text) {
                 this._aiWs.send(JSON.stringify({ type: 'input', data: text }));
+                this._captureTypedInput(text);
                 if (this._aiTerm) this._aiTerm.focus();
             }
         } catch (e) {
@@ -3531,6 +4428,7 @@ Usa psql -d ${inst.database_name} para ejecutar los comandos SQL.`;
             const text = prompt('Pegar texto:');
             if (text) {
                 this._aiWs.send(JSON.stringify({ type: 'input', data: text }));
+                this._captureTypedInput(text);
             }
         }
     }
@@ -3559,6 +4457,20 @@ Usa psql -d ${inst.database_name} para ejecutar los comandos SQL.`;
 
     _reconnectAiTerminal() {
         // Reconnect to existing session (same behavior as browser reload)
+        if (this._aiWs) { this._aiWs.close(); this._aiWs = null; }
+        this.state.aiConnected = false;
+        this._aiTermInitializing = false;
+        this._initAiTerminal();
+    }
+
+    _restartAiTerminal() {
+        // Force kill existing PTY + spawn fresh process (needed after Claude CLI upgrade)
+        this._aiForceNew = true;
+        this._aiScrollback = [];
+        if (this._aiTerm) {
+            this._aiTerm.clear();
+            this._aiTerm.writeln('\x1b[33m[Reiniciando sesion Claude con proceso nuevo...]\x1b[0m');
+        }
         if (this._aiWs) { this._aiWs.close(); this._aiWs = null; }
         this.state.aiConnected = false;
         this._aiTermInitializing = false;

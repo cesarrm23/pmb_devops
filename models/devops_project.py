@@ -126,6 +126,18 @@ class DevopsProject(models.Model):
     github_client_id = fields.Char(string='GitHub Client ID')
     github_client_secret = fields.Char(string='GitHub Client Secret')
 
+    # ---- Production Odoo sync (XML-RPC) ----
+    sync_tasks_to_production = fields.Boolean(
+        string='Sincronizar tareas con producción',
+        help='Sincroniza tareas creadas/modificadas en pmb_devops con la BD de Odoo en producción vía XML-RPC',
+    )
+    production_admin_login = fields.Char(string='Login admin producción', help='Usuario admin del Odoo remoto (XML-RPC)')
+    production_admin_password = fields.Char(string='Password admin producción', help='Password admin del Odoo remoto (XML-RPC)')
+    production_project_id_remote = fields.Integer(
+        string='ID proyecto remoto',
+        help='ID del project.project en la base de datos remota donde se crean las tareas sincronizadas',
+    )
+
     # ---- Post-clone script ----
     post_clone_script = fields.Text(
         string='Script Post-Clonacion',
@@ -235,6 +247,49 @@ class DevopsProject(models.Model):
         except Exception as e:
             raise UserError(_("Error reiniciando servicio: %s") % str(e))
         self._compute_state()
+
+    def action_upgrade_claude_cli(self):
+        """Upgrade @anthropic-ai/claude-code to latest via npm on this host.
+
+        Returns a dict with status, version and stdout/stderr so the caller
+        can surface the result. Host-global: one upgrade covers every
+        instance sharing the host.
+        """
+        self.ensure_one()
+        try:
+            result = ssh_utils.execute_command_shell(
+                self,
+                'npm install -g @anthropic-ai/claude-code@latest 2>&1 && '
+                'claude --version',
+                timeout=300,
+            )
+            stdout = (result.stdout or '').strip()
+            stderr = (result.stderr or '').strip()
+            version = ''
+            for line in reversed(stdout.splitlines()):
+                line = line.strip()
+                if line and line[0].isdigit():
+                    version = line
+                    break
+            ok = result.returncode == 0 and bool(version)
+            if not ok:
+                _logger.warning(
+                    "Project %s: claude upgrade failed rc=%s stderr=%s",
+                    self.name, result.returncode, stderr[:500],
+                )
+                raise UserError(_(
+                    "Error actualizando Claude CLI (rc=%s):\n%s"
+                ) % (result.returncode, stderr or stdout))
+            self.message_post(
+                body=_("Claude CLI actualizado a %s en %s.") % (version, self.ssh_host or 'local'),
+            )
+            return {'status': 'ok', 'version': version, 'stdout': stdout, 'stderr': stderr}
+        except subprocess.TimeoutExpired:
+            raise UserError(_("Timeout actualizando Claude CLI."))
+        except UserError:
+            raise
+        except Exception as e:
+            raise UserError(_("Error actualizando Claude CLI: %s") % str(e))
 
     def action_sync_branches(self):
         """Fetch remotes and sync branch list."""
@@ -550,3 +605,614 @@ class DevopsProject(models.Model):
         })
 
         self.message_post(body=_("Logs del servicio obtenidos."))
+
+    # ---- Production sync helpers (XML-RPC) ----
+    def _get_production_xmlrpc(self):
+        """Authenticate against the remote Odoo and return (uid, models, db, login, password).
+        Returns None if not configured or auth fails."""
+        self.ensure_one()
+        if not self.sync_tasks_to_production:
+            return None
+        if not self.production_admin_login or not self.production_admin_password:
+            _logger.warning("Project %s: production sync enabled but credentials missing", self.name)
+            return None
+        # Determine connection URL — for SSH projects use the domain, for local use localhost
+        if self.connection_type == 'ssh' and self.ssh_host:
+            url = f'https://{self.domain or self.ssh_host}'
+        else:
+            url = f'https://{self.domain}' if self.domain else 'http://localhost:8069'
+        # Get database name from production instance
+        prod = self.instance_ids.filtered(lambda i: i.instance_type == 'production')
+        db = (prod and prod[0].database_name) or self.database_name
+        if not db:
+            _logger.warning("Project %s: no production database name", self.name)
+            return None
+        try:
+            import xmlrpc.client
+            common = xmlrpc.client.ServerProxy(f'{url}/xmlrpc/2/common', allow_none=True)
+            uid = common.authenticate(db, self.production_admin_login, self.production_admin_password, {})
+            if not uid:
+                _logger.warning("Project %s: production XML-RPC auth failed", self.name)
+                return None
+            models_proxy = xmlrpc.client.ServerProxy(f'{url}/xmlrpc/2/object', allow_none=True)
+            return (uid, models_proxy, db, self.production_admin_login, self.production_admin_password)
+        except Exception as e:
+            _logger.warning("Project %s: production XML-RPC error: %s", self.name, e)
+            return None
+
+    def _resolve_remote_stage_id(self, conn, local_stage, remote_project_id):
+        """Return the remote project.task.type ID for a local stage, creating the mapping on demand.
+
+        Handles deletion scenarios:
+          - If the cached mapping points to a remote stage that no longer exists,
+            drop the stale mapping and re-resolve (search by name, then create).
+          - If the remote project itself has been replaced, this still works because
+            mappings are scoped per (devops.project, local_stage_id).
+        """
+        self.ensure_one()
+        if not local_stage:
+            return False
+        uid, models_proxy, db, login, password = conn
+        StageMap = self.env['devops.stage.mapping'].sudo()
+        # Check cached mapping
+        mapping = StageMap.search([
+            ('project_id', '=', self.id),
+            ('local_stage_id', '=', local_stage.id),
+        ], limit=1)
+        if mapping:
+            # Verify the cached remote stage still exists
+            try:
+                exists = models_proxy.execute_kw(
+                    db, uid, password, 'project.task.type', 'search_count',
+                    [[('id', '=', mapping.remote_stage_id)]],
+                )
+                if exists:
+                    return mapping.remote_stage_id
+                # Stale — remote stage was deleted. Drop mapping and fall through.
+                _logger.info("Project %s: remote stage %s no longer exists, re-resolving",
+                             self.name, mapping.remote_stage_id)
+                mapping.unlink()
+            except Exception as e:
+                _logger.warning("Project %s: error verifying remote stage: %s", self.name, e)
+                # If we can't verify, trust the cache (avoid breaking sync on transient errors)
+                return mapping.remote_stage_id
+        # Either no mapping existed, or it was stale — create a fresh one
+        try:
+            existing = models_proxy.execute_kw(
+                db, uid, password, 'project.task.type', 'search',
+                [[('name', '=', local_stage.name), ('project_ids', 'in', remote_project_id)]],
+                {'limit': 1},
+            )
+            if existing:
+                remote_stage_id = existing[0]
+            else:
+                remote_stage_id = models_proxy.execute_kw(
+                    db, uid, password, 'project.task.type', 'create',
+                    [{
+                        'name': local_stage.name,
+                        'sequence': local_stage.sequence or 10,
+                        'project_ids': [(4, remote_project_id)],
+                        'fold': local_stage.fold or False,
+                    }],
+                )
+            # Persist the (new) mapping
+            StageMap.create({
+                'project_id': self.id,
+                'local_stage_id': local_stage.id,
+                'remote_stage_id': remote_stage_id,
+                'name_snapshot': local_stage.name,
+            })
+            _logger.info("Project %s: mapped stage '%s' local=%s ↔ remote=%s",
+                         self.name, local_stage.name, local_stage.id, remote_stage_id)
+            return remote_stage_id
+        except Exception as e:
+            _logger.warning("Project %s: failed to resolve remote stage '%s': %s",
+                            self.name, local_stage.name, e)
+            return False
+
+    def _sync_task_create_to_production(self, task):
+        """Create a matching task in the remote Odoo and store the remote ID."""
+        self.ensure_one()
+        conn = self._get_production_xmlrpc()
+        if not conn:
+            return
+        uid, models_proxy, db, login, password = conn
+        # Determine (and validate) target project on remote
+        remote_project_id = self.production_project_id_remote
+        if remote_project_id:
+            try:
+                exists = models_proxy.execute_kw(
+                    db, uid, password, 'project.project', 'search_count',
+                    [[('id', '=', remote_project_id)]],
+                )
+                if not exists:
+                    _logger.info("Project %s: remote project %s deleted, resetting + recreating",
+                                 self.name, remote_project_id)
+                    # Clear the stale pointer AND any mappings tied to the dead remote
+                    self.env['devops.stage.mapping'].sudo().search([
+                        ('project_id', '=', self.id),
+                    ]).unlink()
+                    # Also clear pmb_remote_task_id on all local tasks — their remote
+                    # parents are gone too, so we must re-create them.
+                    if self.odoo_project_id:
+                        self.env['project.task'].sudo().search([
+                            ('project_id', '=', self.odoo_project_id.id),
+                            ('pmb_remote_task_id', '!=', 0),
+                        ]).write({'pmb_remote_task_id': 0})
+                    self.sudo().write({'production_project_id_remote': 0})
+                    remote_project_id = 0
+            except Exception as e:
+                _logger.warning("Project %s: error validating remote project: %s", self.name, e)
+        if not remote_project_id:
+            try:
+                remote_project_id = models_proxy.execute_kw(
+                    db, uid, password, 'project.project', 'create',
+                    [{'name': f'[DevOps] {self.name}'}],
+                )
+                self.sudo().write({'production_project_id_remote': remote_project_id})
+                _logger.info("Project %s: auto-created remote project id=%s", self.name, remote_project_id)
+            except Exception as e:
+                _logger.warning("Project %s: failed to create remote project: %s", self.name, e)
+                return
+        # Create task on remote
+        try:
+            desc_str = str(task.description) if task.description else False
+            vals = {
+                'name': task.name,
+                'project_id': remote_project_id,
+                'description': desc_str,
+            }
+            if task.date_deadline:
+                vals['date_deadline'] = str(task.date_deadline)
+            if task.priority:
+                vals['priority'] = task.priority
+            if task.stage_id:
+                remote_stage_id = self._resolve_remote_stage_id(conn, task.stage_id, remote_project_id)
+                if remote_stage_id:
+                    vals['stage_id'] = remote_stage_id
+            if task.user_ids:
+                remote_user_ids = self._translate_local_users_to_remote(conn, task.user_ids.ids)
+                if remote_user_ids:
+                    vals['user_ids'] = [(6, 0, remote_user_ids)]
+            remote_task_id = models_proxy.execute_kw(
+                db, uid, password, 'project.task', 'create', [vals],
+            )
+            # Persist remote ID on local task via dedicated field
+            task.sudo().write({'pmb_remote_task_id': remote_task_id})
+            _logger.info("Project %s: synced task %s → remote id=%s", self.name, task.name, remote_task_id)
+            return remote_task_id
+        except Exception as e:
+            _logger.warning("Project %s: failed to sync task to production: %s", self.name, e)
+            return None
+
+    @api.model
+    def _propagate_claude_model_to_all(self, target_model='claude-opus-4-7'):
+        """Propagate the Claude model param to every project's every instance DB.
+
+        For each project with production admin creds, connects via XML-RPC to each
+        instance DB (production + staging + dev) and updates every ir.config_parameter
+        matching '%claude%model%' to target_model.
+
+        Returns a dict summary: {project_name: {db_name: status}}.
+        """
+        import xmlrpc.client
+        summary = {}
+        projects = self.search([('production_admin_login', '!=', False)])
+        for project in projects:
+            project_summary = {}
+            if not project.production_admin_password:
+                project_summary['_error'] = 'No password configured'
+                summary[project.name] = project_summary
+                continue
+            # Determine base URL for remote or localhost for local projects
+            if project.connection_type == 'ssh' and project.ssh_host:
+                base_url = f'https://{project.domain or project.ssh_host}'
+            else:
+                base_url = f'https://{project.domain}' if project.domain else 'http://localhost:8069'
+            login = project.production_admin_login
+            password = project.production_admin_password
+            # Derive the per-project config key convention: <slug>_odoo_sh.claude_model
+            slug = (project.name or '').lower().strip().replace(' ', '_').replace('-', '_')
+            project_key = f'{slug}_odoo_sh.claude_model' if slug else None
+            # Iterate every instance DB (production + staging + development)
+            for instance in project.instance_ids:
+                db = instance.database_name
+                if not db:
+                    continue
+                try:
+                    common = xmlrpc.client.ServerProxy(f'{base_url}/xmlrpc/2/common', allow_none=True)
+                    uid = common.authenticate(db, login, password, {})
+                    if not uid:
+                        project_summary[db] = 'auth failed'
+                        continue
+                    proxy = xmlrpc.client.ServerProxy(f'{base_url}/xmlrpc/2/object', allow_none=True)
+                    # 1) Update every existing *claude*model* param
+                    ids = proxy.execute_kw(db, uid, password, 'ir.config_parameter', 'search',
+                                           [[('key', 'ilike', 'claude%model')]])
+                    if ids:
+                        proxy.execute_kw(db, uid, password, 'ir.config_parameter', 'write',
+                                         [ids, {'value': target_model}])
+                    # 2) Ensure the per-project <slug>_odoo_sh.claude_model exists
+                    created = False
+                    if project_key:
+                        exists = proxy.execute_kw(db, uid, password, 'ir.config_parameter', 'search_count',
+                                                  [[('key', '=', project_key)]])
+                        if not exists:
+                            proxy.execute_kw(db, uid, password, 'ir.config_parameter', 'set_param',
+                                             [project_key, target_model])
+                            created = True
+                    project_summary[db] = f'updated {len(ids)} param(s)' + (f', created {project_key}' if created else '')
+                except Exception as e:
+                    project_summary[db] = f'error: {str(e)[:80]}'
+            summary[project.name] = project_summary
+        # Also update the local odooAL database params (this very DB)
+        local = {}
+        local_params = self.env['ir.config_parameter'].sudo().search(
+            [('key', 'ilike', 'claude%model')]
+        )
+        for p in local_params:
+            p.value = target_model
+            local[p.key] = target_model
+        summary['_local_odooal'] = local
+        _logger.info("Claude model propagation summary: %s", summary)
+        return summary
+
+    def action_propagate_claude_model(self):
+        """UI button: propagate claude_model to all instances."""
+        target = self.env['ir.config_parameter'].sudo().get_param(
+            'pmb_devops.claude_model', 'claude-opus-4-7',
+        )
+        result = self._propagate_claude_model_to_all(target)
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': 'Modelo Claude propagado',
+                'message': f'Actualizado a {target}. Ver logs para detalles por instancia.',
+                'type': 'success',
+                'sticky': False,
+            },
+        }
+
+    def _sync_task_update_to_production(self, task, vals):
+        """Update the matching task on the remote Odoo (looked up by stored remote ID).
+
+        If the remote task no longer exists (deleted), clear the stale ID and re-create it
+        via `_sync_task_create_to_production`.
+        """
+        self.ensure_one()
+        conn = self._get_production_xmlrpc()
+        if not conn:
+            return
+        remote_task_id = task.pmb_remote_task_id
+        if not remote_task_id:
+            return
+        uid, models_proxy, db, login, password = conn
+        # Verify remote task still exists; otherwise reset pointer and re-create
+        try:
+            still_exists = models_proxy.execute_kw(
+                db, uid, password, 'project.task', 'search_count',
+                [[('id', '=', remote_task_id)]],
+            )
+            if not still_exists:
+                _logger.info("Project %s: remote task %s no longer exists, re-creating",
+                             self.name, remote_task_id)
+                task.sudo().write({'pmb_remote_task_id': 0})
+                self._sync_task_create_to_production(task)
+                return
+        except Exception as e:
+            _logger.warning("Project %s: error verifying remote task: %s", self.name, e)
+        remote_vals = {}
+        if 'name' in vals:
+            remote_vals['name'] = vals['name']
+        if 'description' in vals:
+            remote_vals['description'] = str(vals['description']) if vals['description'] else False
+        if 'date_deadline' in vals:
+            remote_vals['date_deadline'] = str(vals['date_deadline']) if vals['date_deadline'] else False
+        if 'priority' in vals:
+            remote_vals['priority'] = vals['priority']
+        if 'stage_id' in vals and vals['stage_id']:
+            # Resolve the mapped remote stage (creates mapping on first encounter)
+            local_stage = self.env['project.task.type'].sudo().browse(int(vals['stage_id']))
+            if local_stage.exists():
+                remote_stage_id = self._resolve_remote_stage_id(
+                    conn, local_stage, self.production_project_id_remote,
+                )
+                if remote_stage_id:
+                    remote_vals['stage_id'] = remote_stage_id
+        if 'user_ids' in vals:
+            # vals['user_ids'] here comes from a task.write() side effect; read the
+            # resulting assignee set from the task itself and translate by email.
+            remote_user_ids = self._translate_local_users_to_remote(conn, task.user_ids.ids)
+            remote_vals['user_ids'] = [(6, 0, remote_user_ids)] if remote_user_ids else [(5,)]
+        if not remote_vals:
+            return
+        try:
+            models_proxy.execute_kw(
+                db, uid, password, 'project.task', 'write', [[remote_task_id], remote_vals],
+            )
+            _logger.info("Project %s: updated remote task %s (vals=%s)",
+                         self.name, remote_task_id, list(remote_vals.keys()))
+        except Exception as e:
+            _logger.warning("Project %s: failed to update remote task: %s", self.name, e)
+
+    @staticmethod
+    def _is_real_email_login(login):
+        """True when login looks like a real email (has '@'). Excludes Odoo
+        internal users like __system__, public, default, etc."""
+        return bool(login) and '@' in login
+
+    def _translate_local_users_to_remote(self, conn, local_user_ids):
+        """Map local res.users ids → remote res.users ids by matching login (which
+        in Odoo is typically the email). Only real-email logins are considered, so
+        __system__ / public / default are never pushed to the remote. Unmatched
+        logins are silently skipped — we do not create users on the remote."""
+        self.ensure_one()
+        if not local_user_ids:
+            return []
+        uid, models_proxy, db, login, password = conn
+        local_logins = [
+            u.login for u in self.env['res.users'].sudo().browse(local_user_ids)
+            if self._is_real_email_login(u.login)
+        ]
+        if not local_logins:
+            return []
+        try:
+            remote_users = models_proxy.execute_kw(
+                db, uid, password, 'res.users', 'search_read',
+                [[('login', 'in', local_logins)]], {'fields': ['id', 'login']},
+            )
+        except Exception as e:
+            _logger.warning("Project %s: error translating local→remote users: %s",
+                            self.name, e)
+            return []
+        return [u['id'] for u in remote_users if self._is_real_email_login(u.get('login'))]
+
+    def _translate_remote_users_to_local(self, conn, remote_user_ids):
+        """Map remote res.users ids → local res.users ids, filtered to pmb_devops
+        dev/admin group members. Only real-email logins are considered so system
+        users like __system__ are ignored."""
+        self.ensure_one()
+        if not remote_user_ids:
+            return []
+        uid, models_proxy, db, login, password = conn
+        try:
+            remote_users = models_proxy.execute_kw(
+                db, uid, password, 'res.users', 'read',
+                [list(remote_user_ids), ['login']],
+            )
+        except Exception as e:
+            _logger.warning("Project %s: error reading remote users: %s", self.name, e)
+            return []
+        remote_logins = [
+            u['login'] for u in remote_users
+            if self._is_real_email_login(u.get('login'))
+        ]
+        if not remote_logins:
+            return []
+        group_ids = []
+        for xmlid in ('pmb_devops.group_devops_developer',
+                      'pmb_devops.group_devops_admin'):
+            grp = self.env.ref(xmlid, raise_if_not_found=False)
+            if grp:
+                group_ids.append(grp.id)
+        domain = [('login', 'in', remote_logins)]
+        if group_ids:
+            domain.append(('all_group_ids', 'in', group_ids))
+        return self.env['res.users'].sudo().search(domain).ids
+
+    def _apply_client_tag(self, task, client_name):
+        """Set/replace the `Cliente: <name>` tag on a task (mirrors the logic in
+        project_task_assign controller)."""
+        self.ensure_one()
+        stale = task.tag_ids.filtered(lambda t: t.name.startswith('Cliente:'))
+        if stale:
+            task.write({'tag_ids': [(3, t.id) for t in stale]})
+        if not client_name:
+            return
+        Tag = self.env['project.tags'].sudo()
+        tag = Tag.search([('name', '=', f'Cliente: {client_name}')], limit=1)
+        if not tag:
+            tag = Tag.create({'name': f'Cliente: {client_name}'})
+        task.write({'tag_ids': [(4, tag.id)]})
+
+    def _sync_task_delete_to_production(self, remote_task_id):
+        """Delete a task on the remote Odoo (forward deletion)."""
+        self.ensure_one()
+        conn = self._get_production_xmlrpc()
+        if not conn or not remote_task_id:
+            return
+        uid, models_proxy, db, login, password = conn
+        try:
+            models_proxy.execute_kw(
+                db, uid, password, 'project.task', 'unlink', [[remote_task_id]],
+            )
+            _logger.info("Project %s: deleted remote task %s", self.name, remote_task_id)
+        except Exception as e:
+            _logger.warning("Project %s: failed to delete remote task %s: %s",
+                            self.name, remote_task_id, e)
+
+    def _resolve_local_stage_id(self, conn, remote_stage_id, remote_stage_name=''):
+        """Reverse of _resolve_remote_stage_id: given a remote stage id, return the
+        local project.task.type id. Uses devops.stage.mapping cache; falls back to
+        name match within the local project; creates the stage locally on demand.
+        """
+        self.ensure_one()
+        if not remote_stage_id or not self.odoo_project_id:
+            return False
+        StageMap = self.env['devops.stage.mapping'].sudo()
+        mapping = StageMap.search([
+            ('project_id', '=', self.id),
+            ('remote_stage_id', '=', remote_stage_id),
+        ], limit=1)
+        if mapping and mapping.local_stage_id and mapping.local_stage_id.exists():
+            return mapping.local_stage_id.id
+        # No mapping (or stale) — fetch the remote name if not provided
+        if not remote_stage_name:
+            uid, models_proxy, db, login, password = conn
+            try:
+                recs = models_proxy.execute_kw(
+                    db, uid, password, 'project.task.type', 'read',
+                    [[remote_stage_id], ['name']],
+                )
+                remote_stage_name = recs[0]['name'] if recs else ''
+            except Exception as e:
+                _logger.warning("Project %s: error reading remote stage %s: %s",
+                                self.name, remote_stage_id, e)
+                return False
+        if not remote_stage_name:
+            return False
+        TaskType = self.env['project.task.type'].sudo()
+        local_stage = TaskType.search([
+            ('name', '=', remote_stage_name),
+            ('project_ids', 'in', self.odoo_project_id.id),
+        ], limit=1)
+        if not local_stage:
+            local_stage = TaskType.create({
+                'name': remote_stage_name,
+                'project_ids': [(4, self.odoo_project_id.id)],
+            })
+        # Drop any stale mapping for this local stage before inserting (unique constraint
+        # is on (project_id, local_stage_id))
+        StageMap.search([
+            ('project_id', '=', self.id),
+            ('local_stage_id', '=', local_stage.id),
+        ]).unlink()
+        StageMap.create({
+            'project_id': self.id,
+            'local_stage_id': local_stage.id,
+            'remote_stage_id': remote_stage_id,
+            'name_snapshot': remote_stage_name,
+        })
+        _logger.info("Project %s: mapped remote stage '%s' remote=%s ↔ local=%s",
+                     self.name, remote_stage_name, remote_stage_id, local_stage.id)
+        return local_stage.id
+
+    def _pull_remote_tasks(self):
+        """Pull tasks from the remote Odoo into the local pmb_devops DB.
+
+        Performs a 3-way reconcile per project:
+          - Remote exists, local has matching pmb_remote_task_id → update local fields
+          - Remote exists, no local match                          → create local mirror
+          - Local has pmb_remote_task_id but remote is gone        → delete local mirror
+
+        Writes are done with `skip_task_sync=True` in the context so the inherit
+        overrides on project.task do not re-push the same changes back.
+        """
+        self.ensure_one()
+        if not self.sync_tasks_to_production or not self.odoo_project_id:
+            return
+        conn = self._get_production_xmlrpc()
+        if not conn:
+            return
+        remote_project_id = self.production_project_id_remote
+        if not remote_project_id:
+            return
+        uid, models_proxy, db, login, password = conn
+        # Validate remote project still exists
+        try:
+            exists = models_proxy.execute_kw(
+                db, uid, password, 'project.project', 'search_count',
+                [[('id', '=', remote_project_id)]],
+            )
+            if not exists:
+                return
+        except Exception as e:
+            _logger.warning("Project %s: pull — error validating remote project: %s",
+                            self.name, e)
+            return
+        # Fetch all remote tasks for this project
+        try:
+            remote_tasks = models_proxy.execute_kw(
+                db, uid, password, 'project.task', 'search_read',
+                [[('project_id', '=', remote_project_id)]],
+                {'fields': ['id', 'name', 'description', 'date_deadline',
+                            'priority', 'stage_id', 'user_ids', 'create_uid']},
+            )
+        except Exception as e:
+            _logger.warning("Project %s: pull — error fetching remote tasks: %s",
+                            self.name, e)
+            return
+        remote_ids = {rt['id'] for rt in remote_tasks}
+        Task = self.env['project.task'].sudo().with_context(skip_task_sync=True)
+        # Pre-resolve creator logins so we can filter out system users (__system__,
+        # public, etc.) — clients must be real people with email-shaped logins.
+        creator_ids = {rt['create_uid'][0] for rt in remote_tasks
+                       if isinstance(rt.get('create_uid'), (list, tuple)) and rt['create_uid']}
+        creator_login_by_id = {}
+        if creator_ids:
+            try:
+                rows = models_proxy.execute_kw(
+                    db, uid, password, 'res.users', 'read',
+                    [list(creator_ids), ['login']],
+                )
+                creator_login_by_id = {r['id']: r.get('login') or '' for r in rows}
+            except Exception as e:
+                _logger.warning("Project %s: pull — error reading creator logins: %s",
+                                self.name, e)
+        # Upsert locals
+        for rt in remote_tasks:
+            local = Task.search([
+                ('project_id', '=', self.odoo_project_id.id),
+                ('pmb_remote_task_id', '=', rt['id']),
+            ], limit=1)
+            vals = {
+                'name': rt.get('name') or '/',
+                'description': rt.get('description') or False,
+                'date_deadline': rt.get('date_deadline') or False,
+                'priority': rt.get('priority') or '0',
+            }
+            remote_stage = rt.get('stage_id')
+            if remote_stage:
+                remote_stage_id = remote_stage[0] if isinstance(remote_stage, (list, tuple)) else remote_stage
+                remote_stage_name = (remote_stage[1]
+                                     if isinstance(remote_stage, (list, tuple)) and len(remote_stage) > 1
+                                     else '')
+                local_stage_id = self._resolve_local_stage_id(
+                    conn, remote_stage_id, remote_stage_name,
+                )
+                if local_stage_id:
+                    vals['stage_id'] = local_stage_id
+            # Dev assignees: remote user_ids → local dev/admin users matched by login
+            remote_user_ids = rt.get('user_ids') or []
+            local_user_ids = self._translate_remote_users_to_local(conn, remote_user_ids)
+            vals['user_ids'] = [(6, 0, local_user_ids)] if local_user_ids else [(5,)]
+            if local:
+                local.write(vals)
+                task_rec = local
+            else:
+                vals['project_id'] = self.odoo_project_id.id
+                vals['pmb_remote_task_id'] = rt['id']
+                task_rec = Task.create(vals)
+            # Client field: creator of the remote task. Only apply when the creator
+            # has a real email-shaped login (skips __system__, public, etc.).
+            create_uid = rt.get('create_uid')
+            creator_name = ''
+            if isinstance(create_uid, (list, tuple)) and create_uid:
+                creator_id = create_uid[0]
+                creator_login = creator_login_by_id.get(creator_id, '')
+                if self._is_real_email_login(creator_login):
+                    creator_name = create_uid[1] if len(create_uid) > 1 else ''
+            self._apply_client_tag(task_rec, creator_name)
+        # Reconcile deletions: local tasks with pmb_remote_task_id set but not in remote
+        stale_domain = [
+            ('project_id', '=', self.odoo_project_id.id),
+            ('pmb_remote_task_id', '!=', 0),
+        ]
+        if remote_ids:
+            stale_domain.append(('pmb_remote_task_id', 'not in', list(remote_ids)))
+        stale = Task.search(stale_domain)
+        if stale:
+            _logger.info("Project %s: pull — deleting %d stale local tasks",
+                         self.name, len(stale))
+            stale.unlink()
+
+    @api.model
+    def _cron_pull_remote_tasks(self):
+        """Cron entry point: pull remote tasks for every project with sync enabled."""
+        projects = self.search([('sync_tasks_to_production', '=', True)])
+        for project in projects:
+            try:
+                project._pull_remote_tasks()
+            except Exception as e:
+                _logger.warning("Project %s: pull cron failed: %s", project.name, e)

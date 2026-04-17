@@ -1237,6 +1237,159 @@ fi
         _logger.info("Instance %s fully destroyed", instance_name)
 
     # ------------------------------------------------------------------
+    # SSL certificate (issue / verify)
+    # ------------------------------------------------------------------
+
+    def _dns_check(self):
+        """Compare DNS A record of full_domain vs the server IP.
+
+        Returns (ok: bool, detail: str). ok=True when DNS resolves to the
+        same public IP as the server that would serve the vhost. For SSH
+        projects, the reference IP is fetched with `curl ifconfig.me` on
+        the remote; for local, it's the hub's own public IP.
+        """
+        self.ensure_one()
+        if not self.full_domain:
+            return False, _("La instancia no tiene dominio configurado.")
+
+        import socket
+        try:
+            resolved = sorted(set(
+                ai[4][0] for ai in socket.getaddrinfo(
+                    self.full_domain, None, socket.AF_INET,
+                )
+            ))
+        except Exception as e:
+            return False, _("No se pudo resolver %s: %s") % (self.full_domain, e)
+        if not resolved:
+            return False, _("El dominio %s no tiene registro A.") % self.full_domain
+
+        project = self.project_id
+        try:
+            r = infra_utils._run("curl -s --max-time 8 https://ifconfig.me",
+                                 project=project, timeout=15)
+            server_ip = (r.stdout or '').strip()
+        except Exception:
+            server_ip = ''
+
+        if not server_ip:
+            return False, _("No se pudo obtener la IP del servidor "
+                            "(dominio resuelve a %s).") % ', '.join(resolved)
+
+        if server_ip in resolved:
+            return True, _("DNS OK (%s -> %s)") % (self.full_domain, server_ip)
+        return False, _(
+            "DNS mismatch: %(domain)s resuelve a %(resolved)s, "
+            "pero el servidor es %(server)s. Actualiza el registro DNS para "
+            "que %(domain)s apunte a %(server)s antes de reintentar el "
+            "certificado SSL."
+        ) % {
+            'domain': self.full_domain,
+            'resolved': ', '.join(resolved),
+            'server': server_ip,
+        }
+
+    def action_obtain_ssl_cert(self):
+        """(Re)issue the Let's Encrypt certificate for this instance.
+
+        Workflow:
+        1. Pre-check DNS -> server IP (catches the common "DNS not pointing
+           to this server" failure mode).
+        2. Run `certbot --nginx -d <domain>` via the project's transport.
+        3. Reload nginx.
+        4. Post the result (success/error) to the instance chatter and
+           update ssl_status + ssl_last_error.
+        """
+        self.ensure_one()
+        if not self.full_domain:
+            raise UserError(_("La instancia no tiene dominio configurado."))
+
+        ok, detail = self._dns_check()
+        self.write({'ssl_last_checked': fields.Datetime.now()})
+        if not ok:
+            self.write({
+                'ssl_status': 'dns_mismatch',
+                'ssl_last_error': detail,
+            })
+            self.message_post(body=_(
+                "<b>SSL: DNS no válido para %(d)s</b><br/>%(msg)s"
+            ) % {'d': self.full_domain, 'msg': detail})
+            # Commit before raising so the badge persists for the UI
+            self.env.cr.commit()
+            raise UserError(detail)
+
+        project = self.project_id
+        cmd = (
+            "certbot --nginx -d {domain} --non-interactive --agree-tos "
+            "--email admin@patchmybyte.com --redirect"
+        ).format(domain=self.full_domain)
+        result = infra_utils.sudo_run(cmd, timeout=180, project=project)
+        stdout = (result.stdout or '')
+        stderr = (result.stderr or '')
+        output = (stdout + "\n" + stderr).strip()
+
+        if result.returncode != 0:
+            self.write({
+                'ssl_status': 'error',
+                'ssl_last_error': output[:4000],
+            })
+            self.message_post(body=_(
+                "<b>SSL: certbot falló para %(d)s</b><pre>%(out)s</pre>"
+            ) % {'d': self.full_domain, 'out': output[:2000]})
+            self.env.cr.commit()
+            raise UserError(_(
+                "Certbot falló para %(d)s. Revisa el historial de la "
+                "instancia para ver el detalle.\n\n%(out)s"
+            ) % {'d': self.full_domain, 'out': output[-500:]})
+
+        # Success: reload nginx and mark ok
+        try:
+            infra_utils.reload_nginx(project=project)
+        except Exception as e:
+            _logger.warning("nginx reload after cert issuance: %s", e)
+
+        self.write({
+            'ssl_status': 'ok',
+            'ssl_last_error': '',
+        })
+        self.message_post(body=_(
+            "<b>SSL: certificado emitido/renovado para %s</b>"
+        ) % self.full_domain)
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': _("SSL emitido"),
+                'message': _("Certificado Let's Encrypt activo para %s.")
+                           % self.full_domain,
+                'type': 'success',
+            },
+        }
+
+    def action_check_ssl_status(self):
+        """Probe https://full_domain and update ssl_status from cert validity."""
+        self.ensure_one()
+        if not self.full_domain:
+            return
+        project = self.project_id
+        cmd = (
+            "echo | timeout 10 openssl s_client -servername {d} "
+            "-connect {d}:443 2>/dev/null | openssl x509 -noout -enddate "
+            "2>/dev/null || true"
+        ).format(d=self.full_domain)
+        result = infra_utils._run(cmd, project=project, timeout=20)
+        out = (result.stdout or '').strip()
+        vals = {'ssl_last_checked': fields.Datetime.now()}
+        if 'notAfter=' in out:
+            vals['ssl_status'] = 'ok'
+            vals['ssl_last_error'] = ''
+        else:
+            # If we were 'ok' and now not, flip to missing; otherwise keep
+            if self.ssl_status == 'ok':
+                vals['ssl_status'] = 'missing'
+        self.write(vals)
+
+    # ------------------------------------------------------------------
     # Status check
     # ------------------------------------------------------------------
 

@@ -35,3 +35,14 @@ access_meeting_viewer,devops.meeting.viewer,model_devops_meeting,pmb_devops.grou
 access_recording_admin,devops.meeting.recording.admin,model_devops_meeting_recording,pmb_devops.group_devops_admin,1,1,1,1
 access_recording_developer,devops.meeting.recording.developer,model_devops_meeting_recording,pmb_devops.group_devops_developer,1,1,1,0
 access_recording_viewer,devops.meeting.recording.viewer,model_devops_meeting_recording,pmb_devops.group_devops_viewer,1,0,0,0
+access_ai_agent_admin,devops.ai.agent.admin,model_devops_ai_agent,pmb_devops.group_devops_admin,1,1,1,1
+access_ai_agent_developer,devops.ai.agent.developer,model_devops_ai_agent,pmb_devops.group_devops_developer,1,0,0,0
+access_ai_agent_viewer,devops.ai.agent.viewer,model_devops_ai_agent,pmb_devops.group_devops_viewer,1,0,0,0
+access_ai_agent_run_admin,devops.ai.agent.run.admin,model_devops_ai_agent_run,pmb_devops.group_devops_admin,1,1,1,1
+access_ai_agent_run_developer,devops.ai.agent.run.developer,model_devops_ai_agent_run,pmb_devops.group_devops_developer,1,0,0,0
+access_ai_agent_run_viewer,devops.ai.agent.run.viewer,model_devops_ai_agent_run,pmb_devops.group_devops_viewer,1,0,0,0
+access_stage_mapping_admin,devops.stage.mapping.admin,model_devops_stage_mapping,pmb_devops.group_devops_admin,1,1,1,1
+access_stage_mapping_developer,devops.stage.mapping.developer,model_devops_stage_mapping,pmb_devops.group_devops_developer,1,1,1,0
+access_commit_link_admin,devops.commit.link.admin,model_devops_commit_link,pmb_devops.group_devops_admin,1,1,1,1
+access_commit_link_developer,devops.commit.link.developer,model_devops_commit_link,pmb_devops.group_devops_developer,1,1,1,1
+access_commit_link_viewer,devops.commit.link.viewer,model_devops_commit_link,pmb_devops.group_devops_viewer,1,0,0,0

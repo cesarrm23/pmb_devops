@@ -353,16 +353,20 @@ class DevopsAiAssistant(models.Model):
     def _call_claude_api(self, api_key, system_prompt, user_message):
         """Call Anthropic Messages API via curl."""
         model = self.env['ir.config_parameter'].sudo().get_param(
-            'pmb_devops.claude_model', 'claude-sonnet-4-20250514',
+            'pmb_devops.claude_model', 'claude-opus-4-7',
         )
-        payload = json.dumps({
+        payload_data = {
             'model': model,
-            'max_tokens': 4096,
+            'max_tokens': 16000,
             'system': system_prompt,
             'messages': [
                 {'role': 'user', 'content': user_message},
             ],
-        })
+        }
+        # Adaptive thinking on Opus 4.7 / 4.6 / Sonnet 4.6 — Claude decides depth
+        if model in ('claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-6'):
+            payload_data['thinking'] = {'type': 'adaptive'}
+        payload = json.dumps(payload_data)
 
         proc = subprocess.run(
             [

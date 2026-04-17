@@ -185,19 +185,45 @@ def git_list_branches(project):
 
 
 def git_log(project, branch='HEAD', count=20, skip=0):
-    """Get commit history."""
+    """Get commit history.
+
+    The devops UI deploys clones that often lack local branches (only
+    remote-tracking refs). Fetch and fall back to origin/<branch> when the
+    given name isn't a committish locally, so the history reflects origin.
+    """
     commits = []
     try:
-        cmd = [
-            'git', 'log', f'-{count}',
-            '--format=%H|||%h|||%s|||%ai|||%an|||%ae',
-            branch,
-        ]
-        if skip:
-            cmd.insert(3, f'--skip={skip}')
-        result = ssh_utils.execute_command(project, cmd, cwd=project.repo_path)
-        if result.returncode == 0:
-            commits = _parse_log_output(result.stdout)
+        # The devops UI is a read-only mirror of origin state. Local
+        # branches in the clone often lag behind origin (e.g. after a
+        # merge runs via checkout+merge elsewhere). Prefer origin/<branch>
+        # as the authoritative ref; fall back to the given name only if
+        # that doesn't resolve.
+        refs_to_try = [branch]
+        if (branch and branch != 'HEAD'
+                and not branch.startswith('origin/')
+                and '/' not in branch):
+            try:
+                ssh_utils.execute_command(
+                    project, ['git', 'fetch', 'origin', branch],
+                    cwd=project.repo_path, timeout=30,
+                )
+            except Exception:
+                pass
+            refs_to_try = [f'origin/{branch}', branch]
+
+        for ref in refs_to_try:
+            cmd = [
+                'git', 'log', f'-{count}',
+                '--format=%H|||%h|||%s|||%ai|||%an|||%ae',
+                ref,
+            ]
+            if skip:
+                cmd.insert(3, f'--skip={skip}')
+            result = ssh_utils.execute_command(project, cmd, cwd=project.repo_path)
+            if result.returncode == 0 and result.stdout.strip():
+                commits = _parse_log_output(result.stdout)
+                if commits:
+                    break
     except Exception as e:
         _logger.warning("Error en git log: %s", e)
     return commits
@@ -219,15 +245,24 @@ def git_search(project, branch='HEAD', query='', count=20):
             if result.returncode == 0 and result.stdout.strip():
                 return _parse_log_output(result.stdout)
 
-        # Search by message (grep)
-        result = ssh_utils.execute_command(project, [
-            'git', 'log', f'-{count}',
-            '--format=%H|||%h|||%s|||%ai|||%an|||%ae',
-            f'--grep={query}', '--regexp-ignore-case',
-            branch,
-        ], cwd=project.repo_path, timeout=15)
-        if result.returncode == 0:
-            commits = _parse_log_output(result.stdout)
+        # Prefer origin/<branch> (authoritative) over local branches that
+        # may be stale in the devops clone.
+        refs_to_try = [branch]
+        if (branch and branch != 'HEAD'
+                and not branch.startswith('origin/')
+                and '/' not in branch):
+            refs_to_try = [f'origin/{branch}', branch]
+        for ref in refs_to_try:
+            result = ssh_utils.execute_command(project, [
+                'git', 'log', f'-{count}',
+                '--format=%H|||%h|||%s|||%ai|||%an|||%ae',
+                f'--grep={query}', '--regexp-ignore-case',
+                ref,
+            ], cwd=project.repo_path, timeout=15)
+            if result.returncode == 0 and result.stdout.strip():
+                commits = _parse_log_output(result.stdout)
+                if commits:
+                    break
     except Exception as e:
         _logger.warning("Error en git search: %s", e)
     return commits

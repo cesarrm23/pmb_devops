@@ -110,7 +110,7 @@ class DevopsClaudeLoginWizard(models.TransientModel):
             _logger.info("Claude CLI not found, falling back to curl")
             try:
                 payload = json.dumps({
-                    'model': 'claude-sonnet-4-20250514',
+                    'model': 'claude-haiku-4-5',
                     'max_tokens': 16,
                     'messages': [
                         {'role': 'user', 'content': 'Responde solo: OK'},
