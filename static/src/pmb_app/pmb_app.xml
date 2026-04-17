@@ -111,8 +111,10 @@
 
                     <!-- Filter + minimize toggle -->
                     <div class="p-2 d-flex gap-1">
-                        <input type="text" class="form-control form-control-sm flex-grow-1"
+                        <input type="search" class="form-control form-control-sm flex-grow-1"
                                placeholder="Filter branches..."
+                               name="pmb_sidebar_filter" autocomplete="off"
+                               data-lpignore="true" data-1p-ignore="true"
                                style="background: #313244; color: #cdd6f4; border-color: #45475a; font-size: 12px;"
                                t-model="state.sidebarFilter"/>
                         <button class="btn btn-sm px-1" style="color: #6c7086; font-size: 12px;"
