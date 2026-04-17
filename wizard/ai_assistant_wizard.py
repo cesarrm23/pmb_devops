@@ -257,9 +257,10 @@ class DevopsAiAssistantWizard(models.TransientModel):
         * /web/image/<attachment_id> (image uploaded via the editor's uploader)
         """
         Attachment = self.env['ir.attachment']
-        attachments = Attachment.browse()
         if not html:
-            return '', attachments
+            return '', Attachment.browse()
+
+        collected_ids = []
 
         def _handle_img(match):
             tag = match.group(0)
@@ -283,16 +284,14 @@ class DevopsAiAssistantWizard(models.TransientModel):
                     'mimetype': mime,
                     'type': 'binary',
                 })
-                nonlocal attachments
-                attachments |= att
+                collected_ids.append(att.id)
                 return f'[imagen adjunta #{att.id}]'
             web_img = self._WEB_IMAGE_RE.search(src)
             if web_img:
                 att_id = int(web_img.group(1))
                 att = Attachment.sudo().browse(att_id).exists()
                 if att and att.datas:
-                    nonlocal attachments
-                    attachments |= att
+                    collected_ids.append(att.id)
                     return f'[imagen adjunta #{att.id}]'
             return ''
 
@@ -302,4 +301,4 @@ class DevopsAiAssistantWizard(models.TransientModel):
         plain = self._TAG_RE.sub('', text_with_markers)
         plain = unescape(plain)
         plain = re.sub(r'\n{3,}', '\n\n', plain).strip()
-        return plain, attachments
+        return plain, Attachment.browse(collected_ids)
