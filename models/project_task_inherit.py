@@ -82,7 +82,7 @@ class ProjectTaskInherit(models.Model):
         the pull cron reconciling a remote deletion back to local.
         """
         skip = self.env.context.get('skip_task_sync')
-        if not skip:
+        if not skip and not self.env.su:
             is_admin = self.env.user.has_group('pmb_devops.group_devops_admin')
             if not is_admin:
                 devops_linked = self.env['devops.project'].sudo().search_count([

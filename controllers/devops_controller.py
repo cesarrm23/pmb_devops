@@ -3605,12 +3605,16 @@ Texto:
     @http.route('/devops/project/task/delete', type='json', auth='user')
     def project_task_delete(self, task_id):
         """Delete a task. Admin-only at controller level (defense in depth:
-        the unlink override also enforces the group check)."""
-        if not request.env.user.has_group('pmb_devops.group_devops_admin'):
-            return {'error': 'Solo administradores pueden eliminar tareas'}
+        the unlink override also enforces the group check for non-sudo calls)."""
         task = request.env['project.task'].sudo().browse(int(task_id))
         if not task.exists():
             return {'error': 'Tarea no encontrada'}
+        devops_proj = request.env['devops.project'].sudo().search([
+            ('odoo_project_id', '=', task.project_id.id),
+        ], limit=1)
+        project_id = devops_proj.id if devops_proj else None
+        if not self._is_project_admin(project_id):
+            return {'error': 'Solo administradores pueden eliminar tareas'}
         task.unlink()
         return {'status': 'ok'}
 
