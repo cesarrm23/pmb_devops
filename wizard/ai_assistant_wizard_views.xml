@@ -23,8 +23,9 @@
                         <field name="include_last_build"/>
                     </group>
                     <group colspan="2">
-                        <field name="prompt" widget="text"
-                               placeholder="Escribe tu consulta aqui..."
+                        <field name="prompt" widget="html"
+                               options="{'resizable': true}"
+                               placeholder="Escribe tu consulta aqui. Pega imágenes (Ctrl+V), agrega tablas, callouts de /banner-info, /banner-warning, etc."
                                nolabel="1" colspan="2"/>
                     </group>
                 </group>

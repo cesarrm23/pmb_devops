@@ -1,5 +1,8 @@
+import base64
 import logging
+import re
 import time
+from html import unescape
 
 import markupsafe
 
@@ -19,7 +22,13 @@ class DevopsAiAssistantWizard(models.TransientModel):
     project_id = fields.Many2one(
         'devops.project', string='Proyecto', required=True,
     )
-    prompt = fields.Text(string='Prompt')
+    prompt = fields.Html(
+        string='Prompt',
+        sanitize=False,
+        sanitize_attributes=False,
+        sanitize_style=False,
+        strip_classes=False,
+    )
     context_type = fields.Selection([
         ('general', 'General'),
         ('log', 'Análisis de Log'),
@@ -100,11 +109,16 @@ class DevopsAiAssistantWizard(models.TransientModel):
 
         self.write({'state': 'processing', 'error_message': False})
 
-        # Build extra context to append to the prompt
+        # Extract images + plain text from the Html prompt (paste-image support)
+        plain_prompt, image_attachments = self._extract_prompt_images(self.prompt)
+        if not plain_prompt and not image_attachments:
+            raise UserError("El prompt está vacío.")
+
+        # Build extra context to append to the plain-text prompt
         extra = self._build_extra_context()
-        full_prompt = self.prompt
+        full_prompt = plain_prompt
         if extra:
-            full_prompt = f"{self.prompt}\n\n{extra}"
+            full_prompt = f"{plain_prompt}\n\n{extra}"
 
         # Create the AI assistant record
         ai_record = self.env['devops.ai.assistant'].create({
@@ -116,6 +130,13 @@ class DevopsAiAssistantWizard(models.TransientModel):
             'state': 'draft',
             'user_id': self.env.user.id,
         })
+
+        # Re-link pasted images to the ai_record so _call_claude_api can find them
+        if image_attachments:
+            image_attachments.write({
+                'res_model': 'devops.ai.assistant',
+                'res_id': ai_record.id,
+            })
 
         # Dispatch to the appropriate method
         try:
@@ -216,3 +237,69 @@ class DevopsAiAssistantWizard(models.TransientModel):
             'view_mode': 'form',
             'target': 'new',
         }
+
+    # ── Paste-image support ─────────────────────────────────────────
+
+    _IMG_TAG_RE = re.compile(r'<img\b[^>]*>', re.IGNORECASE)
+    _DATA_URI_RE = re.compile(
+        r'data:(image/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=\s]+)', re.IGNORECASE,
+    )
+    _WEB_IMAGE_RE = re.compile(r'/web/image/(\d+)', re.IGNORECASE)
+    _SRC_RE = re.compile(r'\bsrc\s*=\s*"([^"]+)"', re.IGNORECASE)
+    _TAG_RE = re.compile(r'<[^>]+>')
+
+    def _extract_prompt_images(self, html):
+        """Pull <img> tags out of `html`, store them as ir.attachment records,
+        and return (plain_text, attachment_recordset).
+
+        Supports two image sources the html_editor produces:
+        * data:image/...;base64,... (image pasted, not yet uploaded)
+        * /web/image/<attachment_id> (image uploaded via the editor's uploader)
+        """
+        Attachment = self.env['ir.attachment']
+        attachments = Attachment.browse()
+        if not html:
+            return '', attachments
+
+        def _handle_img(match):
+            tag = match.group(0)
+            src_match = self._SRC_RE.search(tag)
+            if not src_match:
+                return ''
+            src = src_match.group(1)
+            data_uri = self._DATA_URI_RE.match(src)
+            if data_uri:
+                mime = data_uri.group(1).lower()
+                b64_data = re.sub(r'\s+', '', data_uri.group(2))
+                try:
+                    base64.b64decode(b64_data, validate=True)
+                except Exception:
+                    _logger.warning("Invalid base64 in pasted image, skipping")
+                    return ''
+                ext = mime.split('/', 1)[1].split('+', 1)[0] or 'png'
+                att = Attachment.create({
+                    'name': f'ai_prompt_image.{ext}',
+                    'datas': b64_data,
+                    'mimetype': mime,
+                    'type': 'binary',
+                })
+                nonlocal attachments
+                attachments |= att
+                return f'[imagen adjunta #{att.id}]'
+            web_img = self._WEB_IMAGE_RE.search(src)
+            if web_img:
+                att_id = int(web_img.group(1))
+                att = Attachment.sudo().browse(att_id).exists()
+                if att and att.datas:
+                    nonlocal attachments
+                    attachments |= att
+                    return f'[imagen adjunta #{att.id}]'
+            return ''
+
+        text_with_markers = self._IMG_TAG_RE.sub(_handle_img, str(html))
+        text_with_markers = re.sub(r'<br\s*/?>', '\n', text_with_markers, flags=re.IGNORECASE)
+        text_with_markers = re.sub(r'</(p|div|li|h[1-6])>', '\n', text_with_markers, flags=re.IGNORECASE)
+        plain = self._TAG_RE.sub('', text_with_markers)
+        plain = unescape(plain)
+        plain = re.sub(r'\n{3,}', '\n\n', plain).strip()
+        return plain, attachments

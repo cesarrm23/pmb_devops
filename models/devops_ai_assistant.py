@@ -138,12 +138,27 @@ class DevopsAiAssistant(models.Model):
         self.ensure_one()
         self.write({'state': 'sending', 'error_message': False})
 
+        # If there are pasted images, the CLI can't transmit them — force API path.
+        if self._has_prompt_images():
+            api_key = self.env['ir.config_parameter'].sudo().get_param(
+                'pmb_devops.claude_api_key', ''
+            )
+            if api_key:
+                self._send_via_api(api_key)
+                return
+            # No API key → downgrade: send text only via CLI, warn the user.
+            _logger.warning(
+                "Prompt contains images but no claude_api_key configured — "
+                "images will be ignored and only text sent via CLI."
+            )
+
         start_time = time.time()
         system_prompt = self._build_system_prompt()
         user_message = self._build_user_message()
 
         try:
-            cmd = ['claude', '-p', user_message, '--output-format', 'text']
+            text_message = user_message if isinstance(user_message, str) else self.prompt or ''
+            cmd = ['claude', '-p', text_message, '--output-format', 'text']
             if system_prompt:
                 cmd.extend(['--system-prompt', system_prompt])
 
@@ -285,7 +300,11 @@ class DevopsAiAssistant(models.Model):
         return ' '.join(parts)
 
     def _build_user_message(self):
-        """Build user message with context from related records."""
+        """Build user message with context from related records.
+
+        Returns a plain string when there are no pasted images, or a
+        list of Anthropic content blocks (image + text) when there are.
+        """
         parts = []
 
         # Add context from related records
@@ -302,7 +321,45 @@ class DevopsAiAssistant(models.Model):
             parts.append(f"=== BRANCH: {self.branch_id.name} ===\n")
 
         parts.append(self.prompt or '')
-        return '\n'.join(parts)
+        text = '\n'.join(parts)
+
+        images = self._get_prompt_image_blocks()
+        if images:
+            return images + [{'type': 'text', 'text': text or '(ver imágenes adjuntas)'}]
+        return text
+
+    def _has_prompt_images(self):
+        self.ensure_one()
+        return bool(self.env['ir.attachment'].sudo().search_count([
+            ('res_model', '=', self._name),
+            ('res_id', '=', self.id),
+            ('mimetype', '=like', 'image/%'),
+        ]))
+
+    def _get_prompt_image_blocks(self):
+        """Return attachments linked to this record as Anthropic image content blocks."""
+        self.ensure_one()
+        attachments = self.env['ir.attachment'].sudo().search([
+            ('res_model', '=', self._name),
+            ('res_id', '=', self.id),
+            ('mimetype', '=like', 'image/%'),
+        ])
+        blocks = []
+        for att in attachments:
+            if not att.datas:
+                continue
+            data = att.datas
+            if isinstance(data, bytes):
+                data = data.decode('ascii')
+            blocks.append({
+                'type': 'image',
+                'source': {
+                    'type': 'base64',
+                    'media_type': att.mimetype or 'image/png',
+                    'data': data,
+                },
+            })
+        return blocks
 
     # ------------------------------------------------------------------
     # API fallback
@@ -355,12 +412,15 @@ class DevopsAiAssistant(models.Model):
         model = self.env['ir.config_parameter'].sudo().get_param(
             'pmb_devops.claude_model', 'claude-opus-4-7',
         )
+        # user_message can be a plain string or a list of Anthropic content
+        # blocks (e.g. image + text) — the API accepts both shapes.
+        content = user_message if isinstance(user_message, (list, tuple)) else user_message
         payload_data = {
             'model': model,
             'max_tokens': 16000,
             'system': system_prompt,
             'messages': [
-                {'role': 'user', 'content': user_message},
+                {'role': 'user', 'content': content},
             ],
         }
         # Adaptive thinking on Opus 4.7 / 4.6 / Sonnet 4.6 — Claude decides depth
