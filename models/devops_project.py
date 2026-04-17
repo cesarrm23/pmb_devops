@@ -141,8 +141,10 @@ class DevopsProject(models.Model):
     # ---- Post-clone script ----
     post_clone_script = fields.Text(
         string='Script Post-Clonacion',
-        help='Script Python que se ejecuta en la BD clonada al crear staging/dev. '
-             'Variables disponibles: env, instance_name, instance_type, domain, port, db_name, service_name',
+        help='Python que se ejecuta en el odoo-bin shell de la instancia clonada (staging/dev) '
+             'despues del SQL por defecto (web.base.url, mail/crons off). '
+             'Vars disponibles: env, instance_name, instance_type, domain, port, db_name, service_name. '
+             'Commit automatico al final.',
     )
 
     # ---- Members (NEW) ----

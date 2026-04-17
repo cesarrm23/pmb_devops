@@ -1602,7 +1602,7 @@
                                                 <button class="btn btn-sm"
                                                         style="background: #f9e2af; color: #1e1e2e; font-size: 11px; font-weight: 600;"
                                                         t-on-click="_runPostCloneScript">
-                                                    Ejecutar SQL
+                                                    Ejecutar Python
                                                 </button>
                                                 <button class="btn btn-sm"
                                                         style="background: #cba6f7; color: #1e1e2e; font-size: 11px; font-weight: 600;"
@@ -1612,7 +1612,7 @@
                                             </div>
                                         </div>
                                         <div style="color: #6c7086; font-size: 10px; margin-bottom: 8px;">
-                                            Actualiza web.base.url, report.url, desactiva emails/crons. Edita el script en Settings del proyecto.
+                                            Corre el SQL por defecto (web.base.url, report.url, desactiva emails/crons) y luego ejecuta el script Python del proyecto dentro del odoo-bin shell de esta instancia. Vars: env, instance_name, instance_type, domain, port, db_name, service_name.
                                         </div>
                                         <div t-if="state.postCloneResult" class="mt-2">
                                             <t t-foreach="state.postCloneResult" t-as="r" t-key="r_index">
@@ -2950,13 +2950,13 @@
                                         <div style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
                                             <h6 style="color: #f9e2af; margin-bottom: 8px;">Script Post-Clonacion</h6>
                                             <div style="color: #6c7086; font-size: 10px; margin-bottom: 8px;">
-                                                SQL que se ejecuta automaticamente al clonar la BD para staging/dev.
-                                                Ya incluye por defecto: web.base.url, report.url, desactivar mail servers y crons.
-                                                Agrega aqui SQL adicional personalizado.
+                                                Python que se ejecuta en el odoo-bin shell de la instancia clonada (staging/dev) despues del SQL por defecto.
+                                                Vars disponibles: <code>env</code>, <code>instance_name</code>, <code>instance_type</code>, <code>domain</code>, <code>port</code>, <code>db_name</code>, <code>service_name</code>.
+                                                No hace falta llamar <code>env.cr.commit()</code>, se ejecuta automatico al final.
                                             </div>
-                                            <textarea class="form-control form-control-sm" rows="5"
+                                            <textarea class="form-control form-control-sm" rows="8"
                                                       style="background: #11111b; border-color: #313244; color: #a6e3a1; font-family: monospace; font-size: 11px;"
-                                                      placeholder="-- SQL adicional para staging/dev&#10;-- Ejemplo:&#10;-- UPDATE res_company SET name = name || ' (Staging)';&#10;-- UPDATE website SET domain = 'staging.midominio.com' WHERE id = 1;"
+                                                      placeholder="# Python para staging/dev&#10;# Ejemplo:&#10;# for c in env['res.company'].search([]):&#10;#     c.name = c.name + ' (Staging)'&#10;# env['res.users'].search([('login', '!=', 'admin')]).write({'password': 'staging123'})"
                                                       t-att-value="state.settingsProject.post_clone_script || ''"
                                                       t-on-change="_onSettingsInput" data-field="post_clone_script"/>
                                         </div>

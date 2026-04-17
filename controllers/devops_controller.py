@@ -662,23 +662,90 @@ echo "done" > {status_file}
 
         # Run default SQL
         try:
-            output = self._cmd_on_project(project, f'psql -q {db_name} -c "{default_sql}" 2>&1', timeout=30)
-            results.append(f'Parametros del sistema actualizados')
+            self._cmd_on_project(project, f'psql -q {db_name} -c "{default_sql}" 2>&1', timeout=30)
+            results.append('Parametros del sistema actualizados')
         except Exception as e:
             results.append(f'Error SQL: {e}')
 
-        # Run custom script if exists
+        # Run custom Python script in the instance's odoo shell
         custom = project.post_clone_script
         if custom and custom.strip():
             try:
-                # Execute custom SQL via psql
-                escaped = custom.strip().replace('"', '\\"')
-                output = self._cmd_on_project(project, f'psql -q {db_name} -c "{escaped}" 2>&1', timeout=30)
-                results.append(f'Script personalizado ejecutado')
+                output = self._run_python_in_instance_shell(inst, custom)
+                results.append('Script Python ejecutado:\n' + output if output else 'Script Python ejecutado')
             except Exception as e:
                 results.append(f'Error script: {e}')
 
         return {'status': 'ok', 'results': results}
+
+    def _run_python_in_instance_shell(self, inst, user_script):
+        """Execute a Python snippet inside the instance's `odoo-bin shell`.
+
+        Exposes these globals to the script: env, instance_name, instance_type,
+        domain, port, db_name, service_name.
+        """
+        import shlex
+        import subprocess
+
+        project = inst.project_id
+        inst_path = inst.instance_path or ''
+        conf_path = inst.odoo_config_path or ''
+        db_name = inst.database_name or ''
+        if not (inst_path and conf_path and db_name):
+            raise UserError('La instancia no tiene instance_path/odoo_config_path/database_name configurado')
+
+        db_user = 'odooal'
+        prod_svc = project.odoo_service_name or ''
+        if prod_svc:
+            try:
+                r = subprocess.run(
+                    ['systemctl', 'show', prod_svc, '-p', 'User', '--value'],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if r.stdout.strip():
+                    db_user = r.stdout.strip()
+            except Exception:
+                pass
+
+        header = (
+            f"instance_name = {inst.name!r}\n"
+            f"instance_type = {inst.instance_type!r}\n"
+            f"domain = {(inst.full_domain or '')!r}\n"
+            f"port = {inst.port or 0}\n"
+            f"db_name = {db_name!r}\n"
+            f"service_name = {(inst.service_name or '')!r}\n"
+        )
+        full_script = header + '\n' + user_script.strip() + '\nenv.cr.commit()\n'
+
+        odoo_bin = f'{inst_path}/odoo/odoo-bin'
+        venv_py = f'{inst_path}/.venv/bin/python'
+        shell_cmd = (
+            f'sudo -n -u {shlex.quote(db_user)} {shlex.quote(venv_py)} '
+            f'{shlex.quote(odoo_bin)} shell -c {shlex.quote(conf_path)} '
+            f'-d {shlex.quote(db_name)} --no-http --stop-after-init'
+        )
+        remote_script_path = f'/tmp/pmb_post_clone_{inst.id}.py'
+        write_cmd = (
+            f'cat > {remote_script_path} <<\'PMB_PY_EOF\'\n{full_script}\nPMB_PY_EOF\n'
+            f'{shell_cmd} < {remote_script_path}; rc=$?; '
+            f'rm -f {remote_script_path}; exit $rc'
+        )
+
+        if project.connection_type == 'ssh' and project.ssh_host:
+            ssh_cmd = ['ssh', '-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=10']
+            if project.ssh_key_path and os.path.isfile(project.ssh_key_path):
+                ssh_cmd += ['-i', project.ssh_key_path]
+            if project.ssh_port and project.ssh_port != 22:
+                ssh_cmd += ['-p', str(project.ssh_port)]
+            ssh_cmd += [f'{project.ssh_user or "root"}@{project.ssh_host}', 'bash -s']
+            r = subprocess.run(ssh_cmd, input=write_cmd, capture_output=True, text=True, timeout=120)
+        else:
+            r = subprocess.run(['bash', '-s'], input=write_cmd, capture_output=True, text=True, timeout=120)
+
+        out = (r.stdout or '') + (r.stderr or '')
+        if r.returncode != 0:
+            raise UserError(f'odoo-bin shell rc={r.returncode}: {out.strip()[:2000]}')
+        return out.strip()[:4000]
 
     def _cmd_on_project(self, project, cmd_str, timeout=30):
         """Run a shell command locally or via SSH depending on project type."""
