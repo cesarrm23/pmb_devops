@@ -2275,8 +2275,12 @@ echo "done" > {status_file}
         return {'status': 'ok', 'recording_id': rec.id}
 
     @http.route('/devops/meetings/upload_chunk', type='json', auth='user')
-    def meetings_upload_chunk(self, meeting_id, recording_id=None, chunk_data='', chunk_index=0, is_last=False, filename='', duration=0):
-        """Upload audio in chunks. Creates recording on first chunk, appends on subsequent."""
+    def meetings_upload_chunk(self, meeting_id, recording_id=None, chunk_data='', chunk_index=0, is_last=False, filename='', duration=0, rotating=False):
+        """Upload audio in chunks. Creates recording on first chunk, appends on subsequent.
+
+        When `rotating=True` with `is_last=True`, close out the current
+        recording (set duration) but do NOT mirror it onto `meeting.audio_file`
+        — the session is still running and a new recording will follow."""
         import base64
         meeting = request.env['devops.meeting'].sudo().browse(meeting_id)
         if not meeting.exists():
@@ -2305,11 +2309,12 @@ echo "done" > {status_file}
         if is_last:
             rec = request.env['devops.meeting.recording'].sudo().browse(recording_id)
             rec.write({'duration_minutes': duration or 0})
-            # Also update meeting level
-            meeting.write({
-                'audio_file': rec.audio_file,
-                'audio_filename': rec.audio_filename,
-            })
+            if not rotating:
+                # Only mirror audio to the meeting on the FINAL close.
+                meeting.write({
+                    'audio_file': rec.audio_file,
+                    'audio_filename': rec.audio_filename,
+                })
 
         return {'status': 'ok', 'recording_id': recording_id}
 
@@ -2361,15 +2366,117 @@ echo "done" > {status_file}
         finally:
             os.unlink(tmp_path)
 
+    def _groq_transcribe_file(self, path, filename, groq_key):
+        """POST a single audio file to Groq Whisper. Returns (text, error_str)."""
+        import requests as http_requests
+        try:
+            with open(path, 'rb') as fh:
+                resp = http_requests.post(
+                    'https://api.groq.com/openai/v1/audio/transcriptions',
+                    headers={'Authorization': f'Bearer {groq_key}'},
+                    files={'file': (filename, fh)},
+                    data={'model': 'whisper-large-v3', 'language': 'es'},
+                    timeout=300,
+                )
+            if resp.status_code == 200:
+                return resp.json().get('text', ''), None
+            return '', f'Groq error {resp.status_code}: {resp.text[:160]}'
+        except Exception as e:
+            return '', str(e)
+
+    def _ffmpeg_bin(self):
+        """Resolve an ffmpeg binary — prefer system, fall back to imageio-ffmpeg."""
+        import shutil
+        bin_path = shutil.which('ffmpeg')
+        if bin_path:
+            return bin_path
+        try:
+            import imageio_ffmpeg
+            return imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception:
+            return None
+
+    def _split_audio_ffmpeg(self, src_path, seg_seconds=1500):
+        """Split audio into segments of roughly `seg_seconds` length via ffmpeg.
+        Returns a list of part paths. Caller is responsible for cleanup."""
+        import tempfile, subprocess
+        ff = self._ffmpeg_bin()
+        if not ff:
+            _logger.error('ffmpeg not available — cannot split oversized audio')
+            return []
+        out_dir = tempfile.mkdtemp(prefix='pmb_groq_split_')
+        out_pattern = os.path.join(out_dir, 'part_%03d.webm')
+        try:
+            subprocess.run(
+                [ff, '-y', '-hide_banner', '-loglevel', 'error',
+                 '-i', src_path, '-c', 'copy', '-f', 'segment',
+                 '-segment_time', str(seg_seconds), '-reset_timestamps', '1',
+                 out_pattern],
+                check=True, timeout=180,
+            )
+        except Exception as e:
+            _logger.warning('ffmpeg split failed (%s). Falling back to re-encode.', e)
+            try:
+                subprocess.run(
+                    [ff, '-y', '-hide_banner', '-loglevel', 'error',
+                     '-i', src_path, '-c:a', 'libopus', '-b:a', '24k',
+                     '-f', 'segment', '-segment_time', str(seg_seconds),
+                     '-reset_timestamps', '1', out_pattern],
+                    check=True, timeout=600,
+                )
+            except Exception as e2:
+                _logger.error('ffmpeg re-encode split failed: %s', e2)
+                return []
+        import glob
+        parts = sorted(glob.glob(os.path.join(out_dir, 'part_*.webm')))
+        return parts
+
+    def _transcribe_audio_bytes(self, audio_bytes, filename, groq_key):
+        """Transcribe arbitrary audio bytes, splitting with ffmpeg if >24 MB.
+        Returns (text, error_or_None)."""
+        import tempfile
+        GROQ_LIMIT = 24 * 1024 * 1024  # 24 MB safety margin under 25 MB hard cap
+        ext = (filename or 'audio.webm').split('.')[-1]
+        with tempfile.NamedTemporaryFile(suffix=f'.{ext}', delete=False) as tmp:
+            tmp.write(audio_bytes)
+            tmp_path = tmp.name
+        try:
+            if len(audio_bytes) <= GROQ_LIMIT:
+                return self._groq_transcribe_file(tmp_path, filename, groq_key)
+            parts = self._split_audio_ffmpeg(tmp_path)
+            if not parts:
+                return '', 'Archivo >25 MB y ffmpeg no pudo dividirlo'
+            texts, errs = [], []
+            for i, p in enumerate(parts):
+                t, err = self._groq_transcribe_file(p, f'part_{i:03d}.webm', groq_key)
+                if err:
+                    errs.append(f'parte {i}: {err}')
+                else:
+                    texts.append(t)
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass
+            try:
+                os.rmdir(os.path.dirname(parts[0]))
+            except OSError:
+                pass
+            return ' '.join(texts), (' | '.join(errs) if errs else None)
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
     @http.route('/devops/meetings/transcribe_all', type='json', auth='user')
     def meetings_transcribe_all(self, meeting_id, force=False):
-        """Transcribe ALL recordings of a meeting using Groq Whisper API."""
+        """Transcribe ALL recordings of a meeting using Groq Whisper API.
+        Auto-splits recordings that exceed Groq's 25 MB per-file limit."""
         meeting = request.env['devops.meeting'].sudo().browse(meeting_id)
         if not meeting.exists():
             return {'error': 'Reunion no encontrada'}
 
         recordings = meeting.recording_ids.filtered(lambda r: r.audio_file)
-        # Also include legacy audio_file on the meeting itself
         if not recordings and not meeting.audio_file:
             return {'error': 'No hay grabaciones para transcribir'}
 
@@ -2377,66 +2484,35 @@ echo "done" > {status_file}
         if not groq_key:
             return {'error': 'API key de Groq no configurada. Ve a Settings del proyecto.'}
 
-        import base64, tempfile
-        import requests as http_requests
-
+        import base64
         all_transcriptions = []
         errors = []
 
-        # Transcribe each recording
         for rec in recordings:
             if rec.transcription and not force:
                 all_transcriptions.append(f"[Grabacion: {rec.name}]\n{rec.transcription}")
                 continue
-            try:
-                audio_bytes = base64.b64decode(rec.audio_file)
-                ext = (rec.audio_filename or 'audio.webm').split('.')[-1]
-                with tempfile.NamedTemporaryFile(suffix=f'.{ext}', delete=False) as tmp:
-                    tmp.write(audio_bytes)
-                    tmp_path = tmp.name
-                resp = http_requests.post(
-                    'https://api.groq.com/openai/v1/audio/transcriptions',
-                    headers={'Authorization': f'Bearer {groq_key}'},
-                    files={'file': (rec.audio_filename or 'audio.webm', open(tmp_path, 'rb'))},
-                    data={'model': 'whisper-large-v3', 'language': 'es'},
-                    timeout=120,
-                )
-                os.unlink(tmp_path)
-                if resp.status_code == 200:
-                    text = resp.json().get('text', '')
-                    rec.write({'transcription': text, 'state': 'transcribed'})
-                    all_transcriptions.append(f"[Grabacion: {rec.name}]\n{text}")
-                else:
-                    errors.append(f"{rec.name}: Groq error {resp.status_code}")
-            except Exception as e:
-                errors.append(f"{rec.name}: {e}")
+            audio_bytes = base64.b64decode(rec.audio_file)
+            filename = rec.audio_filename or 'audio.webm'
+            text, err = self._transcribe_audio_bytes(audio_bytes, filename, groq_key)
+            if text:
+                rec.write({'transcription': text, 'state': 'transcribed'})
+                all_transcriptions.append(f"[Grabacion: {rec.name}]\n{text}")
+            if err:
+                errors.append(f"{rec.name}: {err}")
 
-        # Also handle legacy audio_file on meeting itself
-        if meeting.audio_file and not meeting.transcription:
-            try:
-                audio_bytes = base64.b64decode(meeting.audio_file)
-                ext = (meeting.audio_filename or 'audio.webm').split('.')[-1]
-                with tempfile.NamedTemporaryFile(suffix=f'.{ext}', delete=False) as tmp:
-                    tmp.write(audio_bytes)
-                    tmp_path = tmp.name
-                resp = http_requests.post(
-                    'https://api.groq.com/openai/v1/audio/transcriptions',
-                    headers={'Authorization': f'Bearer {groq_key}'},
-                    files={'file': (meeting.audio_filename or 'audio.webm', open(tmp_path, 'rb'))},
-                    data={'model': 'whisper-large-v3', 'language': 'es'},
-                    timeout=120,
-                )
-                os.unlink(tmp_path)
-                if resp.status_code == 200:
-                    text = resp.json().get('text', '')
-                    meeting.write({'transcription': text, 'state': 'transcribed'})
-                    all_transcriptions.append(f"[Audio principal]\n{text}")
-            except Exception as e:
-                errors.append(f"Audio principal: {e}")
-        elif meeting.transcription:
-            all_transcriptions.append(f"[Audio principal]\n{meeting.transcription}")
+        # Legacy meeting.audio_file: skip if we already transcribed via
+        # recording_ids (the old flow mirrored the same bytes onto both).
+        if not all_transcriptions and meeting.audio_file and not meeting.transcription:
+            audio_bytes = base64.b64decode(meeting.audio_file)
+            filename = meeting.audio_filename or 'audio.webm'
+            text, err = self._transcribe_audio_bytes(audio_bytes, filename, groq_key)
+            if text:
+                meeting.write({'transcription': text, 'state': 'transcribed'})
+                all_transcriptions.append(f"[Audio principal]\n{text}")
+            if err:
+                errors.append(f"Audio principal: {err}")
 
-        # Combine all transcriptions
         full_transcription = '\n\n'.join(all_transcriptions)
         meeting.write({
             'transcription': full_transcription,

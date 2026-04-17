@@ -3302,13 +3302,23 @@ class PmbDevopsApp extends Component {
             for (const mt of ['audio/webm;codecs=opus', 'audio/webm', 'video/webm', 'audio/ogg']) {
                 if (MediaRecorder.isTypeSupported(mt)) { mimeType = mt; break; }
             }
-            this._mediaRecorder = new MediaRecorder(this._recordStream, { mimeType });
+            // 32 kbps Opus: ~7 MB/hour. Keeps each recording well under Groq
+            // Whisper's 25 MB per-file limit even for multi-hour sessions.
+            // Voice transcription quality stays excellent at this bitrate.
+            this._mediaRecorder = new MediaRecorder(this._recordStream, {
+                mimeType,
+                audioBitsPerSecond: 32000,
+            });
 
             this._recordChunkRecId = null;
             this._recordFilename = `recording_${Date.now()}.webm`;
             this._recordChunkIndex = 0;
             this._recordChunkQueue = [];
             this._recordUploading = false;
+            // Rotation: start a fresh recording every N minutes so no single
+            // file balloons past Groq's limit. With 32 kbps @ 25 min ≈ 6 MB.
+            const ROTATE_AFTER_MS = 25 * 60 * 1000;
+            this._recordSegmentStart = Date.now();
 
             // Upload chunks incrementally (every 30 seconds of audio)
             const CHUNK_INTERVAL = 30000; // 30 sec per chunk upload
@@ -3327,12 +3337,23 @@ class PmbDevopsApp extends Component {
                 await this._loadMeetings();
             };
 
-            // Periodic chunk upload
+            // Periodic chunk upload + rotation
             this._chunkUploadTimer = setInterval(async () => {
                 if (this._recordChunks.length > 0 && !this._recordUploading) {
                     const blob = new Blob(this._recordChunks, { type: 'audio/webm' });
                     this._recordChunks = [];
-                    await this._uploadAudioChunk(mid, blob, false);
+                    // Close out this segment if we've been recording long enough;
+                    // the next chunk will open a fresh recording server-side.
+                    const shouldRotate =
+                        Date.now() - this._recordSegmentStart >= ROTATE_AFTER_MS;
+                    await this._uploadAudioChunk(mid, blob, shouldRotate, shouldRotate);
+                    if (shouldRotate) {
+                        // Start a new server-side recording on the next upload
+                        this._recordChunkRecId = null;
+                        this._recordChunkIndex = 0;
+                        this._recordFilename = `recording_${Date.now()}.webm`;
+                        this._recordSegmentStart = Date.now();
+                    }
                 }
             }, CHUNK_INTERVAL);
 
@@ -3366,7 +3387,7 @@ class PmbDevopsApp extends Component {
         }
     }
 
-    async _uploadAudioChunk(mid, blob, isLast) {
+    async _uploadAudioChunk(mid, blob, isLast, rotating = false) {
         this._recordUploading = true;
         try {
             const base64 = await new Promise((resolve) => {
@@ -3381,6 +3402,7 @@ class PmbDevopsApp extends Component {
                 chunk_data: base64,
                 chunk_index: this._recordChunkIndex++,
                 is_last: isLast,
+                rotating: rotating,
                 filename: this._recordFilename,
                 duration: duration || 1,
             });
