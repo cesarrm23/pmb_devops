@@ -3629,6 +3629,20 @@ Texto:
         except Exception as e:
             return {'error': str(e)}
 
+    @http.route('/devops/project/resync_tasks', type='json', auth='user')
+    def project_resync_tasks(self, project_id):
+        """Admin-only: push every local task missing pmb_remote_task_id to the remote.
+        Recovers tasks created with skip_task_sync context (meeting analysis seeding)."""
+        if not request.env.user.has_group('pmb_devops.group_devops_admin'):
+            return {'error': 'Solo administradores pueden forzar el resync'}
+        project = request.env['devops.project'].sudo().browse(int(project_id))
+        if not project.exists():
+            return {'error': 'Proyecto no encontrado'}
+        try:
+            return project.action_resync_unsynced_tasks()
+        except Exception as e:
+            return {'error': str(e)}
+
     @http.route('/devops/project/upgrade_claude_cli', type='json', auth='user')
     def project_upgrade_claude_cli(self, project_id):
         """Admin-only: run `npm i -g @anthropic-ai/claude-code@latest` on

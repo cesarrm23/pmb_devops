@@ -874,6 +874,40 @@ class DevopsProject(models.Model):
             },
         }
 
+    def action_resync_unsynced_tasks(self):
+        """Push every local task that lacks pmb_remote_task_id to the remote.
+
+        Used to recover from tasks that were created with `skip_task_sync` context
+        (e.g. meeting analysis seeding) or before sync was enabled. Safe to run
+        repeatedly — already-synced tasks are skipped. Returns a summary dict."""
+        self.ensure_one()
+        if not self.sync_tasks_to_production:
+            return {'status': 'disabled', 'synced': 0, 'failed': 0, 'skipped': 0,
+                    'errors': ['sync_tasks_to_production is disabled']}
+        if not self.odoo_project_id:
+            return {'status': 'no_project', 'synced': 0, 'failed': 0, 'skipped': 0,
+                    'errors': ['no odoo_project_id linked']}
+        tasks = self.env['project.task'].sudo().search([
+            ('project_id', '=', self.odoo_project_id.id),
+            ('pmb_remote_task_id', 'in', [0, False]),
+        ])
+        synced, failed, errors = 0, 0, []
+        for t in tasks:
+            try:
+                remote_id = self._sync_task_create_to_production(t)
+                if remote_id:
+                    synced += 1
+                else:
+                    failed += 1
+                    errors.append(f'{t.name}: sync returned no remote id')
+            except Exception as e:
+                failed += 1
+                errors.append(f'{t.name}: {e}')
+                _logger.warning('Resync: task %s failed: %s', t.id, e)
+        return {'status': 'ok', 'synced': synced, 'failed': failed,
+                'skipped': 0, 'total': len(tasks),
+                'errors': errors[:20]}
+
     def _sync_task_update_to_production(self, task, vals):
         """Update the matching task on the remote Odoo (looked up by stored remote ID).
 
