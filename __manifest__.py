@@ -1,6 +1,6 @@
 {
     'name': 'PatchMyByte DevOps',
-    'version': '19.0.1.1.10',
+    'version': '19.0.1.1.11',
     'category': 'Services/DevOps',
     'summary': 'Plataforma DevOps multi-proyecto estilo Odoo.sh',
     'description': """
@@ -16,7 +16,7 @@ Administra múltiples instancias Odoo desde una plataforma central.
 * Plugins de Claude Code
 * Roles multi-usuario por proyecto
 """,
-    'depends': ['base', 'mail', 'project'],
+    'depends': ['base', 'mail', 'project', 'html_editor'],
     'data': [
         'security/devops_security.xml',
         'security/ir.model.access.csv',
@@ -42,6 +42,8 @@ Administra múltiples instancias Odoo desde una plataforma central.
     'assets': {
         'web.assets_backend': [
             'pmb_devops/static/src/pmb_app/pmb_app.scss',
+            'pmb_devops/static/src/desc_editor/desc_editor.js',
+            'pmb_devops/static/src/desc_editor/desc_editor.xml',
             'pmb_devops/static/src/pmb_app/pmb_app.js',
             'pmb_devops/static/src/pmb_app/pmb_app.xml',
             'pmb_devops/static/src/terminal/devops_terminal.js',

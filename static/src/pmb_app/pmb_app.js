@@ -3,9 +3,11 @@
 import { Component, markup, onMounted, onWillUnmount, useEffect, useRef, useState } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { rpc } from "@web/core/network/rpc";
+import { DevopsDescEditor } from "../desc_editor/desc_editor";
 
 class PmbDevopsApp extends Component {
     static template = "pmb_devops.PmbDevopsApp";
+    static components = { DevopsDescEditor };
     static props = { action: { type: Object, optional: true }, "*": true };
 
     setup() {
@@ -1761,8 +1763,10 @@ class PmbDevopsApp extends Component {
         this.state.taskDescDraft = '';
     }
 
-    async _saveTaskDescription(taskId) {
-        const draft = this.state.taskDescDraft;
+    async _saveTaskDescription(taskId, htmlFromEditor) {
+        // When called from the Wysiwyg wrapper, the editor passes the HTML
+        // directly. The old textarea flow used state.taskDescDraft instead.
+        const draft = htmlFromEditor !== undefined ? htmlFromEditor : this.state.taskDescDraft;
         this.state.taskDescEditingId = null;
         this.state.taskDescDraft = '';
         try {

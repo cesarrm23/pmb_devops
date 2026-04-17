@@ -3498,18 +3498,14 @@
                                                             </t>
                                                         </div>
                                                         <t t-if="state.taskDescEditingId === state.taskFullscreenId">
-                                                            <textarea class="form-control form-control-sm"
-                                                                      style="background: #11111b; border-color: #45475a; color: #cdd6f4; font-size: 12px; min-height: 180px; font-family: 'JetBrains Mono', monospace;"
-                                                                      t-att-value="state.taskDescDraft"
-                                                                      t-on-input="(ev) => this.state.taskDescDraft = ev.target.value"/>
-                                                            <div class="mt-2 d-flex gap-2">
-                                                                <button class="btn btn-sm"
-                                                                        style="background: #a6e3a1; color: #1e1e2e; font-size: 11px; font-weight: 600;"
-                                                                        t-on-click="() => this._saveTaskDescription(state.taskFullscreenId)">Guardar</button>
-                                                                <button class="btn btn-sm"
-                                                                        style="background: #313244; color: #cdd6f4; font-size: 11px;"
-                                                                        t-on-click="() => this._cancelEditTaskDescription()">Cancelar</button>
-                                                            </div>
+                                                            <DevopsDescEditor
+                                                                value="state.taskDescDraft"
+                                                                resModel="'project.task'"
+                                                                resId="state.taskFullscreenId"
+                                                                field="'description'"
+                                                                placeholder="'Describe la tarea. Pega imágenes (Ctrl+V), usa tablas, /banner-info, /banner-warning...'"
+                                                                onSave="(html) => this._saveTaskDescription(state.taskFullscreenId, html)"
+                                                                onCancel="() => this._cancelEditTaskDescription()"/>
                                                         </t>
                                                         <t t-else="">
                                                             <t t-if="tf.description">
