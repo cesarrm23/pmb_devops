@@ -232,26 +232,38 @@ class DevopsAiAgent(models.Model):
         return content[0].get('text', '') if content else ''
 
     def _get_copilot_token(self):
-        """Exchange GitHub OAuth token for a Copilot API token."""
-        ICP = self.env['ir.config_parameter'].sudo()
-        github_token = ICP.get_param('pmb_devops.github_token', '')
+        """Exchange GitHub OAuth token for a Copilot API token.
+
+        The GitHub token is stored per-project on `devops.project` so that
+        each project can authenticate with its own GitHub account. Falls back
+        to the legacy global `ir.config_parameter` value for backwards
+        compatibility with older configurations.
+        """
+        from datetime import datetime
+        project = self.project_id
+        github_token = project.copilot_github_token
+        if not github_token:
+            # Legacy fallback — migrate value into the project so future calls
+            # use the per-project storage.
+            ICP = self.env['ir.config_parameter'].sudo()
+            legacy = ICP.get_param('pmb_devops.github_token', '')
+            if legacy:
+                project.sudo().write({
+                    'copilot_github_token': legacy,
+                    'copilot_github_user': ICP.get_param('pmb_devops.github_user', ''),
+                })
+                github_token = legacy
         if not github_token:
             raise Exception(
-                'GitHub token no configurado. '
-                'Agrégalo en Ajustes > GitHub Token para usar Copilot.'
+                f'GitHub Copilot no conectado para el proyecto "{project.name}". '
+                'Ve a Ajustes del proyecto > GitHub Copilot para conectar.'
             )
 
-        # Check cached copilot token
-        cached = ICP.get_param('pmb_devops.copilot_token', '')
-        expires = ICP.get_param('pmb_devops.copilot_token_expires', '')
-        if cached and expires:
-            from datetime import datetime
-            try:
-                exp_dt = datetime.fromisoformat(expires)
-                if datetime.utcnow() < exp_dt:
-                    return cached
-            except Exception:
-                pass
+        # Check cached copilot token (per project)
+        cached = project.copilot_token
+        expires = project.copilot_token_expires
+        if cached and expires and datetime.utcnow() < expires.replace(tzinfo=None):
+            return cached
 
         # Exchange GitHub token for Copilot token
         proc = subprocess.run(
@@ -273,17 +285,19 @@ class DevopsAiAgent(models.Model):
         if not token:
             raise Exception(
                 f"No se pudo obtener token Copilot. "
-                f"Verifica que tu cuenta GitHub tenga Copilot activo. "
+                f"Verifica que la cuenta GitHub del proyecto tenga Copilot activo. "
                 f"Respuesta: {proc.stdout[:200]}"
             )
 
-        # Cache token
+        # Cache token on the project record
+        exp_val = False
         expires_at = resp.get('expires_at', 0)
         if expires_at:
-            from datetime import datetime
-            exp_dt = datetime.utcfromtimestamp(expires_at)
-            ICP.set_param('pmb_devops.copilot_token_expires', exp_dt.isoformat())
-        ICP.set_param('pmb_devops.copilot_token', token)
+            exp_val = datetime.utcfromtimestamp(expires_at)
+        project.sudo().write({
+            'copilot_token': token,
+            'copilot_token_expires': exp_val,
+        })
 
         return token
 

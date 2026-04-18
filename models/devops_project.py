@@ -126,6 +126,16 @@ class DevopsProject(models.Model):
     github_client_id = fields.Char(string='GitHub Client ID')
     github_client_secret = fields.Char(string='GitHub Client Secret')
 
+    # ---- GitHub Copilot (per-project authentication) ----
+    copilot_github_token = fields.Char(
+        string='GitHub Token para Copilot',
+        help='Token OAuth de GitHub obtenido vía device flow para usar Copilot '
+             'en este proyecto. Es privado a este proyecto.',
+    )
+    copilot_github_user = fields.Char(string='GitHub User (Copilot)')
+    copilot_token = fields.Char(string='Token Copilot cacheado')
+    copilot_token_expires = fields.Datetime(string='Expira token Copilot')
+
     # ---- Production Odoo sync (XML-RPC) ----
     sync_tasks_to_production = fields.Boolean(
         string='Sincronizar tareas con producción',

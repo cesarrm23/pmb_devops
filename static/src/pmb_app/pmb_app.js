@@ -3671,15 +3671,28 @@ class PmbDevopsApp extends Component {
         await rpc('/devops/settings/groq_key', { key });
     }
 
+    _copilotProjectId() {
+        // Per-project auth: use the project currently shown in settings.
+        return this.state.settingsProject?.id || null;
+    }
+
     async _copilotLoadStatus() {
+        const project_id = this._copilotProjectId();
+        if (!project_id) {
+            this.state.copilotAuthenticated = false;
+            this.state.copilotGithubUser = '';
+            return;
+        }
         try {
-            const res = await rpc('/devops/copilot/status');
+            const res = await rpc('/devops/copilot/status', { project_id });
             this.state.copilotAuthenticated = res.authenticated || false;
             this.state.copilotGithubUser = res.github_user || '';
         } catch (e) { /* ignore */ }
     }
 
     async _copilotStartAuth() {
+        const project_id = this._copilotProjectId();
+        if (!project_id) { alert('Guarda el proyecto primero.'); return; }
         this.state.copilotAuthCode = '';
         this.state.copilotAuthUri = '';
         try {
@@ -3688,21 +3701,22 @@ class PmbDevopsApp extends Component {
             this.state.copilotAuthCode = res.user_code;
             this.state.copilotAuthUri = res.verification_uri;
             this.state.copilotDeviceCode = res.device_code;
-            // Open GitHub in new tab
             window.open(res.verification_uri, '_blank');
-            // Start polling
-            this._copilotPoll(res.device_code, res.interval || 5);
+            this._copilotPoll(res.device_code, res.interval || 5, project_id);
         } catch (e) { alert('Error: ' + (e.message || e)); }
     }
 
-    async _copilotPoll(deviceCode, interval) {
+    async _copilotPoll(deviceCode, interval, project_id) {
         this.state.copilotAuthPolling = true;
         const maxAttempts = 60;
         for (let i = 0; i < maxAttempts; i++) {
             await new Promise(r => setTimeout(r, interval * 1000));
             if (!this.state.copilotAuthPolling) break;
             try {
-                const res = await rpc('/devops/copilot/poll_auth', { device_code: deviceCode });
+                const res = await rpc('/devops/copilot/poll_auth', {
+                    device_code: deviceCode,
+                    project_id,
+                });
                 if (res.status === 'success') {
                     this.state.copilotAuthenticated = true;
                     this.state.copilotGithubUser = res.github_user || '';
@@ -3717,16 +3731,17 @@ class PmbDevopsApp extends Component {
                     alert('Autenticación ' + (res.status === 'expired' ? 'expirada' : 'denegada') + '. Intenta de nuevo.');
                     return;
                 }
-                // 'pending' — continue
             } catch (e) { break; }
         }
         this.state.copilotAuthPolling = false;
     }
 
     async _copilotDisconnect() {
-        if (!confirm('Desconectar GitHub Copilot?')) return;
+        const project_id = this._copilotProjectId();
+        if (!project_id) return;
+        if (!confirm('Desconectar GitHub Copilot de este proyecto?')) return;
         try {
-            await rpc('/devops/copilot/disconnect');
+            await rpc('/devops/copilot/disconnect', { project_id });
             this.state.copilotAuthenticated = false;
             this.state.copilotGithubUser = '';
         } catch (e) { /* ignore */ }

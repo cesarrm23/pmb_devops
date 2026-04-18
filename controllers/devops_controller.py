@@ -3019,8 +3019,13 @@ Texto:
             return {'error': f'Error iniciando autenticación: {e}'}
 
     @http.route('/devops/copilot/poll_auth', type='json', auth='user')
-    def copilot_poll_auth(self, device_code):
-        """Poll GitHub to check if device authorization is complete."""
+    def copilot_poll_auth(self, device_code, project_id=None):
+        """Poll GitHub to check if device authorization is complete.
+
+        Stores the resulting GitHub token on the given project (per-project
+        auth). If `project_id` is omitted, keeps legacy global behavior for
+        backwards compatibility.
+        """
         if not request.env.user.has_group('pmb_devops.group_devops_admin'):
             return {'error': 'Solo administradores'}
         import requests as req
@@ -3050,12 +3055,8 @@ Texto:
                     return {'status': 'denied'}
                 return {'status': 'error', 'message': data.get('error_description', err)}
 
-            # Success — store GitHub token
+            # Success — store GitHub token on the project record
             github_token = data['access_token']
-            ICP = request.env['ir.config_parameter'].sudo()
-            ICP.set_param('pmb_devops.github_token', github_token)
-            ICP.set_param('pmb_devops.copilot_token', '')
-            ICP.set_param('pmb_devops.copilot_token_expires', '')
 
             # Get GitHub username
             github_user = 'unknown'
@@ -3067,28 +3068,60 @@ Texto:
                     github_user = u.json().get('login', 'unknown')
             except Exception:
                 pass
-            ICP.set_param('pmb_devops.github_user', github_user)
+
+            if project_id:
+                project = request.env['devops.project'].sudo().browse(int(project_id))
+                if not project.exists():
+                    return {'status': 'error', 'message': 'Proyecto no encontrado'}
+                project.write({
+                    'copilot_github_token': github_token,
+                    'copilot_github_user': github_user,
+                    'copilot_token': False,
+                    'copilot_token_expires': False,
+                })
+            else:
+                ICP = request.env['ir.config_parameter'].sudo()
+                ICP.set_param('pmb_devops.github_token', github_token)
+                ICP.set_param('pmb_devops.copilot_token', '')
+                ICP.set_param('pmb_devops.copilot_token_expires', '')
+                ICP.set_param('pmb_devops.github_user', github_user)
 
             return {'status': 'success', 'github_user': github_user}
         except Exception as e:
             return {'status': 'error', 'message': str(e)}
 
     @http.route('/devops/copilot/status', type='json', auth='user')
-    def copilot_status(self):
-        """Check Copilot authentication status."""
+    def copilot_status(self, project_id=None):
+        """Check Copilot authentication status for a specific project."""
+        if project_id:
+            project = request.env['devops.project'].sudo().browse(int(project_id))
+            if project.exists():
+                return {
+                    'authenticated': bool(project.copilot_github_token),
+                    'github_user': project.copilot_github_user or '',
+                }
+        # Legacy global fallback
         ICP = request.env['ir.config_parameter'].sudo()
-        token = ICP.get_param('pmb_devops.github_token', '')
-        user = ICP.get_param('pmb_devops.github_user', '')
         return {
-            'authenticated': bool(token),
-            'github_user': user,
+            'authenticated': bool(ICP.get_param('pmb_devops.github_token', '')),
+            'github_user': ICP.get_param('pmb_devops.github_user', ''),
         }
 
     @http.route('/devops/copilot/disconnect', type='json', auth='user')
-    def copilot_disconnect(self):
-        """Disconnect GitHub Copilot."""
+    def copilot_disconnect(self, project_id=None):
+        """Disconnect GitHub Copilot for a project (or globally if legacy)."""
         if not request.env.user.has_group('pmb_devops.group_devops_admin'):
             return {'error': 'Solo administradores'}
+        if project_id:
+            project = request.env['devops.project'].sudo().browse(int(project_id))
+            if project.exists():
+                project.write({
+                    'copilot_github_token': False,
+                    'copilot_github_user': False,
+                    'copilot_token': False,
+                    'copilot_token_expires': False,
+                })
+                return {'status': 'ok'}
         ICP = request.env['ir.config_parameter'].sudo()
         ICP.set_param('pmb_devops.github_token', '')
         ICP.set_param('pmb_devops.copilot_token', '')

@@ -3,6 +3,50 @@
 Documentación generada automáticamente por el agente IA `Documentar cambios Git` (pmb_devops). Los registros más recientes aparecen al inicio del bloque.
 
 <!-- AGENT:CHANGES:START -->
+## 2026-04-18 13:07 UTC — 2 commit(s)
+
+# Documentación de Cambios — Asistente
+
+Rama: `HEAD` · Commits nuevos: 2
+
+---
+
+## 🚀 Nuevas Funcionalidades
+
+### Generación automática de CHANGELOG por agente IA
+**Commit:** `4f04087` — *pmb_devops 19.0.1.1.19*
+
+Se incorpora la capacidad de que el agente IA `Documentar cambios Git` escriba directamente la documentación de cambios en el archivo `CHANGELOG.md` del repositorio.
+
+- **Nuevo archivo** `CHANGELOG.md` que actúa como bitácora persistente, ordenado con los registros más recientes al inicio y delimitado por marcadores `<!-- AGENT:CHANGES:START -->` para inserciones automáticas.
+- Ampliación de `models/devops_ai_agent.py` (+69 líneas) con la lógica para que el agente persista sus salidas en el changelog.
+- Nuevas utilidades en `utils/ssh_utils.py` (+33 líneas) para soportar la escritura remota del archivo.
+- Ajustes en `controllers/devops_controller.py` para exponer la funcionalidad.
+- Mejoras en la interfaz (`pmb_app.js` y `pmb_app.xml`) para reflejar la operación del agente documentador.
+
+---
+
+## ✨ Mejoras
+
+### Cambio de modelo por defecto de Copilot a Claude Opus 4.7
+**Commit:** `8a2ede4` — *pmb_devops 19.0.1.1.18*
+
+Se reorganiza la lista de modelos disponibles en `copilot_model` y se actualiza el modelo por defecto.
+
+- **Nuevo modelo por defecto:** `claude-opus-4.7` (anteriormente `gpt-4o`).
+- Se reordena la lista priorizando los modelos Claude sobre los GPT y Gemini.
+- Se eliminan las etiquetas “(plan superior)” de los modelos, ya que todos están disponibles en la configuración actual.
+- Se actualiza el fallback en `_call_copilot()` para usar `claude-opus-4.7` cuando no se especifica modelo.
+
+---
+
+## 📦 Versionado
+
+- `19.0.1.1.18` → Cambio de modelo por defecto.
+- `19.0.1.1.19` → Documentación automática en `CHANGELOG.md`.
+
+---
+
 ## 2026-04-18 13:02 UTC — 3 commit(s)
 
 # Documentación de Cambios — Asistente (pmb_devops)
