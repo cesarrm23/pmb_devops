@@ -122,6 +122,21 @@ class DevopsProject(models.Model):
     ssh_port = fields.Integer(string='SSH Puerto', default=22)
     ssh_key_path = fields.Char(string='Ruta Llave SSH')
 
+    # ---- Runtime (systemd legacy vs Docker isolated) ----
+    # systemd: an instance = a systemd service pointing at a directory
+    # checkout (current behavior, what every live project uses today).
+    # docker:  an instance = a docker compose stack on the remote host,
+    # with Odoo + code-server sharing the addons volume. Gives full
+    # isolation between instances, reproducible rebuilds, and a single
+    # teardown/create path for clones. See data/docker/README.md.
+    runtime = fields.Selection([
+        ('systemd', 'systemd (legacy)'),
+        ('docker', 'Docker (aislado)'),
+    ], string='Runtime', default='systemd', required=True,
+       help='systemd: instancias como servicios del host (modelo actual). '
+            'docker: cada instancia vive en su propio compose stack con '
+            'code-server integrado — aislamiento total entre clones.')
+
     # ---- GitHub OAuth ----
     github_client_id = fields.Char(string='GitHub Client ID')
     github_client_secret = fields.Char(string='GitHub Client Secret')

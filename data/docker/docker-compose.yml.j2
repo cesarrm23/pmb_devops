@@ -1,0 +1,81 @@
+# Compose template for a single Odoo instance (Jinja2-rendered by
+# pmb_devops at provision time). The hub substitutes the {{ placeholders }}
+# and drops the rendered file at /opt/pmb-docker/<project>/<instance>/
+# docker-compose.yml on the client host.
+#
+# One postgres per host (shared), one odoo + code-server per instance.
+# The odoo and code-server containers mount the same addons checkout so
+# edits in VS Code Web are picked up by Odoo's `-u` reload path.
+#
+# Required template variables:
+#   project_code        — slug of devops.project (e.g. "maha")
+#   instance_name       — slug of devops.instance (e.g. "production")
+#   odoo_version        — "19", "18", "17"
+#   instance_port       — host-mapped port for Odoo HTTP (8069+N)
+#   longpoll_port       — host-mapped port for chat/gevent (8072+N)
+#   code_server_port    — host-mapped port for VS Code Web (9000+N)
+#   db_name             — postgres database name (usually project_instance)
+#   db_password         — random secret; also written into odoo.conf
+#   addons_host_path    — absolute path on the host to the instance checkout
+#   code_server_token   — password for the code-server instance
+
+name: pmb-{{ project_code }}-{{ instance_name }}
+
+services:
+  odoo:
+    image: pmb/odoo:{{ odoo_version }}
+    container_name: pmb-{{ project_code }}-{{ instance_name }}-odoo
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      HOST: postgres
+      USER: odoo
+      PASSWORD: "{{ db_password }}"
+      DB_NAME: "{{ db_name }}"
+    ports:
+      - "127.0.0.1:{{ instance_port }}:8069"
+      - "127.0.0.1:{{ longpoll_port }}:8072"
+    volumes:
+      - odoo-core:/mnt/odoo:ro
+      - "{{ addons_host_path }}:/mnt/addons:rw"
+      - filestore:/var/lib/odoo
+      - "./odoo.conf:/etc/odoo/odoo.conf:ro"
+
+  code-server:
+    image: codercom/code-server:latest
+    container_name: pmb-{{ project_code }}-{{ instance_name }}-code
+    restart: unless-stopped
+    environment:
+      PASSWORD: "{{ code_server_token }}"
+      DOCKER_USER: coder
+    ports:
+      - "127.0.0.1:{{ code_server_port }}:8080"
+    volumes:
+      - "{{ addons_host_path }}:/home/coder/project:rw"
+      - code-server-data:/home/coder/.local/share/code-server
+    working_dir: /home/coder/project
+    command:
+      - code-server
+      - --bind-addr=0.0.0.0:8080
+      - --disable-telemetry
+      - /home/coder/project
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: pmb-{{ project_code }}-{{ instance_name }}-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: "{{ db_password }}"
+      POSTGRES_DB: "{{ db_name }}"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  odoo-core:
+    external: true
+    name: pmb-odoo-core-{{ odoo_version }}
+  filestore:
+  code-server-data:
+  pgdata:

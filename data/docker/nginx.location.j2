@@ -1,0 +1,45 @@
+# Nginx location block for a pmb_devops Docker instance.
+# Dropped at /etc/nginx/snippets/pmb-{{ project_code }}-{{ instance_name }}.conf
+# and included from the project's main server{} block on the client host.
+#
+# Exposes:
+#   https://<domain>/           → Odoo HTTP (container port 8069)
+#   https://<domain>/longpolling → Odoo gevent/chat (container port 8072)
+#   https://<domain>/code/{{ instance_name }}/ → code-server (VS Code Web)
+
+location /longpolling/ {
+    proxy_pass http://127.0.0.1:{{ longpoll_port }};
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Host $host;
+    proxy_read_timeout 720s;
+}
+
+location /code/{{ instance_name }}/ {
+    proxy_pass http://127.0.0.1:{{ code_server_port }}/;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Accept-Encoding gzip;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 86400s;
+}
+
+location / {
+    proxy_pass http://127.0.0.1:{{ instance_port }};
+    proxy_http_version 1.1;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header Host $host;
+    proxy_redirect off;
+    proxy_read_timeout 720s;
+    proxy_connect_timeout 720s;
+    proxy_send_timeout 720s;
+    client_max_body_size 200M;
+}
