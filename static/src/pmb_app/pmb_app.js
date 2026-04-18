@@ -138,6 +138,7 @@ class PmbDevopsApp extends Component {
             groqApiKey: '',
             copilotAuthenticated: false,
             copilotGithubUser: '',
+            copilotReusableProjects: [],
             copilotAuthCode: '',
             copilotAuthUri: '',
             copilotAuthPolling: false,
@@ -3681,13 +3682,34 @@ class PmbDevopsApp extends Component {
         if (!project_id) {
             this.state.copilotAuthenticated = false;
             this.state.copilotGithubUser = '';
+            this.state.copilotReusableProjects = [];
             return;
         }
         try {
             const res = await rpc('/devops/copilot/status', { project_id });
             this.state.copilotAuthenticated = res.authenticated || false;
             this.state.copilotGithubUser = res.github_user || '';
+            if (!this.state.copilotAuthenticated) {
+                const list = await rpc('/devops/copilot/list_tokens',
+                    { exclude_project_id: project_id });
+                this.state.copilotReusableProjects = list.projects || [];
+            } else {
+                this.state.copilotReusableProjects = [];
+            }
         } catch (e) { /* ignore */ }
+    }
+
+    async _copilotReuseToken(sourceProjectId) {
+        const project_id = this._copilotProjectId();
+        if (!project_id) return;
+        try {
+            const res = await rpc('/devops/copilot/reuse_token',
+                { project_id, source_project_id: sourceProjectId });
+            if (res.error) { alert(res.error); return; }
+            this.state.copilotAuthenticated = true;
+            this.state.copilotGithubUser = res.github_user || '';
+            this.state.copilotReusableProjects = [];
+        } catch (e) { alert('Error: ' + (e.message || e)); }
     }
 
     async _copilotStartAuth() {

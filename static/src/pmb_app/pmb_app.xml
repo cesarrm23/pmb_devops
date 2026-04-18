@@ -3080,6 +3080,21 @@
                                                         t-on-click="_copilotStartAuth">
                                                     Conectar con GitHub
                                                 </button>
+                                                <t t-if="state.copilotReusableProjects and state.copilotReusableProjects.length">
+                                                    <div style="margin-top: 12px; padding-top: 8px; border-top: 1px solid #313244;">
+                                                        <div style="color: #6c7086; font-size: 10px; margin-bottom: 6px;">
+                                                            O reutiliza una conexión existente:
+                                                        </div>
+                                                        <t t-foreach="state.copilotReusableProjects" t-as="reuseProj" t-key="reuseProj.id">
+                                                            <button class="btn btn-sm me-1 mb-1"
+                                                                    style="background: #313244; color: #cdd6f4; border: 1px solid #45475a; font-size: 10px;"
+                                                                    t-on-click="() => this._copilotReuseToken(reuseProj.id)">
+                                                                📎 <t t-esc="reuseProj.name"/>
+                                                                <span style="color: #89b4fa;">(@<t t-esc="reuseProj.github_user"/>)</span>
+                                                            </button>
+                                                        </t>
+                                                    </div>
+                                                </t>
                                             </t>
                                         </div>
                                     </div>

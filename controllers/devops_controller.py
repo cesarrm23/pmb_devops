@@ -39,6 +39,8 @@ class DevopsController(http.Controller):
         """Check if current user is admin (global or project-level)."""
         if request.env.user.has_group('pmb_devops.group_devops_admin'):
             return True
+        if request.env.user.has_group('base.group_system'):
+            return True
         if project_id:
             member = request.env['devops.project.member'].sudo().search([
                 ('project_id', '=', int(project_id)),
@@ -47,6 +49,15 @@ class DevopsController(http.Controller):
             if member and member.role == 'admin':
                 return True
         return False
+
+    def _is_global_admin(self):
+        """True for DevOps admin OR Odoo system admin. Use this on global
+        settings endpoints (Copilot, Groq, propagate model, etc.) that were
+        historically gated to only pmb_devops.group_devops_admin — Odoo
+        system admins should also be able to configure these.
+        """
+        u = request.env.user
+        return u.has_group('pmb_devops.group_devops_admin') or u.has_group('base.group_system')
 
     _DEVOPS_STAGES = [
         ('Pendiente de revisión', 0),
@@ -3024,7 +3035,7 @@ Texto:
     @http.route('/devops/copilot/start_auth', type='json', auth='user')
     def copilot_start_auth(self):
         """Start GitHub OAuth Device Flow for Copilot."""
-        if not request.env.user.has_group('pmb_devops.group_devops_admin'):
+        if not self._is_global_admin():
             return {'error': 'Solo administradores'}
         import requests as req
         try:
@@ -3054,7 +3065,7 @@ Texto:
         auth). If `project_id` is omitted, keeps legacy global behavior for
         backwards compatibility.
         """
-        if not request.env.user.has_group('pmb_devops.group_devops_admin'):
+        if not self._is_global_admin():
             return {'error': 'Solo administradores'}
         import requests as req
         try:
@@ -3120,25 +3131,79 @@ Texto:
 
     @http.route('/devops/copilot/status', type='json', auth='user')
     def copilot_status(self, project_id=None):
-        """Check Copilot authentication status for a specific project."""
+        """Check Copilot authentication status for a specific project.
+
+        Performs a lazy migration from the legacy global ICP token into the
+        project record so old installations that authenticated pre-v20 do not
+        appear disconnected when the user opens per-project settings.
+        """
+        ICP = request.env['ir.config_parameter'].sudo()
         if project_id:
             project = request.env['devops.project'].sudo().browse(int(project_id))
             if project.exists():
+                if not project.copilot_github_token:
+                    legacy = ICP.get_param('pmb_devops.github_token', '')
+                    if legacy:
+                        project.write({
+                            'copilot_github_token': legacy,
+                            'copilot_github_user': ICP.get_param('pmb_devops.github_user', ''),
+                        })
+                        _logger.info(
+                            'Copilot: migrated legacy global token onto project %s (%d)',
+                            project.name, project.id,
+                        )
                 return {
                     'authenticated': bool(project.copilot_github_token),
                     'github_user': project.copilot_github_user or '',
                 }
-        # Legacy global fallback
-        ICP = request.env['ir.config_parameter'].sudo()
+        # Legacy global fallback (no project_id provided)
         return {
             'authenticated': bool(ICP.get_param('pmb_devops.github_token', '')),
             'github_user': ICP.get_param('pmb_devops.github_user', ''),
         }
 
+    @http.route('/devops/copilot/list_tokens', type='json', auth='user')
+    def copilot_list_tokens(self, exclude_project_id=None):
+        """List projects that already have a Copilot GitHub token, so the
+        user can reuse an existing connection instead of re-authenticating
+        every project with the same GitHub account.
+        """
+        domain = [('copilot_github_token', '!=', False)]
+        if exclude_project_id:
+            domain.append(('id', '!=', int(exclude_project_id)))
+        projects = request.env['devops.project'].sudo().search(domain)
+        return {'projects': [{
+            'id': p.id,
+            'name': p.name,
+            'github_user': p.copilot_github_user or '',
+        } for p in projects]}
+
+    @http.route('/devops/copilot/reuse_token', type='json', auth='user')
+    def copilot_reuse_token(self, project_id, source_project_id):
+        """Copy the Copilot GitHub token from one project to another."""
+        if not self._is_global_admin():
+            return {'error': 'Solo administradores'}
+        target = request.env['devops.project'].sudo().browse(int(project_id))
+        source = request.env['devops.project'].sudo().browse(int(source_project_id))
+        if not target.exists() or not source.exists():
+            return {'error': 'Proyecto no encontrado'}
+        if not source.copilot_github_token:
+            return {'error': 'El proyecto origen no tiene token configurado'}
+        target.write({
+            'copilot_github_token': source.copilot_github_token,
+            'copilot_github_user': source.copilot_github_user,
+            'copilot_token': False,
+            'copilot_token_expires': False,
+        })
+        return {
+            'status': 'ok',
+            'github_user': target.copilot_github_user or '',
+        }
+
     @http.route('/devops/copilot/disconnect', type='json', auth='user')
     def copilot_disconnect(self, project_id=None):
         """Disconnect GitHub Copilot for a project (or globally if legacy)."""
-        if not request.env.user.has_group('pmb_devops.group_devops_admin'):
+        if not self._is_global_admin():
             return {'error': 'Solo administradores'}
         if project_id:
             project = request.env['devops.project'].sudo().browse(int(project_id))
@@ -4151,6 +4216,10 @@ Texto:
                 'custom_system_prompt': a.custom_system_prompt or '',
                 'max_commits': a.max_commits or 20,
                 'output_file': a.output_file or '',
+                'output_type': a.output_type or 'file',
+                'output_knowledge_title': a.output_knowledge_title or '',
+                'output_knowledge_article_id': a.output_knowledge_article_id or 0,
+                'output_modules_root': a.output_modules_root or '',
             } for a in agents],
         }
 
@@ -4158,7 +4227,9 @@ Texto:
     def agent_create(self, project_id, name, agent_type='git_docs', branch='HEAD',
                      interval_number=1, interval_type='days',
                      provider='copilot', copilot_model='claude-sonnet-4',
-                     custom_system_prompt=None, max_commits=None, output_file=None):
+                     custom_system_prompt=None, max_commits=None, output_file=None,
+                     output_type=None, output_knowledge_title=None,
+                     output_modules_root=None):
         """Create a new AI agent."""
         if not self._is_project_admin(project_id):
             return {'error': 'Sin permisos'}
@@ -4179,6 +4250,12 @@ Texto:
             vals['max_commits'] = int(max_commits)
         if output_file is not None:
             vals['output_file'] = output_file
+        if output_type:
+            vals['output_type'] = output_type
+        if output_knowledge_title is not None:
+            vals['output_knowledge_title'] = output_knowledge_title
+        if output_modules_root is not None:
+            vals['output_modules_root'] = output_modules_root
         agent = request.env['devops.ai.agent'].sudo().create(vals)
         return {'id': agent.id, 'name': agent.name}
 
@@ -4193,7 +4270,8 @@ Texto:
         allowed = {
             'name', 'branch', 'interval_number', 'interval_type',
             'provider', 'copilot_model', 'custom_system_prompt', 'max_commits',
-            'output_file',
+            'output_file', 'output_type', 'output_knowledge_title',
+            'output_modules_root',
         }
         write_vals = {}
         for k, v in (vals or {}).items():
