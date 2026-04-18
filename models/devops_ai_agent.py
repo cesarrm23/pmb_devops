@@ -24,12 +24,15 @@ class DevopsAiAgent(models.Model):
         ('copilot', 'GitHub Copilot'),
     ], default='copilot', required=True)
     copilot_model = fields.Selection([
-        ('claude-sonnet-4', 'Claude Sonnet 4'),
-        ('claude-opus-4.6', 'Claude Opus 4.6'),
         ('gpt-4o', 'GPT-4o'),
-        ('gpt-5.2', 'GPT-5.2'),
-        ('gemini-2.5-pro', 'Gemini 2.5 Pro'),
-    ], default='claude-sonnet-4')
+        ('gpt-4.1', 'GPT-4.1'),
+        ('gpt-5-mini', 'GPT-5 mini'),
+        ('claude-haiku-4.5', 'Claude Haiku 4.5'),
+        ('claude-sonnet-4.6', 'Claude Sonnet 4.6 (plan superior)'),
+        ('claude-opus-4.7', 'Claude Opus 4.7 (plan superior)'),
+        ('gpt-5.4', 'GPT-5.4 (plan superior)'),
+        ('gemini-3.1-pro-preview', 'Gemini 3.1 Pro (plan superior)'),
+    ], default='gpt-4o')
     project_id = fields.Many2one('devops.project', required=True, ondelete='cascade')
     active = fields.Boolean(default=True)
     sequence = fields.Integer(default=10)
@@ -279,7 +282,7 @@ class DevopsAiAgent(models.Model):
         """Call GitHub Copilot Chat API (OpenAI-compatible)."""
         token = self._get_copilot_token()
 
-        model = self.copilot_model or 'claude-sonnet-4'
+        model = self.copilot_model or 'gpt-4o'
         payload = json.dumps({
             'model': model,
             'messages': [
