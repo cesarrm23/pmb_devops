@@ -644,12 +644,50 @@ class DevopsAiAgent(models.Model):
         end_idx = body.index(end_marker, start_idx)
         new_body = body[:start_idx] + '\n' + entry_html + body[start_idx:end_idx] + body[end_idx:]
 
+        # Ensure the XML-RPC user is a member with write permission so the
+        # agent can keep updating even when internal_permission='read'.
         try:
+            u = models_proxy.execute_kw(
+                db, uid, password, 'res.users', 'read', [[uid], ['partner_id']]
+            )
+            agent_partner_id = u[0]['partner_id'][0] if u else False
+            if agent_partner_id:
+                members = models_proxy.execute_kw(
+                    db, uid, password, 'knowledge.article.member', 'search_read',
+                    [[('article_id', '=', article_id),
+                      ('partner_id', '=', agent_partner_id)],
+                     ['id', 'permission']],
+                )
+                if not members:
+                    models_proxy.execute_kw(
+                        db, uid, password, 'knowledge.article', 'write',
+                        [[article_id], {
+                            'article_member_ids': [
+                                (0, 0, {'partner_id': agent_partner_id,
+                                        'permission': 'write'}),
+                            ],
+                        }],
+                    )
+                elif members[0].get('permission') != 'write':
+                    models_proxy.execute_kw(
+                        db, uid, password, 'knowledge.article.member', 'write',
+                        [[members[0]['id']], {'permission': 'write'}],
+                    )
+        except Exception as e:
+            _logger.warning("Agent %s: ensure member-write failed: %s", self.name, e)
+
+        try:
+            # Body update first (may require write); then lock the article to
+            # read-only for everyone else (the member above keeps the agent
+            # able to write on the next run).
+            models_proxy.execute_kw(
+                db, uid, password, 'knowledge.article', 'write',
+                [[article_id], {'body': new_body}],
+            )
             models_proxy.execute_kw(
                 db, uid, password, 'knowledge.article', 'write',
                 [[article_id], {
-                    'body': new_body,
-                    'internal_permission': 'write',
+                    'internal_permission': 'read',
                     'is_article_visible_by_everyone': True,
                 }],
             )
