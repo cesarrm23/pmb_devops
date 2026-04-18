@@ -88,3 +88,36 @@ def _shell_quote(s):
     if all(c.isalnum() or c in '-_./=:@' for c in s):
         return s
     return "'" + s.replace("'", "'\"'\"'") + "'"
+
+
+def read_text(project, path, timeout=15):
+    """Read a text file locally or via SSH. Returns '' if missing."""
+    if project.connection_type == 'local':
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except FileNotFoundError:
+            return ''
+    result = execute_command(project, ['cat', path], timeout=timeout)
+    return result.stdout if result.returncode == 0 else ''
+
+
+def write_text(project, path, content, timeout=15):
+    """Write text to a file locally or via SSH."""
+    if project.connection_type == 'local':
+        import os
+        os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        return True
+    ssh_args = ['ssh', '-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=10']
+    if project.ssh_key_path:
+        ssh_args += ['-i', project.ssh_key_path]
+    if project.ssh_port and project.ssh_port != 22:
+        ssh_args += ['-p', str(project.ssh_port)]
+    ssh_args.append(f'{project.ssh_user}@{project.ssh_host}')
+    ssh_args.append(f'cat > {_shell_quote(path)}')
+    result = subprocess.run(
+        ssh_args, input=content, capture_output=True, text=True, timeout=timeout,
+    )
+    return result.returncode == 0

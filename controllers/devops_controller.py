@@ -4087,6 +4087,7 @@ Texto:
                 'copilot_model': a.copilot_model or '',
                 'custom_system_prompt': a.custom_system_prompt or '',
                 'max_commits': a.max_commits or 20,
+                'output_file': a.output_file or '',
             } for a in agents],
         }
 
@@ -4094,7 +4095,7 @@ Texto:
     def agent_create(self, project_id, name, agent_type='git_docs', branch='HEAD',
                      interval_number=1, interval_type='days',
                      provider='copilot', copilot_model='claude-sonnet-4',
-                     custom_system_prompt=None, max_commits=None):
+                     custom_system_prompt=None, max_commits=None, output_file=None):
         """Create a new AI agent."""
         if not self._is_project_admin(project_id):
             return {'error': 'Sin permisos'}
@@ -4113,6 +4114,8 @@ Texto:
             vals['custom_system_prompt'] = custom_system_prompt
         if max_commits:
             vals['max_commits'] = int(max_commits)
+        if output_file is not None:
+            vals['output_file'] = output_file
         agent = request.env['devops.ai.agent'].sudo().create(vals)
         return {'id': agent.id, 'name': agent.name}
 
@@ -4127,6 +4130,7 @@ Texto:
         allowed = {
             'name', 'branch', 'interval_number', 'interval_type',
             'provider', 'copilot_model', 'custom_system_prompt', 'max_commits',
+            'output_file',
         }
         write_vals = {}
         for k, v in (vals or {}).items():

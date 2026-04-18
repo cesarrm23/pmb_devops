@@ -216,9 +216,11 @@ class PmbDevopsApp extends Component {
             newAgentInterval: 1,
             newAgentIntervalType: 'days',
             newAgentProvider: 'copilot',
-            newAgentCopilotModel: 'claude-sonnet-4',
+            newAgentCopilotModel: 'claude-opus-4.7',
             newAgentPrompt: '',
+            newAgentOutputFile: '',
             agentPromptEdits: {},  // {agent_id: new_prompt_text}
+            agentOutputEdits: {},  // {agent_id: new_output_file}
             agentSaveStatus: {},  // {agent_id: 'saving'|'saved'|'error'}
 
             // Server metrics
@@ -1401,11 +1403,13 @@ class PmbDevopsApp extends Component {
                 interval_number: this.state.newAgentInterval || 1,
                 interval_type: this.state.newAgentIntervalType || 'days',
                 provider: this.state.newAgentProvider || 'copilot',
-                copilot_model: this.state.newAgentCopilotModel || 'claude-sonnet-4',
+                copilot_model: this.state.newAgentCopilotModel || 'claude-opus-4.7',
                 custom_system_prompt: this.state.newAgentPrompt || '',
+                output_file: this.state.newAgentOutputFile || '',
             });
             this.state.newAgentName = '';
             this.state.newAgentPrompt = '';
+            this.state.newAgentOutputFile = '';
             this.state.showNewAgent = false;
             await this._loadAgents();
         } catch (e) {
@@ -1420,15 +1424,23 @@ class PmbDevopsApp extends Component {
         };
     }
 
+    _onAgentOutputFileInput(agentId, ev) {
+        this.state.agentOutputEdits = {
+            ...this.state.agentOutputEdits,
+            [agentId]: ev.target.value,
+        };
+    }
+
     async _saveAgentPrompt(agentId) {
         const text = this.state.agentPromptEdits[agentId];
-        if (text === undefined) return;
+        const output = this.state.agentOutputEdits[agentId];
+        if (text === undefined && output === undefined) return;
         this.state.agentSaveStatus = { ...this.state.agentSaveStatus, [agentId]: 'saving' };
         try {
-            await rpc('/devops/agent/update', {
-                agent_id: agentId,
-                custom_system_prompt: text,
-            });
+            const payload = { agent_id: agentId };
+            if (text !== undefined) payload.custom_system_prompt = text;
+            if (output !== undefined) payload.output_file = output;
+            await rpc('/devops/agent/update', payload);
             this.state.agentSaveStatus = { ...this.state.agentSaveStatus, [agentId]: 'saved' };
             await this._loadAgents();
             setTimeout(() => {

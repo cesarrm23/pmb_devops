@@ -3159,6 +3159,14 @@
                                                               placeholder="Ej: Genera un resumen ejecutivo en espanol de los cambios..."
                                                               t-model="state.newAgentPrompt"/>
                                                 </div>
+                                                <div class="mt-2">
+                                                    <label style="color: #6c7086; font-size: 10px;">Archivo de salida Markdown (opcional, relativo al repo)</label>
+                                                    <input type="text"
+                                                           class="form-control form-control-sm pmb-agent-new-output"
+                                                           style="background: #1e1e2e; border-color: #313244; color: #a6e3a1; font-family: monospace; font-size: 11px;"
+                                                           placeholder="Ej: CHANGELOG.md"
+                                                           t-model="state.newAgentOutputFile"/>
+                                                </div>
                                             </div>
 
                                             <!-- Agents list -->
@@ -3210,12 +3218,22 @@
                                                                           style="background: #1e1e2e; border-color: #313244; color: #a6e3a1; font-family: monospace; font-size: 11px;"
                                                                           t-on-input="(ev) => this._onAgentPromptInput(agent.id, ev)"
                                                                           t-att-value="state.agentPromptEdits[agent.id] !== undefined ? state.agentPromptEdits[agent.id] : (agent.custom_system_prompt || '')"/>
+                                                                <div class="mt-2">
+                                                                    <label style="color: #6c7086; font-size: 10px;">Archivo Markdown (relativo al repo; vacio = solo en DB)</label>
+                                                                    <input type="text"
+                                                                           class="form-control form-control-sm pmb-agent-output"
+                                                                           t-att-data-agent-id="agent.id"
+                                                                           style="background: #1e1e2e; border-color: #313244; color: #fab387; font-family: monospace; font-size: 11px;"
+                                                                           placeholder="Ej: CHANGELOG.md"
+                                                                           t-on-input="(ev) => this._onAgentOutputFileInput(agent.id, ev)"
+                                                                           t-att-value="state.agentOutputEdits[agent.id] !== undefined ? state.agentOutputEdits[agent.id] : (agent.output_file || '')"/>
+                                                                </div>
                                                                 <div class="d-flex align-items-center gap-2 mt-1">
                                                                     <button class="btn btn-sm pmb-agent-prompt-save"
                                                                             style="background: #89b4fa; color: #1e1e2e; font-size: 10px;"
                                                                             t-att-data-agent-id="agent.id"
                                                                             t-on-click="() => this._saveAgentPrompt(agent.id)">
-                                                                        Guardar prompt
+                                                                        Guardar cambios
                                                                     </button>
                                                                     <span t-if="state.agentSaveStatus[agent.id] === 'saving'" style="color: #f9e2af; font-size: 10px;">Guardando...</span>
                                                                     <span t-if="state.agentSaveStatus[agent.id] === 'saved'" style="color: #a6e3a1; font-size: 10px;">Guardado</span>

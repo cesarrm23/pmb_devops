@@ -58,6 +58,15 @@ class DevopsAiAgent(models.Model):
         help='Instrucciones de sistema para el LLM. El user message con la lista de commits, stats y diff se genera automaticamente.',
         default=lambda self: self._default_system_prompt(),
     )
+    output_file = fields.Char(
+        string='Archivo de documentación',
+        help=(
+            'Ruta relativa al primer repo del proyecto donde se escribirá la '
+            'documentación generada (ej: CHANGELOG.md). Si el archivo existe, '
+            'se inserta un bloque nuevo entre los marcadores '
+            '<!-- AGENT:CHANGES:START --> y <!-- AGENT:CHANGES:END -->.'
+        ),
+    )
 
     @api.model
     def _default_system_prompt(self):
@@ -319,6 +328,57 @@ class DevopsAiAgent(models.Model):
             return choices[0].get('message', {}).get('content', '')
         return ''
 
+    _CHANGES_MARKER_START = '<!-- AGENT:CHANGES:START -->'
+    _CHANGES_MARKER_END = '<!-- AGENT:CHANGES:END -->'
+
+    def _default_output_template(self):
+        """Template used when creating the output file for the first time."""
+        return (
+            f"# Cambios — {self.project_id.name}\n\n"
+            f"Documentación generada automáticamente por el agente IA "
+            f"`{self.name}` (pmb_devops). Los registros más recientes "
+            f"aparecen al inicio del bloque.\n\n"
+            f"{self._CHANGES_MARKER_START}\n"
+            f"{self._CHANGES_MARKER_END}\n"
+        )
+
+    def _update_output_file(self, documentation, commits):
+        """Insert generated docs into the output_file between AGENT:CHANGES markers.
+
+        Returns the absolute path written, or '' if skipped.
+        """
+        self.ensure_one()
+        from ..utils import ssh_utils
+        import os
+
+        repos = self._find_git_repos()
+        if not repos:
+            return ''
+        target = os.path.join(repos[0], self.output_file)
+
+        existing = ssh_utils.read_text(self.project_id, target)
+        if not existing or self._CHANGES_MARKER_START not in existing:
+            existing = self._default_output_template()
+
+        now = fields.Datetime.now().strftime('%Y-%m-%d %H:%M UTC')
+        entry = (
+            f"\n## {now} — {len(commits)} commit(s)\n\n"
+            f"{documentation.strip()}\n\n"
+            f"---\n"
+        )
+
+        start = existing.index(self._CHANGES_MARKER_START) + len(self._CHANGES_MARKER_START)
+        end_idx = existing.index(self._CHANGES_MARKER_END, start)
+        new_content = (
+            existing[:start]
+            + entry
+            + existing[start:end_idx]
+            + existing[end_idx:]
+        )
+
+        ok = ssh_utils.write_text(self.project_id, target, new_content)
+        return target if ok else ''
+
     def action_run(self):
         """Manual trigger — run the agent now."""
         self.ensure_one()
@@ -379,6 +439,13 @@ class DevopsAiAgent(models.Model):
 
             documentation = self._call_llm(system_prompt, user_msg)
 
+            output_path_written = ''
+            if self.output_file:
+                try:
+                    output_path_written = self._update_output_file(documentation, commits)
+                except Exception as e:
+                    _logger.warning("Agent %s: output_file write failed: %s", self.name, e)
+
             run.write({
                 'status': 'done',
                 'end_time': fields.Datetime.now(),
@@ -389,6 +456,7 @@ class DevopsAiAgent(models.Model):
                     'message': c['message'],
                     'author': c['author'],
                 } for c in commits]),
+                'output_path': output_path_written,
             })
             self.write({
                 'last_run': fields.Datetime.now(),
@@ -448,6 +516,7 @@ class DevopsAiAgentRun(models.Model):
     summary = fields.Text(help='Documentación generada')
     commits_json = fields.Text(help='JSON de commits procesados')
     error_message = fields.Text()
+    output_path = fields.Char(help='Ruta del archivo Markdown actualizado')
 
     @property
     def duration_display(self):
