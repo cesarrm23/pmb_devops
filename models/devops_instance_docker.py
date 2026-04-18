@@ -85,6 +85,7 @@ class DevopsInstanceDocker(models.Model):
         self._validate_instance_limits()
 
         project = self.project_id
+        self._preflight_docker_access(project)
         odoo_port = self._find_free_port()
         # Pick longpoll / code-server with gaps that avoid typical Odoo
         # ranges (8069-8079) and gevent (9069-9079) on client hosts.
@@ -365,6 +366,59 @@ class DevopsInstanceDocker(models.Model):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _preflight_docker_access(self, project):
+        """Block the deploy early with a clear, actionable message if the
+        current user cannot reach the Docker daemon on the target host.
+        For SSH projects we go in as the project's ssh_user (usually
+        root) so this is only really needed for local runtime, where the
+        hub's odooal user must be in the docker group."""
+        is_ssh = project.connection_type == 'ssh' and project.ssh_host
+        if is_ssh:
+            res = ssh_utils.execute_command(
+                project, ['docker', 'version', '--format', '{{.Server.Version}}'], timeout=15,
+            )
+            if res.returncode != 0:
+                raise UserError(_(
+                    "Docker no está accesible en %(host)s como %(user)s.\n\n"
+                    "Error: %(err)s\n\n"
+                    "En el host remoto ejecuta:\n"
+                    "    sudo apt install -y docker.io docker-compose-plugin\n"
+                    "    sudo systemctl enable --now docker",
+                ) % {
+                    'host': project.ssh_host,
+                    'user': project.ssh_user or 'root',
+                    'err': (res.stderr or res.stdout or '').strip()[:300],
+                })
+            return
+
+        # Local runtime: the hub's service user (typically odooal) must
+        # belong to the `docker` group so it can talk to the daemon
+        # without sudo. Checking `docker version` exercises the socket.
+        import subprocess as _sp
+        try:
+            res = _sp.run(
+                ['docker', 'version', '--format', '{{.Server.Version}}'],
+                capture_output=True, text=True, timeout=10,
+            )
+        except FileNotFoundError:
+            raise UserError(_(
+                "Docker no está instalado en el hub. Instálalo con:\n"
+                "    sudo apt install -y docker.io docker-compose-plugin"
+            ))
+        if res.returncode != 0:
+            err = (res.stderr or res.stdout or '').strip()
+            import os as _os
+            import pwd as _pwd
+            hub_user = _pwd.getpwuid(_os.getuid()).pw_name
+            raise UserError(_(
+                "El usuario del hub (%(user)s) no puede hablar con Docker.\n\n"
+                "Error: %(err)s\n\n"
+                "Agrégalo al grupo docker y reinicia el hub:\n"
+                "    sudo usermod -aG docker %(user)s\n"
+                "    sudo systemctl restart odooAL\n"
+                "    sudo systemctl restart pmb-ws-terminal",
+            ) % {'user': hub_user, 'err': err[:300]})
 
     def _find_free_port_distinct(self, avoid):
         """Get a free port that's also not in the avoid set (for
@@ -677,14 +731,17 @@ fi
 
 # Image build is outside the MARKER gate: if the image is ever deleted
 # (e.g. to pick up new requirements), the next deploy rebuilds it.
+# IMG_BUILD_DIR is per-deploy (mktemp) so multiple projects on the same
+# host (local runtime) can't collide on /tmp/pmb-img-build perms.
 STEP "Construyendo imagen $IMAGE..."
 if ! RUN docker image inspect "$IMAGE" >/dev/null 2>&1; then
-    RUN mkdir -p /tmp/pmb-img-build
-    PUT "$STAGING/Dockerfile" /tmp/pmb-img-build/Dockerfile >> "$LOG" 2>&1 \\
+    IMG_BUILD_DIR=$(RUN_SH "mktemp -d /tmp/pmb-img-build.XXXXXX" | tr -d '\\r')
+    [ -n "$IMG_BUILD_DIR" ] || FAIL "mktemp img build dir failed"
+    PUT "$STAGING/Dockerfile" "$IMG_BUILD_DIR/Dockerfile" >> "$LOG" 2>&1 \\
         || FAIL "PUT Dockerfile failed"
-    PUT "$STAGING/requirements.odoo$ODOO_VER.txt" /tmp/pmb-img-build/requirements.txt >> "$LOG" 2>&1 \\
+    PUT "$STAGING/requirements.odoo$ODOO_VER.txt" "$IMG_BUILD_DIR/requirements.txt" >> "$LOG" 2>&1 \\
         || FAIL "PUT requirements failed"
-    RUN_SH "cd /tmp/pmb-img-build && DOCKER_BUILDKIT=0 docker build -t $IMAGE ." >> "$LOG" 2>&1 \\
+    RUN_SH "cd $IMG_BUILD_DIR && DOCKER_BUILDKIT=0 docker build -t $IMAGE . && rm -rf $IMG_BUILD_DIR" >> "$LOG" 2>&1 \\
         || FAIL "docker build failed"
 fi
 
