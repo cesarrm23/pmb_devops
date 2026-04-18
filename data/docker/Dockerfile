@@ -1,11 +1,15 @@
 # syntax=docker/dockerfile:1.6
 #
-# Base image for Odoo 19 pmb_devops instances.
-# Build once per cluster, reuse across every docker-runtime instance of every
-# project. The project's custom_addons checkout is bind-mounted at runtime
-# via docker-compose — it is NEVER baked into the image.
+# Base image for pmb_devops instances (version-agnostic).
+# Build once per cluster per Odoo version, reuse across every docker-runtime
+# instance of every project. The project's custom_addons checkout is
+# bind-mounted at runtime via docker-compose — it is NEVER baked into the image.
 #
-#   docker build -f Dockerfile.odoo19 -t pmb/odoo:19 .
+# The deploy script SCPs the correct requirements.odoo<VER>.txt as
+# `requirements.txt` before `docker build`, so the same Dockerfile works
+# for Odoo 18, 19, etc.
+#
+#   docker build -t pmb/odoo:<ver> .
 #
 # The image expects the host to provide, via compose volumes:
 #   /mnt/odoo          — Odoo core checkout (shared, read-only)
@@ -33,9 +37,10 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         nodejs npm \
     && rm -rf /var/lib/apt/lists/*
 
-# Odoo 19 requirements. Kept in a separate layer so code changes do not
-# invalidate the pip cache.
-COPY requirements.odoo19.txt /tmp/requirements.txt
+# Odoo requirements. The deploy script writes the per-version file as
+# requirements.txt inside the build context. Kept in a separate layer so
+# code changes do not invalidate the pip cache.
+COPY requirements.txt /tmp/requirements.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install -r /tmp/requirements.txt
 

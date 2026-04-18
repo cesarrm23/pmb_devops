@@ -1,0 +1,58 @@
+# Nginx vhost for a pmb_devops Docker instance.
+# Dropped at /etc/nginx/sites-enabled/<domain> on the client host. Full
+# server{} block (matches systemd pipeline) so nginx routes without
+# needing an include directive elsewhere.
+upstream odoo_pmb_{{ instance_id }} {
+  server 127.0.0.1:{{ instance_port }};
+}
+upstream odoochat_pmb_{{ instance_id }} {
+  server 127.0.0.1:{{ longpoll_port }};
+}
+upstream codeserver_pmb_{{ instance_id }} {
+  server 127.0.0.1:{{ code_server_port }};
+}
+server {
+  listen 80;
+  server_name {{ domain }};
+  proxy_read_timeout 720s;
+  proxy_connect_timeout 720s;
+  proxy_send_timeout 720s;
+
+  location /websocket {
+    proxy_pass http://odoochat_pmb_{{ instance_id }};
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header X-Forwarded-Host $http_host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Real-IP $remote_addr;
+  }
+
+  location /code/ {
+    proxy_pass http://codeserver_pmb_{{ instance_id }}/;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Accept-Encoding gzip;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 86400s;
+  }
+
+  location / {
+    proxy_pass http://odoo_pmb_{{ instance_id }};
+    proxy_http_version 1.1;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header Host $host;
+    proxy_redirect off;
+  }
+
+  gzip on;
+  gzip_types text/css text/plain application/xml application/json application/javascript;
+  client_max_body_size 200M;
+}

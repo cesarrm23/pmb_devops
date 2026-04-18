@@ -296,7 +296,12 @@ class DevopsController(http.Controller):
         new_log_pos = log_pos
         creation_step = instance.creation_step or ''
 
-        if instance.state in ('creating', 'error'):
+        # Docker-runtime deploys update creation_step + state directly via
+        # psql from the async deploy script, so the remote status-file
+        # polling below would just clobber it with stale "running" text.
+        is_docker = project.runtime == 'docker'
+
+        if instance.state in ('creating', 'error') and not is_docker:
             if is_ssh:
                 # SSH: read status and log from remote files
                 status_file = f"/tmp/pmb_create_{instance.id}.status"
