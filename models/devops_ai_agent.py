@@ -621,7 +621,12 @@ class DevopsAiAgent(models.Model):
             try:
                 article_id = models_proxy.execute_kw(
                     db, uid, password, 'knowledge.article', 'create',
-                    [{'name': title, 'body': initial_body}],
+                    [{
+                        'name': title,
+                        'body': initial_body,
+                        'internal_permission': 'write',
+                        'is_article_visible_by_everyone': True,
+                    }],
                 )
                 self.sudo().write({'output_knowledge_article_id': article_id})
                 body = initial_body
@@ -642,7 +647,11 @@ class DevopsAiAgent(models.Model):
         try:
             models_proxy.execute_kw(
                 db, uid, password, 'knowledge.article', 'write',
-                [[article_id], {'body': new_body}],
+                [[article_id], {
+                    'body': new_body,
+                    'internal_permission': 'write',
+                    'is_article_visible_by_everyone': True,
+                }],
             )
         except Exception as e:
             _logger.warning("Agent %s: remote article write failed: %s", self.name, e)
