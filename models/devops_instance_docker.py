@@ -163,6 +163,20 @@ class DevopsInstanceDocker(models.Model):
                 with open(src) as f:
                     self._write(staging, fn, f.read())
 
+        # Stage the project's post-clone Python script (if any) so the
+        # deploy script can feed it into `odoo-bin shell` after DB init.
+        custom_py = (project.post_clone_script or '').strip()
+        if custom_py:
+            header = (
+                f"instance_name = {self.name!r}\n"
+                f"instance_type = {self.instance_type!r}\n"
+                f"domain = {(full_domain or '')!r}\n"
+                f"port = {odoo_port}\n"
+                f"db_name = {db_name!r}\n"
+                f"service_name = {(self.service_name or '')!r}\n\n"
+            )
+            self._write(staging, 'post_clone.py', header + custom_py + '\nenv.cr.commit()\n')
+
         # Generate the deploy script
         dbname = self.env.cr.dbname
         script = self._build_deploy_script(ctx, staging, compose_dir, full_domain, dbname)
@@ -547,6 +561,44 @@ if [ "$INITIALIZED" != "t" ]; then
     STEP "Arrancando Odoo worker..."
     RUN_SH "cd $COMPOSE_DIR && docker compose up -d odoo" >> "$LOG" 2>&1 \\
         || FAIL "restart odoo after init failed"
+fi
+
+# ----- Phase 3c: Post-clone sanitization --------------------------------
+# Runs ALWAYS (fresh init or future clone-from-existing): sets
+# web.base.url, purges DB uuid/enterprise_code, disables mail servers +
+# crons (except session/autovacuum/clean). Per-statement ON_ERROR_STOP=0
+# so missing tables (e.g. fetchmail_server if the module isn't
+# installed) don't abort the whole batch. Safe on bare `-i base` DBs.
+STEP "Post-clone: web.base.url + saneamiento..."
+RUN_SH "docker exec $DB_CONTAINER psql -U odoo -d $DB_NAME -v ON_ERROR_STOP=0 <<'PMB_SQL_EOF'
+INSERT INTO ir_config_parameter(key, value, create_uid, create_date)
+    SELECT 'web.base.url', 'https://$DOMAIN', 1, NOW()
+    WHERE NOT EXISTS (SELECT 1 FROM ir_config_parameter WHERE key = 'web.base.url');
+UPDATE ir_config_parameter SET value = 'https://$DOMAIN' WHERE key = 'web.base.url';
+UPDATE ir_config_parameter SET value = 'https://$DOMAIN' WHERE key = 'report.url';
+UPDATE ir_config_parameter SET value = '$DB_NAME' WHERE key = 'database.name';
+DELETE FROM ir_config_parameter WHERE key IN ('database.uuid', 'database.enterprise_code');
+UPDATE ir_mail_server SET active = false;
+UPDATE fetchmail_server SET active = false WHERE active = true;
+UPDATE ir_cron SET active = false WHERE active = true
+    AND id NOT IN (SELECT id FROM ir_cron WHERE name ILIKE '%session%'
+        OR name ILIKE '%autovacuum%' OR name ILIKE '%clean%');
+PMB_SQL_EOF
+" >> "$LOG" 2>&1 || echo "post-clone SQL warnings (tolerated)" >> "$LOG"
+
+# Project-level custom script (devops.project.post_clone_script) — only
+# runs if the hub staged it. Uses odoo-bin shell inside the container;
+# exposes: env, instance_name, instance_type, domain, port, db_name.
+if [ -f "$STAGING/post_clone.py" ]; then
+    STEP "Post-clone: ejecutando script Python del proyecto..."
+    PUT "$STAGING/post_clone.py" "/tmp/pmb_post_clone_$ID.py" >> "$LOG" 2>&1 \\
+        || echo "PUT post_clone.py failed (skipped)" >> "$LOG"
+    RUN_SH "docker cp /tmp/pmb_post_clone_$ID.py $ODOO_CONTAINER:/tmp/post_clone.py && \\
+        docker exec $ODOO_CONTAINER python /mnt/odoo/odoo-bin shell \\
+        -c /etc/odoo/odoo.conf -d $DB_NAME --no-http --stop-after-init \\
+        < /tmp/pmb_post_clone_$ID.py 2>&1 | tail -40; \\
+        rc=\\${{PIPESTATUS[1]}}; rm -f /tmp/pmb_post_clone_$ID.py; exit \\$rc" \\
+        >> "$LOG" 2>&1 || echo "post-clone Python script warning (non-fatal)" >> "$LOG"
 fi
 
 # ----- Phase 4: Nginx vhost + certbot -----------------------------------
