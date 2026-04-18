@@ -128,7 +128,35 @@ class DevopsInstanceDocker(models.Model):
         self.env.cr.commit()
 
         odoo_version = self._detect_odoo_version()
-        addons_path_conf = self._compute_addons_path(project)
+        addons_path_conf, extra_mounts = self._compute_addons_path(project)
+
+        # Clone-from-existing: same precedence as the systemd pipeline.
+        # If neither resolves, the deploy script falls back to `-i base`.
+        source = self.cloned_from_id if (self.cloned_from_id and self.cloned_from_id.database_name) \
+            else (project.production_instance_id
+                  if (project.production_instance_id and project.production_instance_id.database_name
+                      and project.production_instance_id.id != self.id)
+                  else self.env['devops.instance'])
+        if source:
+            # Discriminate by the source instance's own deployment, NOT the
+            # project runtime flag: `runtime` only affects new creates, so
+            # a production instance may still be systemd even when the
+            # project's flag has been flipped to docker.
+            src_runtime = 'docker' if source.docker_compose_path else 'systemd'
+            src_db = source.database_name or ''
+            src_code = re.sub(r'[^a-z0-9]', '', (source.project_id.name or '').lower()) or 'proj'
+            src_safe = re.sub(r'[^a-z0-9-]', '-', (source.name or '').lower()).strip('-') or 'inst'
+            src_stack = f"{src_code}-{src_safe}"
+            src_filestore_host = (
+                f"{source.instance_path}/.local/share/Odoo/filestore/{src_db}"
+                if src_runtime == 'systemd' and source.instance_path else ''
+            )
+        else:
+            src_runtime = ''
+            src_db = ''
+            src_stack = ''
+            src_filestore_host = ''
+
         ctx = {
             'instance_id': self.id,
             'project_code': project_code,
@@ -143,8 +171,13 @@ class DevopsInstanceDocker(models.Model):
             'code_server_token': cs_token,
             'addons_host_path': project.repo_path or '/opt/code',
             'addons_path_conf': addons_path_conf,
+            'extra_mounts': extra_mounts,
             'workers': 2,
             'domain': full_domain,
+            'source_runtime': src_runtime,
+            'source_db_name': src_db,
+            'source_stack': src_stack,
+            'source_filestore_host': src_filestore_host,
         }
 
         # Stage rendered templates + Dockerfile on the hub
@@ -277,56 +310,98 @@ class DevopsInstanceDocker(models.Model):
         return ''
 
     def _compute_addons_path(self, project):
-        """Build the Odoo `addons_path` value as it will appear inside the
-        container. The core volume is always mounted at /mnt/odoo
-        (containing the Odoo source tree). The project's `repo_path` is
-        mounted at /mnt/addons — but different projects structure their
-        repos differently (MAHA has enterprise/ + addons_maha/ as
-        subdirs; Asistente has custom_addons as the repo root).
+        """Build the Odoo `addons_path` + list of extra bind mounts.
 
-        We probe the host filesystem via ssh_utils to enumerate
-        immediate subdirectories of repo_path that contain at least one
-        folder with a __manifest__.py, and include those as separate
-        addons_path entries. enterprise_path is always included if set.
+        The core volume is always mounted at /mnt/odoo (Odoo source tree)
+        and the project's `repo_path` is bind-mounted at /mnt/addons.
+        Projects structure their repos differently (MAHA has
+        enterprise/ + addons_maha/ as subdirs, Asistente has
+        custom_addons as the repo root), so we probe for subdirs with
+        __manifest__.py files.
+
+        Symlinks on the host that point OUTSIDE repo_path (common
+        pattern: `<repo>/enterprise -> /opt/odoo<ver>/enterprise`) are
+        dangling inside the container, because Docker bind mounts
+        preserve symlinks literally. For each such symlink we resolve
+        the real path on the host and expose it as an extra bind mount
+        (e.g. host /opt/odoo18/enterprise → container /mnt/enterprise)
+        so the addons_path entry points to real files.
+
+        Returns (addons_path_string, [(host_path, container_path), ...]).
         """
-        container_parts = [
-            '/mnt/odoo/odoo/addons',
-            '/mnt/odoo/addons',
-        ]
-        # Probe repo_path for addon-containing subdirs
+        container_parts = ['/mnt/odoo/odoo/addons', '/mnt/odoo/addons']
+        extra_mounts = []
+
         repo = project.repo_path or ''
+        subs = []
         if repo:
-            # Single shell command lists every direct child of repo that has
-            # at least one addon manifest inside it (depth 2 search).
+            # Single shell command: list each child of repo that contains
+            # at least one manifest, AND tell us whether it's a symlink
+            # + its resolved real path. Format: "<name>|<real_path>".
             probe = (
                 f"for d in {repo}/*/; do "
                 f"  if ls \"$d\"*/__manifest__.py >/dev/null 2>&1; then "
-                f"    basename \"$d\"; "
+                f"    name=$(basename \"$d\"); "
+                f"    real=$(readlink -f \"$d\"); "
+                f"    echo \"$name|$real\"; "
                 f"  fi; "
                 f"done"
             )
             try:
                 res = ssh_utils.execute_command(project, ['bash', '-c', probe], timeout=15)
-                subs = [s.strip() for s in (res.stdout or '').split('\n') if s.strip()]
+                for line in (res.stdout or '').split('\n'):
+                    line = line.strip()
+                    if not line or '|' not in line:
+                        continue
+                    name, real = line.split('|', 1)
+                    subs.append((name, real.rstrip('/')))
             except Exception:
                 subs = []
-            for sub in subs:
-                container_parts.append(f'/mnt/addons/{sub}')
-            if not subs:
-                # Fallback: maybe the repo itself is the addons dir
-                container_parts.append('/mnt/addons')
+
+        repo_norm = repo.rstrip('/')
+        for name, real in subs:
+            # If the resolved real path is inside the bind-mounted repo,
+            # reference via /mnt/addons. If it escapes (symlink to an
+            # external tree), mount the real path separately.
+            if real == f"{repo_norm}/{name}" or real.startswith(repo_norm + '/'):
+                container_parts.append(f'/mnt/addons/{name}')
+            else:
+                container_parts.append(f'/mnt/extra/{name}')
+                extra_mounts.append((real, f'/mnt/extra/{name}'))
+
+        if not subs and repo:
+            container_parts.append('/mnt/addons')
+
         ent = project.enterprise_path or ''
-        if ent and repo and ent.startswith(repo + '/'):
-            rel = ent[len(repo) + 1:]
-            entry = f'/mnt/addons/{rel}'
+        if ent:
+            # Resolve enterprise_path real location on the host — may be
+            # a symlink escaping repo_path (MAHA case).
+            real_ent = ent
+            try:
+                r = ssh_utils.execute_command(project, ['readlink', '-f', ent], timeout=10)
+                if r.returncode == 0 and r.stdout:
+                    real_ent = r.stdout.strip() or ent
+            except Exception:
+                pass
+            if real_ent.startswith(repo_norm + '/') and repo_norm:
+                rel = real_ent[len(repo_norm) + 1:]
+                entry = f'/mnt/addons/{rel}'
+            else:
+                # Reuse an existing extra_mount if one already resolves
+                # to the same host path (e.g. the subdir probe already
+                # picked up enterprise/ as a symlink).
+                existing = next((cp for hp, cp in extra_mounts if hp == real_ent), None)
+                entry = existing or '/mnt/enterprise'
+                if not existing:
+                    extra_mounts.append((real_ent, entry))
             if entry not in container_parts:
                 container_parts.append(entry)
-        # Deduplicate preserving order
+
         seen, result = set(), []
         for p in container_parts:
             if p not in seen:
                 seen.add(p); result.append(p)
-        return ','.join(result)
+        return ','.join(result), extra_mounts
 
     def _detect_odoo_version(self):
         project = self.project_id
@@ -445,6 +520,10 @@ ADDONS_HOST="{host_addons}"
 INSTANCE_PORT={instance_port}
 LONGPOLL_PORT={longpoll_port}
 CODE_SERVER_PORT={code_server_port}
+SRC_RUNTIME="{ctx.get('source_runtime', '')}"
+SRC_DB="{ctx.get('source_db_name', '')}"
+SRC_STACK="{ctx.get('source_stack', '')}"
+SRC_FILESTORE_HOST="{ctx.get('source_filestore_host', '')}"
 
 {run_header}
 
@@ -499,21 +578,21 @@ if ! RUN test -f "$MARKER"; then
             || FAIL "volume seed failed"
     fi
 
-    STEP "Construyendo imagen $IMAGE..."
-    if ! RUN docker image inspect "$IMAGE" >/dev/null 2>&1; then
-        RUN mkdir -p /tmp/pmb-img-build
-        PUT "$STAGING/Dockerfile" /tmp/pmb-img-build/Dockerfile >> "$LOG" 2>&1 \\
-            || FAIL "PUT Dockerfile failed"
-        # Remote expects the file literally named "requirements.txt" (the
-        # Dockerfile is version-agnostic; we rename at SCP-time).
-        PUT "$STAGING/requirements.odoo$ODOO_VER.txt" /tmp/pmb-img-build/requirements.txt >> "$LOG" 2>&1 \\
-            || FAIL "PUT requirements failed"
-        RUN_SH "cd /tmp/pmb-img-build && DOCKER_BUILDKIT=0 docker build -t $IMAGE ." >> "$LOG" 2>&1 \\
-            || FAIL "docker build failed"
-    fi
-
     RUN mkdir -p "{DOCKER_ROOT}"
     RUN_SH "touch $MARKER" || true
+fi
+
+# Image build is outside the MARKER gate: if the image is ever deleted
+# (e.g. to pick up new requirements), the next deploy rebuilds it.
+STEP "Construyendo imagen $IMAGE..."
+if ! RUN docker image inspect "$IMAGE" >/dev/null 2>&1; then
+    RUN mkdir -p /tmp/pmb-img-build
+    PUT "$STAGING/Dockerfile" /tmp/pmb-img-build/Dockerfile >> "$LOG" 2>&1 \\
+        || FAIL "PUT Dockerfile failed"
+    PUT "$STAGING/requirements.odoo$ODOO_VER.txt" /tmp/pmb-img-build/requirements.txt >> "$LOG" 2>&1 \\
+        || FAIL "PUT requirements failed"
+    RUN_SH "cd /tmp/pmb-img-build && DOCKER_BUILDKIT=0 docker build -t $IMAGE ." >> "$LOG" 2>&1 \\
+        || FAIL "docker build failed"
 fi
 
 # ----- Phase 2: Push instance files -------------------------------------
@@ -546,6 +625,48 @@ done
 # Only initialize a fresh DB. If the Odoo DB was already initialized
 # (e.g. a previous deploy got this far), skip to avoid clobbering.
 INITIALIZED=$(RUN_SH "docker exec $DB_CONTAINER psql -U odoo -d $DB_NAME -tAc \\"SELECT to_regclass('public.res_users') IS NOT NULL\\" 2>/dev/null" | tr -d '[:space:]')
+
+# ----- Phase 3b.pre: Clone from source (systemd or docker) ---------------
+# When SRC_DB is set, pg_dump the source DB on the host, pipe into the
+# destination container's psql, then rsync the filestore into the
+# destination filestore volume. Falls through to -i base when no source.
+if [ "$INITIALIZED" != "t" ] && [ -n "$SRC_DB" ]; then
+    DUMP_PATH="/tmp/pmb_clone_${{ID}}_$(date +%s).sql"
+    STEP "Clonando DB desde $SRC_DB ($SRC_RUNTIME)..."
+    if [ "$SRC_RUNTIME" = "docker" ]; then
+        SRC_DB_CONTAINER="${{SRC_STACK}}-db"
+        RUN_SH "docker exec $SRC_DB_CONTAINER pg_dump -U odoo --no-owner --no-privileges $SRC_DB > $DUMP_PATH" >> "$LOG" 2>&1 \\
+            || FAIL "pg_dump (docker source) failed"
+    else
+        RUN_SH "sudo -u postgres pg_dump --no-owner --no-privileges $SRC_DB > $DUMP_PATH" >> "$LOG" 2>&1 \\
+            || FAIL "pg_dump (systemd source) failed"
+    fi
+    STEP "Restaurando DB en contenedor destino..."
+    RUN_SH "docker exec -i $DB_CONTAINER psql -U odoo -d $DB_NAME -v ON_ERROR_STOP=0 < $DUMP_PATH" >> "$LOG" 2>&1 \\
+        || FAIL "pg_restore into $DB_CONTAINER failed"
+    RUN rm -f "$DUMP_PATH" >> "$LOG" 2>&1 || true
+
+    # Filestore: copy into the named volume named {{stack}}_filestore.
+    DST_FS_VOL="${{STACK}}_filestore"
+    if [ "$SRC_RUNTIME" = "docker" ] && [ -n "$SRC_STACK" ]; then
+        STEP "Copiando filestore (docker→docker)..."
+        SRC_FS_VOL="${{SRC_STACK}}_filestore"
+        RUN_SH "docker run --rm \\
+            -v $SRC_FS_VOL:/src:ro -v $DST_FS_VOL:/dst \\
+            alpine sh -c 'cp -a /src/filestore/$SRC_DB /dst/filestore/$DB_NAME 2>/dev/null || true; chown -R 1000:1000 /dst'" >> "$LOG" 2>&1 \\
+            || echo "filestore copy warning (non-fatal)" >> "$LOG"
+    elif [ -n "$SRC_FILESTORE_HOST" ]; then
+        STEP "Copiando filestore (systemd→docker)..."
+        RUN_SH "if [ -d '$SRC_FILESTORE_HOST' ]; then \\
+            docker run --rm -v '$SRC_FILESTORE_HOST':/src:ro -v $DST_FS_VOL:/dst \\
+                alpine sh -c 'mkdir -p /dst/filestore && cp -a /src /dst/filestore/$DB_NAME && chown -R 1000:1000 /dst'; \\
+        else echo 'source filestore missing: $SRC_FILESTORE_HOST' ; fi" >> "$LOG" 2>&1 \\
+            || echo "filestore copy warning (non-fatal)" >> "$LOG"
+    fi
+    # Mark DB initialized so the `-i base` block below is skipped.
+    INITIALIZED="t"
+fi
+
 if [ "$INITIALIZED" != "t" ]; then
     STEP "Inicializando DB Odoo (base)..."
     # Stop the running odoo worker so the init process can bind freely.

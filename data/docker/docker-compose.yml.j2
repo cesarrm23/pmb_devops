@@ -41,6 +41,9 @@ services:
       - "{{ addons_host_path }}:/mnt/addons:rw"
       - filestore:/var/lib/odoo
       - "./odoo.conf:/etc/odoo/odoo.conf:ro"
+{% for host_path, container_path in extra_mounts or [] %}
+      - "{{ host_path }}:{{ container_path }}:ro"
+{% endfor %}
 
   code-server:
     image: codercom/code-server:latest
