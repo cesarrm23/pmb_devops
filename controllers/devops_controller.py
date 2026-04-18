@@ -301,7 +301,22 @@ class DevopsController(http.Controller):
         # polling below would just clobber it with stale "running" text.
         is_docker = project.runtime == 'docker'
 
-        if instance.state in ('creating', 'error') and not is_docker:
+        if instance.state in ('creating', 'error') and is_docker:
+            # Tail the local docker deploy log at /tmp/pmb_docker_deploy/<id>/deploy.log
+            log_file = f'/tmp/pmb_docker_deploy/{instance.id}/deploy.log'
+            try:
+                with open(log_file, 'rb') as f:
+                    f.seek(0, 2)
+                    file_size = f.tell()
+                    if log_pos < file_size:
+                        f.seek(log_pos)
+                        log_lines = f.read().decode('utf-8', errors='replace')
+                        new_log_pos = file_size
+                    else:
+                        new_log_pos = log_pos
+            except Exception:
+                pass
+        elif instance.state in ('creating', 'error') and not is_docker:
             if is_ssh:
                 # SSH: read status and log from remote files
                 status_file = f"/tmp/pmb_create_{instance.id}.status"

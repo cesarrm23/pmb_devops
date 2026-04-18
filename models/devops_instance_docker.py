@@ -218,7 +218,11 @@ class DevopsInstanceDocker(models.Model):
             f.write(script)
         os.chmod(script_path, 0o755)
 
-        # Launch detached — HTTP returns immediately; script runs 2-30 min
+        # Launch detached — HTTP returns immediately; script runs 2-30 min.
+        # `start_new_session=True` puts the child in a new session, but
+        # systemd's `KillMode=mixed` on odooAL.service is what actually
+        # keeps it alive across hub restarts (default `control-group`
+        # would kill the whole cgroup, detached children included).
         subprocess.Popen(
             ['/bin/bash', script_path],
             start_new_session=True,
