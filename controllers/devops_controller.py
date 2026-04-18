@@ -926,11 +926,20 @@ echo "done" > {status_file}
 
     @http.route('/devops/instance/start', type='json', auth='user')
     def instance_start(self, instance_id):
-        """Start an instance (local or SSH)."""
+        """Start an instance (local or SSH). Docker-runtime instances go
+        through action_start → _docker_compose(['start']); systemd
+        instances use systemctl."""
         instance = request.env['devops.instance'].browse(instance_id)
         if not instance.exists():
             return {'error': 'Instancia no encontrada'}
         project = instance.project_id
+        if project.runtime == 'docker':
+            try:
+                instance.action_start()
+                instance.sudo().write({'state': 'running'})
+                return {'status': 'ok', 'state': 'running'}
+            except Exception as e:
+                return {'status': 'error', 'error': str(e)}
         if project.connection_type == 'ssh' and project.ssh_host:
             self._cmd_on_project(project, f'sudo systemctl start {instance.service_name}.service')
             status = self._cmd_on_project(project, f'systemctl is-active {instance.service_name}.service')
@@ -944,11 +953,19 @@ echo "done" > {status_file}
 
     @http.route('/devops/instance/stop', type='json', auth='user')
     def instance_stop(self, instance_id):
-        """Stop an instance (local or SSH)."""
+        """Stop an instance (local or SSH). Docker-runtime uses
+        _docker_compose(['stop'])."""
         instance = request.env['devops.instance'].browse(instance_id)
         if not instance.exists():
             return {'error': 'Instancia no encontrada'}
         project = instance.project_id
+        if project.runtime == 'docker':
+            try:
+                instance.action_stop()
+                instance.sudo().write({'state': 'stopped'})
+                return {'status': 'ok', 'state': 'stopped'}
+            except Exception as e:
+                return {'status': 'error', 'error': str(e)}
         if project.connection_type == 'ssh' and project.ssh_host:
             self._cmd_on_project(project, f'sudo systemctl stop {instance.service_name}.service')
             instance.sudo().write({'state': 'stopped'})
@@ -966,6 +983,13 @@ echo "done" > {status_file}
         if not instance.exists():
             return {'error': 'Instancia no encontrada'}
         project = instance.project_id
+        if project.runtime == 'docker':
+            try:
+                instance.action_restart()
+                instance.sudo().write({'state': 'running'})
+                return {'status': 'ok', 'state': 'running'}
+            except Exception as e:
+                return {'status': 'error', 'error': str(e)}
         if project.connection_type == 'ssh' and project.ssh_host:
             self._cmd_on_project(project, f'sudo systemctl restart {instance.service_name}.service')
             status = self._cmd_on_project(project, f'systemctl is-active {instance.service_name}.service')
@@ -976,6 +1000,34 @@ echo "done" > {status_file}
             return {'status': 'ok', 'state': instance.state}
         except Exception as e:
             return {'status': 'error', 'error': str(e)}
+
+    @http.route('/devops/instance/docker_status', type='json', auth='user')
+    def instance_docker_status(self, instance_id):
+        """Per-container status + resource usage for a docker-runtime
+        instance. Frontend polls this every ~10s while the upgrade tab
+        is open on a docker instance."""
+        instance = request.env['devops.instance'].browse(int(instance_id))
+        if not instance.exists():
+            return {'error': 'Instancia no encontrada'}
+        try:
+            return instance.get_docker_status()
+        except Exception as e:
+            return {'error': str(e)}
+
+    @http.route('/devops/instance/container_action', type='json', auth='user')
+    def instance_container_action(self, instance_id, service, action):
+        """Start/stop/restart a single container inside a docker stack."""
+        instance = request.env['devops.instance'].browse(int(instance_id))
+        if not instance.exists():
+            return {'error': 'Instancia no encontrada'}
+        # Role gate: non-admins cannot touch production containers.
+        is_admin = request.env.user.has_group('pmb_devops.group_devops_admin')
+        if instance.instance_type == 'production' and not is_admin:
+            return {'error': 'Solo admin puede controlar containers de producción.'}
+        try:
+            return instance.action_container_action(service, action)
+        except Exception as e:
+            return {'error': str(e)}
 
     @http.route('/devops/instance/obtain_ssl', type='json', auth='user')
     def instance_obtain_ssl(self, instance_id):

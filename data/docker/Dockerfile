@@ -36,6 +36,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         nodejs npm \
     && rm -rf /var/lib/apt/lists/*
 
+# Claude Code CLI — so the hub can `docker exec -it ... claude` into
+# staging/development instances. Installed globally so the `odoo` user
+# can invoke it without npm permissions.
+RUN npm install -g @anthropic-ai/claude-code 2>&1 | tail -5 || echo "claude install failed (non-fatal)"
+
 # Odoo requirements. The deploy script writes the per-version file as
 # requirements.txt inside the build context. Kept in a separate layer so
 # code changes do not invalidate the pip cache.

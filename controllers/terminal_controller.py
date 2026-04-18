@@ -188,13 +188,48 @@ class DevopsTerminalController(http.Controller):
         # Determine command based on session type
         if is_ssh:
             remote_cwd = inst.project_id.repo_path or '/opt'
+            # Docker-runtime staging/development: exec into the odoo
+            # container so claude + shell see the bind-mounted addons at
+            # /mnt/addons, not the host checkout. Production stays on the
+            # host (no exec) to avoid surprise.
+            is_docker_nonprod = (
+                inst.project_id.runtime == 'docker'
+                and inst.instance_type in ('staging', 'development')
+                and inst.docker_compose_path
+            )
+            if is_docker_nonprod:
+                # Derive container name the same way devops_instance_docker
+                # does: pmb-<project_code>-<instance_name>-odoo.
+                import re as _re_docker
+                _code = _re_docker.sub(r'[^a-z0-9]', '', (inst.project_id.name or '').lower()) or 'proj'
+                _safe = _re_docker.sub(r'[^a-z0-9-]', '-', (inst.name or '').lower()).strip('-') or 'inst'
+                odoo_container = f'pmb-{_code}-{_safe}-odoo'
             if session_type == 'claude':
-                cmd = ssh_cmd_prefix + [f'cd {remote_cwd} && claude']
+                if is_docker_nonprod:
+                    # Claude is baked into the pmb/odoo:<ver> image at
+                    # build time (Dockerfile: npm install -g
+                    # @anthropic-ai/claude-code). /mnt/addons is the
+                    # bind-mounted project checkout.
+                    cmd = ssh_cmd_prefix + [
+                        f'docker exec -it {odoo_container} bash -lc '
+                        f'"cd /mnt/addons && claude"'
+                    ]
+                else:
+                    cmd = ssh_cmd_prefix + [f'cd {remote_cwd} && claude']
             elif session_type == 'shell':
-                cmd = ssh_cmd_prefix + [f'cd {remote_cwd} && bash -i']
+                if is_docker_nonprod:
+                    cmd = ssh_cmd_prefix + [
+                        f'docker exec -it {odoo_container} bash -lc '
+                        f'"cd /mnt/addons && bash -i"'
+                    ]
+                else:
+                    cmd = ssh_cmd_prefix + [f'cd {remote_cwd} && bash -i']
             elif session_type == 'logs':
                 svc = service or (inst.service_name if inst else '')
-                cmd = ssh_cmd_prefix + [f'journalctl -u {svc}.service -f -n 200 --no-pager --output=short-iso']
+                if is_docker_nonprod:
+                    cmd = ssh_cmd_prefix + [f'docker logs -f --tail 200 {odoo_container}']
+                else:
+                    cmd = ssh_cmd_prefix + [f'journalctl -u {svc}.service -f -n 200 --no-pager --output=short-iso']
             elif session_type == 'odoo_log':
                 svc = service or (inst.service_name if inst else '')
                 # Detect logfile from remote config

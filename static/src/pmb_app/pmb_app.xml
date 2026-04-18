@@ -1374,8 +1374,28 @@
                                 </div>
                             </div>
 
-                            <!-- EDITOR tab — file browser tree -->
-                            <div t-if="state.activeContentTab === 'editor'" class="p-4" style="color: #cdd6f4; overflow-y: auto; flex: 1 1 0; min-height: 0;">
+                            <!-- EDITOR tab — file browser tree / VSCode Web -->
+                            <div t-if="state.activeContentTab === 'editor'" class="p-4 d-flex flex-column" style="color: #cdd6f4; flex: 1 1 0; min-height: 0;">
+                                <!-- Mode toggle (docker non-prod only) -->
+                                <div t-if="_canUseVscode()" class="d-flex align-items-center gap-2 mb-2">
+                                    <button class="btn btn-sm"
+                                            t-att-style="(state.editorMode === 'tree' ? 'background: #89b4fa; color: #1e1e2e;' : 'background: #313244; color: #cdd6f4;') + ' font-weight: 600;'"
+                                            t-on-click="() => { state.editorMode = 'tree'; }">📁 Árbol</button>
+                                    <button class="btn btn-sm"
+                                            t-att-style="(state.editorMode === 'vscode' ? 'background: #89b4fa; color: #1e1e2e;' : 'background: #313244; color: #cdd6f4;') + ' font-weight: 600;'"
+                                            t-on-click="() => { state.editorMode = 'vscode'; }">💻 VSCode Web</button>
+                                    <a t-if="state.editorMode === 'vscode'" class="btn btn-sm ms-auto"
+                                       style="background: #313244; color: #cdd6f4; font-weight: 600;"
+                                       t-att-href="_vscodeUrl()" target="_blank" rel="noopener">↗ Abrir en pestaña</a>
+                                </div>
+                                <!-- VSCode Web iframe mode -->
+                                <div t-if="_canUseVscode() and state.editorMode === 'vscode'" style="flex: 1 1 0; min-height: 0;">
+                                    <iframe t-att-src="_vscodeUrl()"
+                                            style="width: 100%; height: 100%; min-height: 600px; border: 1px solid #313244; border-radius: 6px; background: #1e1e2e;"
+                                            allow="clipboard-read; clipboard-write"></iframe>
+                                </div>
+                                <!-- Tree editor mode (existing behavior) -->
+                                <div t-if="!(_canUseVscode() and state.editorMode === 'vscode')" style="overflow-y: auto; flex: 1 1 0; min-height: 0;">
                                 <!-- Breadcrumb path -->
                                 <div class="d-flex align-items-center gap-1 mb-3 flex-wrap" style="font-size: 12px;">
                                     <span class="cursor-pointer" style="color: #89b4fa; font-weight: 600;"
@@ -1469,6 +1489,7 @@
                                         Copiar path completo
                                     </div>
                                 </div>
+                                </div>
                             </div>
 
                             <!-- BACKUPS tab -->
@@ -1532,6 +1553,57 @@
                                     <div>BD: <code style="color: #89b4fa;"><t t-esc="state.selectedInstance and state.selectedInstance.database_name || '-'"/></code></div>
                                     <div>Puerto: <code style="color: #89b4fa;"><t t-esc="state.selectedInstance and state.selectedInstance.port || '-'"/></code></div>
                                 </div>
+
+                                <!-- Docker container monitor (docker runtime only) -->
+                                <t t-if="state.currentProject and state.currentProject.runtime === 'docker' and state.selectedInstance and state.selectedInstance.state !== 'creating'">
+                                    <h5 class="mb-2">Contenedores</h5>
+                                    <p t-if="!state.dockerStatus or !state.dockerStatus.containers or state.dockerStatus.containers.length === 0"
+                                       style="color: #6c7086; font-size: 12px;">
+                                        Sin contenedores desplegados. Si la instancia está recién creada espera a que arranque el stack.
+                                    </p>
+                                    <table t-else="" class="table table-sm" style="background: #1e1e2e; color: #cdd6f4; font-size: 12px; margin-bottom: 16px;">
+                                        <thead>
+                                            <tr style="color: #89b4fa;">
+                                                <th>Servicio</th>
+                                                <th>Estado</th>
+                                                <th>CPU</th>
+                                                <th>Memoria</th>
+                                                <th style="text-align: right;">Acciones</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <t t-foreach="state.dockerStatus.containers" t-as="c" t-key="c.name">
+                                                <tr>
+                                                    <td>
+                                                        <code style="color: #89b4fa;"><t t-esc="c.service"/></code>
+                                                        <div style="color: #6c7086; font-size: 10px;"><t t-esc="c.name"/></div>
+                                                    </td>
+                                                    <td>
+                                                        <span t-att-style="'font-weight: 600; color: ' + (c.state === 'running' ? '#a6e3a1' : (c.state === 'exited' ? '#f38ba8' : '#f9e2af'))">
+                                                            <t t-esc="c.state or '—'"/>
+                                                        </span>
+                                                        <div t-if="c.health" style="color: #6c7086; font-size: 10px;"><t t-esc="c.health"/></div>
+                                                    </td>
+                                                    <td><t t-esc="c.cpu or '—'"/></td>
+                                                    <td><t t-esc="c.mem or '—'"/></td>
+                                                    <td style="text-align: right; white-space: nowrap;">
+                                                        <t t-if="canControl">
+                                                            <button class="btn btn-sm me-1" style="background: #a6e3a1; color: #1e1e2e; font-size: 10px; padding: 2px 8px;"
+                                                                    t-if="c.state !== 'running'"
+                                                                    t-on-click="() => this._containerAction(c.service, 'start')">▶</button>
+                                                            <button class="btn btn-sm me-1" style="background: #f9e2af; color: #1e1e2e; font-size: 10px; padding: 2px 8px;"
+                                                                    t-if="c.state === 'running'"
+                                                                    t-on-click="() => this._containerAction(c.service, 'stop')">■</button>
+                                                            <button class="btn btn-sm" style="background: #89b4fa; color: #1e1e2e; font-size: 10px; padding: 2px 8px;"
+                                                                    t-if="c.state === 'running'"
+                                                                    t-on-click="() => this._containerAction(c.service, 'restart')">⟲</button>
+                                                        </t>
+                                                    </td>
+                                                </tr>
+                                            </t>
+                                        </tbody>
+                                    </table>
+                                </t>
 
                                 <!-- Deploy per repo -->
                                 <h5 class="mb-3">Desplegar cambios</h5>

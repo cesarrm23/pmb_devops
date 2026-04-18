@@ -183,6 +183,8 @@ class PmbDevopsApp extends Component {
             editorFileContent: '',
             editorFileName: '',
             ctxMenu: null,
+            // VSCode Web mode — docker runtime non-prod instances only
+            editorMode: 'tree',  // 'tree' | 'vscode'
 
             // AI terminal (WebSocket)
             aiConnected: false,
@@ -194,6 +196,9 @@ class PmbDevopsApp extends Component {
             // Creation log
             creationLog: '',
             creationPid: 0,
+
+            // Docker runtime container status (upgrade tab, docker runtime only)
+            dockerStatus: null,
 
             // Production setup
             prodSetup: { service: '', db: '', port: 8069, path: '' },
@@ -299,6 +304,11 @@ class PmbDevopsApp extends Component {
                 }
             }, 10000);
 
+            // Poll docker container status every 10s while upgrade tab is
+            // open on a docker-runtime project. ~1-2s per call (SSH
+            // round-trip + docker stats sample).
+            this._dockerStatusTimer = setInterval(() => this._refreshDockerStatus(), 10000);
+
             if (window.visualViewport) {
                 this._onViewportResize = () => {
                     this._refitTerminals();
@@ -327,6 +337,10 @@ class PmbDevopsApp extends Component {
             if (this._tasksPollTimer) {
                 clearInterval(this._tasksPollTimer);
                 this._tasksPollTimer = null;
+            }
+            if (this._dockerStatusTimer) {
+                clearInterval(this._dockerStatusTimer);
+                this._dockerStatusTimer = null;
             }
             this._cleanupTerminal();
             this._cleanupShellTerminal();
@@ -359,6 +373,7 @@ class PmbDevopsApp extends Component {
                         "max_development",
                         "production_branch",
                         "odoo_project_id",
+                        "runtime",
                     ],
                     limit: 100,
                 },
@@ -370,8 +385,9 @@ class PmbDevopsApp extends Component {
     }
 
     async _refreshSidebarState() {
-        // Lightweight poll: only update instance states without full reload
-        if (!this.state.currentProjectId || !this.state.instances.length) return;
+        // Lightweight poll: update states of known instances, detect
+        // additions (fires a full reload once) and removals.
+        if (!this.state.currentProjectId) return;
         try {
             const fresh = await rpc("/web/dataset/call_kw", {
                 model: "devops.instance",
@@ -381,17 +397,27 @@ class PmbDevopsApp extends Component {
             });
             const map = {};
             for (const f of fresh) map[f.id] = f;
-            let changed = false;
+            const freshIds = new Set(fresh.map(f => f.id));
+            const knownIds = new Set(this.state.instances.map(i => i.id));
+
+            // If an instance appeared that we don't know about (created
+            // from another tab, cron, or API), refetch the full list so
+            // the sidebar picks up its name/port/url/subdomain.
+            const added = [...freshIds].filter(id => !knownIds.has(id));
+            if (added.length > 0) {
+                await this._loadProjectData();
+                return;
+            }
+
+            // Update state/creation_step of known instances
             for (const inst of this.state.instances) {
                 const f = map[inst.id];
                 if (f && f.state !== inst.state) {
                     inst.state = f.state;
                     inst.creation_step = f.creation_step;
-                    changed = true;
                 }
             }
-            // Update selected instance too
-            if (changed && this.state.selectedInstance) {
+            if (this.state.selectedInstance) {
                 const f = map[this.state.selectedInstance.id];
                 if (f) {
                     this.state.selectedInstance.state = f.state;
@@ -399,7 +425,6 @@ class PmbDevopsApp extends Component {
                 }
             }
             // Remove instances that no longer exist
-            const freshIds = new Set(fresh.map(f => f.id));
             const removed = this.state.instances.filter(i => !freshIds.has(i.id));
             if (removed.length > 0) {
                 this.state.instances = this.state.instances.filter(i => freshIds.has(i.id));
@@ -408,6 +433,34 @@ class PmbDevopsApp extends Component {
                 }
             }
         } catch (e) { /* ignore polling errors */ }
+    }
+
+    async _refreshDockerStatus() {
+        // Poll /devops/instance/docker_status for the selected instance
+        // when it's docker-runtime. Runs at ~10s while upgrade tab open.
+        const sel = this.state.selectedInstance;
+        if (!sel || this.state.activeContentTab !== 'upgrade') return;
+        const proj = this.state.currentProject;
+        if (!proj || proj.runtime !== 'docker') {
+            this.state.dockerStatus = null;
+            return;
+        }
+        try {
+            const res = await rpc('/devops/instance/docker_status', { instance_id: sel.id });
+            this.state.dockerStatus = res && !res.error ? res : null;
+        } catch (e) { /* ignore */ }
+    }
+
+    async _containerAction(service, action) {
+        const sel = this.state.selectedInstance;
+        if (!sel) return;
+        try {
+            await rpc('/devops/instance/container_action', {
+                instance_id: sel.id, service, action,
+            });
+            // Refresh status immediately after action
+            setTimeout(() => this._refreshDockerStatus(), 500);
+        } catch (e) { /* ignore */ }
     }
 
     async _loadProjectData() {
@@ -970,6 +1023,12 @@ class PmbDevopsApp extends Component {
         }
 
         this.state.activeContentTab = tab;
+
+        if (tab === 'upgrade') {
+            // Show container status immediately instead of waiting up to
+            // 10s for the interval timer to fire.
+            this._refreshDockerStatus();
+        }
 
         if (tab === 'ai') {
             await this._checkGitAuth();
@@ -1625,6 +1684,29 @@ class PmbDevopsApp extends Component {
         ].filter(Boolean).join('\n');
         this._aiWs.send(JSON.stringify({ type: 'input', data: lines + '\n' }));
         this._setAiLastPrompt(lines);
+    }
+
+    _canUseVscode() {
+        const proj = this.state.currentProject;
+        const inst = this.state.selectedInstance;
+        if (!proj || !inst) return false;
+        if (proj.runtime !== 'docker') return false;
+        if (!['staging', 'development'].includes(inst.instance_type)) return false;
+        return !!(inst.full_domain || inst.url);
+    }
+
+    _vscodeUrl() {
+        const inst = this.state.selectedInstance;
+        if (!inst) return '';
+        if (inst.url) {
+            const base = inst.url.replace(/\/+$/, '');
+            return base + '/code/';
+        }
+        return 'https://' + inst.full_domain + '/code/';
+    }
+
+    _toggleEditorMode() {
+        this.state.editorMode = this.state.editorMode === 'vscode' ? 'tree' : 'vscode';
     }
 
     _instanceUrlWithDebug(url) {

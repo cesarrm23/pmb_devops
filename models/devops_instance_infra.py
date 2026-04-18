@@ -1394,8 +1394,31 @@ fi
     # ------------------------------------------------------------------
 
     def _check_service_status(self):
-        """Check systemd service status and update state field (local or SSH)."""
+        """Check service status and update state field. Dispatches by
+        runtime: docker-runtime uses `docker compose ps` via SSH; systemd
+        uses `systemctl is-active`."""
         for rec in self:
+            if rec.project_id.runtime == 'docker':
+                if not rec.docker_compose_path:
+                    continue
+                try:
+                    s = rec.get_docker_status()
+                    containers = s.get('containers') or []
+                    # Only the odoo container drives the instance state.
+                    # (postgres + code-server can be down without affecting
+                    # what the user considers "the instance is up".)
+                    odoo_c = next((c for c in containers if c.get('service') == 'odoo'), None)
+                    if not containers:
+                        rec.state = 'stopped'
+                    elif odoo_c and odoo_c.get('state') == 'running':
+                        rec.state = 'running'
+                    elif odoo_c and odoo_c.get('state') in ('exited', 'dead'):
+                        rec.state = 'stopped'
+                    else:
+                        rec.state = 'error'
+                except Exception as e:
+                    _logger.warning("docker health check failed for %s: %s", rec.name, e)
+                continue
             if not rec.service_name:
                 continue
             status = infra_utils.is_service_active(rec.service_name, project=rec.project_id)

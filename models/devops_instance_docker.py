@@ -273,6 +273,95 @@ class DevopsInstanceDocker(models.Model):
             'stderr': (res.stderr or '')[-2000:],
         }
 
+    def get_docker_status(self):
+        """Per-container health + resource usage for a docker-runtime
+        instance. Returns list of {name, service, state, health, cpu,
+        mem, mem_pct} dicts (empty list if not docker or not deployed).
+        Designed for ~10s polling from the SPA."""
+        self.ensure_one()
+        if self.project_id.runtime != 'docker' or not self.docker_compose_path:
+            return {'runtime': self.project_id.runtime, 'containers': []}
+
+        import json as _json
+        compose_dir = self._docker_instance_dir()
+        # docker compose ps: state + health per service (JSON lines format).
+        ps_res = ssh_utils.execute_command(
+            self.project_id,
+            ['docker', 'compose', 'ps', '--format', 'json', '-a'],
+            timeout=15, cwd=compose_dir,
+        )
+        containers = {}
+        for line in (ps_res.stdout or '').splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = _json.loads(line)
+            except Exception:
+                continue
+            name = row.get('Name') or row.get('name') or ''
+            if not name:
+                continue
+            containers[name] = {
+                'name': name,
+                'service': row.get('Service') or '',
+                'state': row.get('State') or '',
+                'health': row.get('Health') or '',
+                'status': row.get('Status') or '',
+                'cpu': '',
+                'mem': '',
+                'mem_pct': '',
+            }
+
+        if containers:
+            # docker stats --no-stream samples cgroup once (~1-2s). Only
+            # poll if we have running containers — else skip the extra
+            # round-trip.
+            running = [n for n, c in containers.items() if c['state'] == 'running']
+            if running:
+                stats_res = ssh_utils.execute_command(
+                    self.project_id,
+                    ['docker', 'stats', '--no-stream', '--format',
+                     '{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}'] + running,
+                    timeout=20,
+                )
+                for line in (stats_res.stdout or '').splitlines():
+                    parts = line.strip().split('|')
+                    if len(parts) != 4:
+                        continue
+                    n, cpu, mem, mpct = parts
+                    if n in containers:
+                        containers[n]['cpu'] = cpu
+                        containers[n]['mem'] = mem
+                        containers[n]['mem_pct'] = mpct
+
+        return {
+            'runtime': 'docker',
+            'containers': list(containers.values()),
+        }
+
+    def action_container_action(self, service, action):
+        """Start/stop/restart a single container inside the stack.
+        `service` is the docker compose service name (odoo/postgres/
+        code-server). `action` in {'start','stop','restart'}."""
+        self.ensure_one()
+        if self.project_id.runtime != 'docker':
+            raise UserError(_("Solo disponible en runtime docker."))
+        if action not in ('start', 'stop', 'restart'):
+            raise UserError(_("Acción inválida."))
+        if not service or not re.match(r'^[a-z0-9_-]{1,40}$', service):
+            raise UserError(_("Servicio inválido."))
+        compose_dir = self._docker_instance_dir()
+        res = ssh_utils.execute_command(
+            self.project_id, ['docker', 'compose', action, service],
+            timeout=60, cwd=compose_dir,
+        )
+        return {
+            'returncode': res.returncode,
+            'stdout': (res.stdout or '')[-2000:],
+            'stderr': (res.stderr or '')[-2000:],
+        }
+
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
