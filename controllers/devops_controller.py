@@ -70,6 +70,40 @@ class DevopsController(http.Controller):
         local_dt = user_tz.localize(datetime.strptime(date_str, '%Y-%m-%d'))
         return local_dt.astimezone(pytz.utc).replace(tzinfo=None)
 
+    def _create_devops_odoo_project(self, devops_project, extra_vals=None):
+        """Create the companion project.project for a devops.project with the
+        correct tenant isolation: privacy_visibility='followers' + followers
+        subscribed so cross-company users never see each other's projects.
+
+        Followers include the DevOps project admin/developers from member_ids
+        plus the currently authenticated user. The resulting record is also
+        written back onto devops.project.odoo_project_id.
+        """
+        vals = {
+            'name': f'[DevOps] {devops_project.name}',
+            'privacy_visibility': 'followers',
+        }
+        if extra_vals:
+            vals.update(extra_vals)
+        odoo_proj = request.env['project.project'].sudo().create(vals)
+
+        partner_ids = set()
+        for m in devops_project.member_ids:
+            if m.user_id and m.user_id.partner_id:
+                partner_ids.add(m.user_id.partner_id.id)
+        if request.env.user and request.env.user.partner_id:
+            partner_ids.add(request.env.user.partner_id.id)
+        if partner_ids:
+            try:
+                odoo_proj.sudo().message_subscribe(partner_ids=list(partner_ids))
+            except Exception as e:
+                _logger.warning(
+                    "Failed to subscribe followers on project %s: %s",
+                    odoo_proj.id, e,
+                )
+        devops_project.sudo().write({'odoo_project_id': odoo_proj.id})
+        return odoo_proj
+
     def _ensure_devops_stages(self, odoo_project_id):
         """Create DevOps task stages if they don't exist for the project."""
         Stage = request.env['project.task.type'].sudo()
@@ -129,10 +163,7 @@ class DevopsController(http.Controller):
         # Auto-create linked Odoo project if missing
         if not project.odoo_project_id:
             try:
-                odoo_proj = request.env['project.project'].sudo().create({
-                    'name': f'[DevOps] {project.name}',
-                })
-                project.sudo().write({'odoo_project_id': odoo_proj.id})
+                odoo_proj = self._create_devops_odoo_project(project)
                 self._ensure_devops_stages(odoo_proj.id)
                 _logger.info("Auto-created Odoo project for %s (id=%s)", project.name, odoo_proj.id)
             except Exception as e:
@@ -2668,10 +2699,7 @@ Texto:
         odoo_project = project.odoo_project_id
         if not odoo_project:
             # Auto-create Odoo project linked to devops project
-            odoo_project = request.env['project.project'].sudo().create({
-                'name': f'[DevOps] {project.name}',
-            })
-            project.sudo().write({'odoo_project_id': odoo_project.id})
+            odoo_project = self._create_devops_odoo_project(project)
 
         created_ids = []
         Tag = request.env['project.tags'].sudo()
@@ -3601,8 +3629,16 @@ Texto:
             if not write_vals.get('odoo_project_id'):
                 odoo_proj = request.env['project.project'].sudo().create({
                     'name': f'[DevOps] {write_vals["name"]}',
+                    'privacy_visibility': 'followers',
                     'allow_task_dependencies': True,
                 })
+                if request.env.user and request.env.user.partner_id:
+                    try:
+                        odoo_proj.sudo().message_subscribe(
+                            partner_ids=[request.env.user.partner_id.id],
+                        )
+                    except Exception:
+                        pass
                 write_vals['odoo_project_id'] = odoo_proj.id
                 self._ensure_devops_stages(odoo_proj.id)
             project = request.env['devops.project'].create(write_vals)
@@ -3623,10 +3659,7 @@ Texto:
         # Auto-create linked Odoo project if missing
         if not project.odoo_project_id:
             try:
-                odoo_proj = request.env['project.project'].sudo().create({
-                    'name': f'[DevOps] {project.name}',
-                })
-                project.sudo().write({'odoo_project_id': odoo_proj.id})
+                odoo_proj = self._create_devops_odoo_project(project)
                 _logger.info("Auto-created Odoo project for %s (id=%s)", project.name, odoo_proj.id)
             except Exception as e:
                 _logger.warning("Failed to auto-create Odoo project: %s", e)
@@ -3793,10 +3826,7 @@ Texto:
         if not project.exists():
             return {'error': 'Proyecto no encontrado'}
         if not project.odoo_project_id:
-            odoo_proj = request.env['project.project'].sudo().create({
-                'name': f'[DevOps] {project.name}',
-            })
-            project.write({'odoo_project_id': odoo_proj.id})
+            odoo_proj = self._create_devops_odoo_project(project)
             self._ensure_devops_stages(odoo_proj.id)
         # Find "Levantamiento" stage as default
         stage = request.env['project.task.type'].sudo().search([

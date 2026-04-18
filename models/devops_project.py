@@ -759,7 +759,10 @@ class DevopsProject(models.Model):
             try:
                 remote_project_id = models_proxy.execute_kw(
                     db, uid, password, 'project.project', 'create',
-                    [{'name': f'[DevOps] {self.name}'}],
+                    [{
+                        'name': f'[DevOps] {self.name}',
+                        'privacy_visibility': 'followers',
+                    }],
                 )
                 self.sudo().write({'production_project_id_remote': remote_project_id})
                 _logger.info("Project %s: auto-created remote project id=%s", self.name, remote_project_id)
@@ -914,11 +917,147 @@ class DevopsProject(models.Model):
         if not remote_pid:
             remote_pid = models_proxy.execute_kw(
                 db, uid, pw, 'project.project', 'create',
-                [{'name': f'[DevOps] {self.name}'}],
+                [{
+                    'name': f'[DevOps] {self.name}',
+                    'privacy_visibility': 'followers',
+                }],
             )
             self.sudo().write({'production_project_id_remote': remote_pid})
             _logger.info('Project %s: auto-created remote project id=%s', self.name, remote_pid)
         return remote_pid
+
+    def action_lock_remote_project_visibility(self):
+        """Restrict the remote `project.project` record so only explicit
+        followers (task assignees + sync admin) can see it.
+
+        Fixes the multi-tenant leak where every internal user of the remote
+        Odoo DB could see every DevOps project. Idempotent — safe to re-run.
+        """
+        self.ensure_one()
+        if not self.sync_tasks_to_production or not self.production_project_id_remote:
+            return {'status': 'skipped', 'reason': 'no remote project linked'}
+        conn = self._get_production_xmlrpc()
+        if not conn:
+            return {'status': 'error', 'reason': 'xml-rpc connection failed'}
+        uid, models_proxy, db, login, password = conn
+        remote_pid = self.production_project_id_remote
+
+        # Lock visibility to followers only.
+        models_proxy.execute_kw(
+            db, uid, password, 'project.project', 'write',
+            [[remote_pid], {'privacy_visibility': 'followers'}],
+        )
+
+        # Collect follower candidates: every user assigned to any task of the
+        # linked local project + the sync admin user on the remote side.
+        follower_logins = set()
+        if self.odoo_project_id:
+            tasks = self.env['project.task'].sudo().search([
+                ('project_id', '=', self.odoo_project_id.id),
+            ])
+            for u in tasks.mapped('user_ids'):
+                if u.login:
+                    follower_logins.add(u.login)
+        follower_logins.add(login)
+
+        partner_ids = []
+        if follower_logins:
+            remote_users = models_proxy.execute_kw(
+                db, uid, password, 'res.users', 'search_read',
+                [[['login', 'in', list(follower_logins)]], ['partner_id']],
+            )
+            partner_ids = [u['partner_id'][0] for u in remote_users if u.get('partner_id')]
+
+        subscribed = 0
+        if partner_ids:
+            try:
+                models_proxy.execute_kw(
+                    db, uid, password, 'project.project', 'message_subscribe',
+                    [[remote_pid]], {'partner_ids': partner_ids},
+                )
+                subscribed = len(partner_ids)
+            except Exception as e:
+                _logger.warning('Project %s: message_subscribe failed: %s', self.name, e)
+
+        _logger.info(
+            'Project %s: remote project %s locked to followers (%d subscribed)',
+            self.name, remote_pid, subscribed,
+        )
+        return {
+            'status': 'ok',
+            'remote_project_id': remote_pid,
+            'followers_subscribed': subscribed,
+            'logins': sorted(follower_logins),
+        }
+
+    @api.model
+    def cron_lock_all_remote_project_visibility(self):
+        """One-shot helper to lock down every already-created remote project."""
+        out = {}
+        for p in self.search([('production_project_id_remote', '!=', 0)]):
+            try:
+                out[p.name] = p.action_lock_remote_project_visibility()
+            except Exception as e:
+                out[p.name] = {'status': 'exception', 'error': str(e)}
+        return out
+
+    def action_lock_local_project_visibility(self):
+        """Lock the companion local project.project to 'followers' and
+        subscribe task assignees + DevOps members as followers, so cross-
+        company users can't see each other's projects in the native Odoo
+        Project app.
+        """
+        self.ensure_one()
+        if not self.odoo_project_id:
+            return {'status': 'skipped', 'reason': 'no odoo_project_id'}
+
+        odoo_proj = self.odoo_project_id
+        odoo_proj.sudo().write({'privacy_visibility': 'followers'})
+
+        partner_ids = set()
+        # DevOps members
+        for m in self.member_ids:
+            if m.user_id and m.user_id.partner_id:
+                partner_ids.add(m.user_id.partner_id.id)
+        # Task assignees
+        tasks = self.env['project.task'].sudo().search([
+            ('project_id', '=', odoo_proj.id),
+        ])
+        for u in tasks.mapped('user_ids'):
+            if u.partner_id:
+                partner_ids.add(u.partner_id.id)
+        # Fallback: subscribe the project creator so the project is never
+        # invisible to every user (which would orphan empty projects).
+        if not partner_ids and odoo_proj.create_uid and odoo_proj.create_uid.partner_id:
+            partner_ids.add(odoo_proj.create_uid.partner_id.id)
+        if partner_ids:
+            try:
+                odoo_proj.sudo().message_subscribe(partner_ids=list(partner_ids))
+            except Exception as e:
+                _logger.warning(
+                    'Project %s: local message_subscribe failed: %s',
+                    self.name, e,
+                )
+        _logger.info(
+            'Project %s: local project %s locked to followers (%d subscribed)',
+            self.name, odoo_proj.id, len(partner_ids),
+        )
+        return {
+            'status': 'ok',
+            'odoo_project_id': odoo_proj.id,
+            'followers_subscribed': len(partner_ids),
+        }
+
+    @api.model
+    def cron_lock_all_local_project_visibility(self):
+        """One-shot helper to lock down every local project.project."""
+        out = {}
+        for p in self.search([('odoo_project_id', '!=', False)]):
+            try:
+                out[p.name] = p.action_lock_local_project_visibility()
+            except Exception as e:
+                out[p.name] = {'status': 'exception', 'error': str(e)}
+        return out
 
     def action_resync_stages_to_production(self):
         """Push ALL local stages of this project to the remote and validate existing mappings.
