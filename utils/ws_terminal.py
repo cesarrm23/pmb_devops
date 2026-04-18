@@ -404,9 +404,25 @@ async def terminal_handler(websocket):
                 remote_cwd = ssh.get('remote_cwd', '/opt')
                 ssh_instance_user = ssh.get('instance_user', '')
                 ssh_user = ssh.get('user', 'root')
-                # Validate remote directory exists before opening shell
-                dir_check = f'test -d {remote_cwd} && echo OK || echo FAIL'
-                if cmd_type == 'claude':
+                docker_container = ssh.get('docker_container', '')
+                docker_cwd = ssh.get('docker_cwd', '/mnt/addons')
+                # Docker runtime: trap the session inside the odoo
+                # container. Claude is baked into the image so no install
+                # step is needed. /mnt/addons is the bind-mounted project
+                # checkout; the rest of the host filesystem is invisible.
+                if docker_container:
+                    if cmd_type == 'claude':
+                        inner = (
+                            f'cd {docker_cwd} && '
+                            f'CLAUDE_CODE_DISABLE_AUTOUPDATE=1 '
+                            f'claude --model claude-opus-4-7'
+                        )
+                    else:
+                        inner = f'cd {docker_cwd} && exec bash -i'
+                    # Escape the inner command for nested ssh+docker quoting.
+                    inner_q = inner.replace("'", "'\\''")
+                    ssh_cmd += [f"docker exec -it {docker_container} bash -lc '{inner_q}'"]
+                elif cmd_type == 'claude':
                     # Auto-install claude if missing on remote (requires node/npm)
                     ensure_claude = (
                         'if ! which claude >/dev/null 2>&1; then '

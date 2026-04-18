@@ -103,6 +103,20 @@ class DevopsAiChatController(http.Controller):
                 'instance_user': instance_user,
             }
 
+            # Docker runtime non-prod: trap the terminal inside the odoo
+            # container so claude cannot reach sibling instances on the
+            # same host. Container name matches the deploy pipeline:
+            # pmb-<project_code>-<instance_name>-odoo.
+            if (project.runtime == 'docker'
+                    and instance
+                    and instance.instance_type in ('staging', 'development')
+                    and instance.docker_compose_path):
+                import re as _re_docker
+                _code = _re_docker.sub(r'[^a-z0-9]', '', (project.name or '').lower()) or 'proj'
+                _safe = _re_docker.sub(r'[^a-z0-9-]', '-', (instance.name or '').lower()).strip('-') or 'inst'
+                ssh_config['docker_container'] = f'pmb-{_code}-{_safe}-odoo'
+                ssh_config['docker_cwd'] = '/mnt/addons'
+
         # Determine instance type for isolation
         instance_type = instance.instance_type if instance else 'production'
 
