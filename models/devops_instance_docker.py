@@ -508,7 +508,7 @@ if ! RUN test -f "$MARKER"; then
         # Dockerfile is version-agnostic; we rename at SCP-time).
         PUT "$STAGING/requirements.odoo$ODOO_VER.txt" /tmp/pmb-img-build/requirements.txt >> "$LOG" 2>&1 \\
             || FAIL "PUT requirements failed"
-        RUN_SH "cd /tmp/pmb-img-build && docker build -t $IMAGE ." >> "$LOG" 2>&1 \\
+        RUN_SH "cd /tmp/pmb-img-build && DOCKER_BUILDKIT=0 docker build -t $IMAGE ." >> "$LOG" 2>&1 \\
             || FAIL "docker build failed"
     fi
 

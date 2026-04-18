@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1.6
-#
 # Base image for pmb_devops instances (version-agnostic).
 # Build once per cluster per Odoo version, reuse across every docker-runtime
 # instance of every project. The project's custom_addons checkout is
@@ -16,6 +14,9 @@
 #   /mnt/addons        — project custom_addons (read-write)
 #   /var/lib/odoo      — filestore (per-instance named volume)
 #   /etc/odoo/odoo.conf — rendered config file
+#
+# Kept compatible with the legacy Docker builder (no BuildKit `--mount=`
+# directives), because some client hosts still ship a pre-buildx daemon.
 
 FROM python:3.12-slim-bookworm
 
@@ -25,9 +26,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1
 
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential libpq-dev libldap2-dev libsasl2-dev libxml2-dev \
         libxslt1-dev libjpeg-dev libtiff5-dev libffi-dev libssl-dev \
         zlib1g-dev libopenjp2-7-dev libfreetype6-dev liblcms2-dev \
@@ -41,8 +40,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # requirements.txt inside the build context. Kept in a separate layer so
 # code changes do not invalidate the pip cache.
 COPY requirements.txt /tmp/requirements.txt
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -r /tmp/requirements.txt
+RUN pip install -r /tmp/requirements.txt
 
 RUN useradd -m -d /home/odoo -s /bin/bash odoo \
     && mkdir -p /var/lib/odoo /var/log/odoo /etc/odoo \
