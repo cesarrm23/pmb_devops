@@ -647,7 +647,7 @@ class PmbDevopsApp extends Component {
         this.state.settingsProject = {
             id: null, name: '', domain: '', subdomain_base: '', repo_path: '', enterprise_path: '',
             database_name: '', connection_type: 'local', ssh_host: '', ssh_user: 'root',
-            ssh_port: 22, ssh_key_path: '', ssh_key_configured: false,
+            ssh_port: 22, ssh_key_path: '', ssh_key_configured: false, runtime: 'systemd',
             max_staging: 3, max_development: 5, auto_destroy_hours: 24,
             production_branch: 'main',
         };
@@ -4084,6 +4084,7 @@ Usa psql -d ${inst.database_name} para ejecutar los comandos SQL.`;
                 enterprise_path: p.enterprise_path,
                 database_name: p.database_name,
                 connection_type: p.connection_type,
+                runtime: p.runtime || 'systemd',
                 odoo_service_name: p.odoo_service_name || this.state.autodetectService || '',
                 ssh_host: p.ssh_host,
                 ssh_user: p.ssh_user,

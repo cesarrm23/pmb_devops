@@ -2775,6 +2775,24 @@
                                                 </button>
                                             </div>
                                         </div>
+                                        <div class="mb-2">
+                                            <label style="color: #6c7086; font-size: 11px;">Runtime</label>
+                                            <div class="d-flex gap-2">
+                                                <button class="btn btn-sm flex-grow-1" data-testid="runtime-systemd"
+                                                        t-att-style="state.settingsProject.runtime !== 'docker' ? 'background: #89b4fa; color: #1e1e2e; font-weight: 600;' : 'background: #313244; color: #6c7086;'"
+                                                        t-on-click="() => { this.state.settingsProject.runtime = 'systemd'; }">
+                                                    systemd (legacy)
+                                                </button>
+                                                <button class="btn btn-sm flex-grow-1" data-testid="runtime-docker"
+                                                        t-att-style="state.settingsProject.runtime === 'docker' ? 'background: #89b4fa; color: #1e1e2e; font-weight: 600;' : 'background: #313244; color: #6c7086;'"
+                                                        t-on-click="() => { this.state.settingsProject.runtime = 'docker'; }">
+                                                    Docker (aislado)
+                                                </button>
+                                            </div>
+                                            <div t-if="state.settingsProject.runtime === 'docker'" style="color: #f9e2af; font-size: 10px; margin-top: 4px;">
+                                                Cada instancia correra en su propio stack docker-compose (odoo + code-server + postgres).
+                                            </div>
+                                        </div>
                                         <t t-if="state.settingsProject.connection_type === 'ssh'">
                                             <div class="mb-2">
                                                 <label style="color: #6c7086; font-size: 11px;">Host</label>

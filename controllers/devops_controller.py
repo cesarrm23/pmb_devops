@@ -3744,6 +3744,7 @@ Texto:
             'enterprise_path': project.enterprise_path or '',
             'database_name': project.database_name or '',
             'connection_type': project.connection_type or 'local',
+            'runtime': project.runtime or 'systemd',
             'ssh_host': project.ssh_host or '',
             'ssh_user': project.ssh_user or '',
             'ssh_port': project.ssh_port or 22,
@@ -3770,7 +3771,7 @@ Texto:
         """Create or update a project."""
         allowed_fields = [
             'name', 'domain', 'subdomain_base', 'repo_path', 'enterprise_path', 'database_name',
-            'connection_type', 'ssh_host', 'ssh_user', 'ssh_port',
+            'connection_type', 'ssh_host', 'ssh_user', 'ssh_port', 'runtime',
             'max_staging', 'max_development', 'auto_destroy_hours', 'odoo_service_name',
             'production_branch', 'odoo_project_id',
             'github_client_id', 'github_client_secret',
