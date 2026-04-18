@@ -2429,51 +2429,25 @@ echo "done" > {status_file}
 
     @http.route('/devops/meetings/transcribe', type='json', auth='user')
     def meetings_transcribe(self, meeting_id):
-        """Transcribe meeting audio using Groq Whisper API."""
+        """Transcribe the meeting's legacy single audio_file using the
+        configured provider (Groq Whisper or Deepgram nova-3 with diarization)."""
         meeting = request.env['devops.meeting'].sudo().browse(meeting_id)
         if not meeting.exists():
             return {'error': 'Reunion no encontrada'}
         if not meeting.audio_file:
             return {'error': 'No hay audio para transcribir'}
 
-        groq_key = request.env['ir.config_parameter'].sudo().get_param('pmb_devops.groq_api_key', '')
-        if not groq_key:
-            return {'error': 'API key de Groq no configurada. Ve a Settings del proyecto.'}
-
         import base64
-        import tempfile
-        import requests as http_requests
-
-        # Save audio to temp file
         audio_bytes = base64.b64decode(meeting.audio_file)
-        ext = (meeting.audio_filename or 'audio.webm').split('.')[-1]
-        with tempfile.NamedTemporaryFile(suffix=f'.{ext}', delete=False) as tmp:
-            tmp.write(audio_bytes)
-            tmp_path = tmp.name
-
-        try:
-            # Call Groq Whisper API
-            resp = http_requests.post(
-                'https://api.groq.com/openai/v1/audio/transcriptions',
-                headers={'Authorization': f'Bearer {groq_key}'},
-                files={'file': (meeting.audio_filename or 'audio.webm', open(tmp_path, 'rb'))},
-                data={'model': 'whisper-large-v3', 'language': 'es'},
-                timeout=120,
-            )
-            if resp.status_code == 200:
-                result = resp.json()
-                transcription = result.get('text', '')
-                meeting.write({
-                    'transcription': transcription,
-                    'state': 'transcribed',
-                })
-                return {'status': 'ok', 'transcription': transcription}
-            else:
-                return {'error': f'Groq API error {resp.status_code}: {resp.text[:200]}'}
-        except Exception as e:
-            return {'error': str(e)}
-        finally:
-            os.unlink(tmp_path)
+        filename = meeting.audio_filename or 'audio.webm'
+        text, err = self._transcribe_audio_bytes(audio_bytes, filename)
+        if err and not text:
+            return {'error': err}
+        meeting.write({'transcription': text, 'state': 'transcribed'})
+        result = {'status': 'ok', 'transcription': text}
+        if err:
+            result['warning'] = err
+        return result
 
     def _groq_transcribe_file(self, path, filename, groq_key):
         """POST a single audio file to Groq Whisper. Returns (text, error_str)."""
@@ -2540,12 +2514,102 @@ echo "done" > {status_file}
         parts = sorted(glob.glob(os.path.join(out_dir, 'part_*.webm')))
         return parts
 
-    def _transcribe_audio_bytes(self, audio_bytes, filename, groq_key):
-        """Transcribe arbitrary audio bytes, splitting with ffmpeg if >24 MB.
-        Returns (text, error_or_None)."""
+    def _deepgram_format_paragraphs(self, data):
+        """Convert a Deepgram nova-3 diarize response into speaker-labeled
+        Markdown. Falls back to the flat transcript if no paragraph data."""
+        try:
+            alt = data['results']['channels'][0]['alternatives'][0]
+        except (KeyError, IndexError, TypeError):
+            return ''
+        paras = (alt.get('paragraphs') or {}).get('paragraphs') or []
+        if not paras:
+            return alt.get('transcript') or ''
+        lines = []
+        for p in paras:
+            speaker = p.get('speaker', 0)
+            sentences = p.get('sentences') or []
+            text = ' '.join((s.get('text') or '').strip() for s in sentences).strip()
+            if not text:
+                continue
+            lines.append(f'**Hablante {speaker}:** {text}')
+        return '\n\n'.join(lines)
+
+    def _deepgram_transcribe_file(self, path, filename, key, language='es'):
+        """POST one audio file to Deepgram nova-3 with diarization. Returns
+        (text_with_speaker_labels, error_str)."""
+        import requests as http_requests
+        ext = (filename or 'audio.webm').split('.')[-1].lower()
+        mime = {
+            'webm': 'audio/webm', 'opus': 'audio/webm',
+            'mp3': 'audio/mpeg', 'mpeg': 'audio/mpeg',
+            'wav': 'audio/wav', 'm4a': 'audio/mp4', 'mp4': 'audio/mp4',
+            'ogg': 'audio/ogg', 'flac': 'audio/flac',
+        }.get(ext, 'audio/webm')
+        try:
+            with open(path, 'rb') as fh:
+                resp = http_requests.post(
+                    'https://api.deepgram.com/v1/listen',
+                    params={
+                        'model': 'nova-3',
+                        'diarize': 'true',
+                        'smart_format': 'true',
+                        'paragraphs': 'true',
+                        'punctuate': 'true',
+                        'language': language,
+                    },
+                    headers={
+                        'Authorization': f'Token {key}',
+                        'Content-Type': mime,
+                    },
+                    data=fh.read(),
+                    timeout=600,
+                )
+            if resp.status_code != 200:
+                return '', f'Deepgram error {resp.status_code}: {resp.text[:200]}'
+            return self._deepgram_format_paragraphs(resp.json()), None
+        except Exception as e:
+            return '', str(e)
+
+    def _transcription_provider(self):
+        return request.env['ir.config_parameter'].sudo().get_param(
+            'pmb_devops.transcription_provider', 'groq'
+        )
+
+    def _transcribe_audio_bytes(self, audio_bytes, filename, groq_key=None):
+        """Transcribe arbitrary audio bytes using the configured provider.
+        - groq (default): Whisper v3, auto-splits with ffmpeg if >24 MB.
+        - deepgram: nova-3 with diarization (speaker labels in output).
+        Returns (text, error_or_None). `groq_key` is accepted for backward
+        compatibility but resolved internally when omitted."""
         import tempfile
-        GROQ_LIMIT = 24 * 1024 * 1024  # 24 MB safety margin under 25 MB hard cap
+        provider = self._transcription_provider()
         ext = (filename or 'audio.webm').split('.')[-1]
+
+        if provider == 'deepgram':
+            dg_key = request.env['ir.config_parameter'].sudo().get_param(
+                'pmb_devops.deepgram_api_key', ''
+            )
+            if not dg_key:
+                return '', 'Deepgram seleccionado pero sin API key configurada'
+            with tempfile.NamedTemporaryFile(suffix=f'.{ext}', delete=False) as tmp:
+                tmp.write(audio_bytes)
+                tmp_path = tmp.name
+            try:
+                return self._deepgram_transcribe_file(tmp_path, filename, dg_key)
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+
+        # Default path: Groq Whisper (with ffmpeg split if oversized)
+        if not groq_key:
+            groq_key = request.env['ir.config_parameter'].sudo().get_param(
+                'pmb_devops.groq_api_key', ''
+            )
+        if not groq_key:
+            return '', 'API key de Groq no configurada'
+        GROQ_LIMIT = 24 * 1024 * 1024
         with tempfile.NamedTemporaryFile(suffix=f'.{ext}', delete=False) as tmp:
             tmp.write(audio_bytes)
             tmp_path = tmp.name
@@ -2579,8 +2643,9 @@ echo "done" > {status_file}
 
     @http.route('/devops/meetings/transcribe_all', type='json', auth='user')
     def meetings_transcribe_all(self, meeting_id, force=False):
-        """Transcribe ALL recordings of a meeting using Groq Whisper API.
-        Auto-splits recordings that exceed Groq's 25 MB per-file limit."""
+        """Transcribe ALL recordings of a meeting using the configured
+        provider (Groq Whisper with ffmpeg split for oversized files, or
+        Deepgram nova-3 with speaker diarization)."""
         meeting = request.env['devops.meeting'].sudo().browse(meeting_id)
         if not meeting.exists():
             return {'error': 'Reunion no encontrada'}
@@ -2588,10 +2653,6 @@ echo "done" > {status_file}
         recordings = meeting.recording_ids.filtered(lambda r: r.audio_file)
         if not recordings and not meeting.audio_file:
             return {'error': 'No hay grabaciones para transcribir'}
-
-        groq_key = request.env['ir.config_parameter'].sudo().get_param('pmb_devops.groq_api_key', '')
-        if not groq_key:
-            return {'error': 'API key de Groq no configurada. Ve a Settings del proyecto.'}
 
         import base64
         all_transcriptions = []
@@ -2603,7 +2664,7 @@ echo "done" > {status_file}
                 continue
             audio_bytes = base64.b64decode(rec.audio_file)
             filename = rec.audio_filename or 'audio.webm'
-            text, err = self._transcribe_audio_bytes(audio_bytes, filename, groq_key)
+            text, err = self._transcribe_audio_bytes(audio_bytes, filename)
             if text:
                 rec.write({'transcription': text, 'state': 'transcribed'})
                 all_transcriptions.append(f"[Grabacion: {rec.name}]\n{text}")
@@ -2615,7 +2676,7 @@ echo "done" > {status_file}
         if not all_transcriptions and meeting.audio_file and not meeting.transcription:
             audio_bytes = base64.b64decode(meeting.audio_file)
             filename = meeting.audio_filename or 'audio.webm'
-            text, err = self._transcribe_audio_bytes(audio_bytes, filename, groq_key)
+            text, err = self._transcribe_audio_bytes(audio_bytes, filename)
             if text:
                 meeting.write({'transcription': text, 'state': 'transcribed'})
                 all_transcriptions.append(f"[Audio principal]\n{text}")
@@ -3023,6 +3084,43 @@ Texto:
             return {'error': 'Solo administradores'}
         request.env['ir.config_parameter'].sudo().set_param('pmb_devops.groq_api_key', key)
         return {'status': 'ok'}
+
+    @http.route('/devops/settings/deepgram_key', type='json', auth='user')
+    def settings_deepgram_key(self, key=''):
+        """Save Deepgram API key (used for diarized transcription)."""
+        if not request.env.user.has_group('pmb_devops.group_devops_admin'):
+            return {'error': 'Solo administradores'}
+        request.env['ir.config_parameter'].sudo().set_param(
+            'pmb_devops.deepgram_api_key', key
+        )
+        return {'status': 'ok'}
+
+    @http.route('/devops/settings/transcription_provider', type='json', auth='user')
+    def settings_transcription_provider(self, provider='groq'):
+        """Choose transcription provider: 'groq' (Whisper) or 'deepgram'
+        (nova-3 with speaker diarization)."""
+        if not request.env.user.has_group('pmb_devops.group_devops_admin'):
+            return {'error': 'Solo administradores'}
+        if provider not in ('groq', 'deepgram'):
+            return {'error': 'provider debe ser "groq" o "deepgram"'}
+        request.env['ir.config_parameter'].sudo().set_param(
+            'pmb_devops.transcription_provider', provider
+        )
+        return {'status': 'ok'}
+
+    @http.route('/devops/settings/transcription_config', type='json', auth='user')
+    def settings_transcription_config(self):
+        """Return current transcription config (provider + whether keys are
+        set) so the SPA can render the settings panel without leaking
+        secrets."""
+        if not request.env.user.has_group('pmb_devops.group_devops_admin'):
+            return {'error': 'Solo administradores'}
+        icp = request.env['ir.config_parameter'].sudo()
+        return {
+            'provider': icp.get_param('pmb_devops.transcription_provider', 'groq'),
+            'has_groq_key': bool(icp.get_param('pmb_devops.groq_api_key', '')),
+            'has_deepgram_key': bool(icp.get_param('pmb_devops.deepgram_api_key', '')),
+        }
 
     @http.route('/devops/admin/propagate_claude_model', type='json', auth='user')
     def admin_propagate_claude_model(self, target_model='claude-opus-4-7'):

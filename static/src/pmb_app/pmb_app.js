@@ -136,6 +136,10 @@ class PmbDevopsApp extends Component {
             meetTasksId: null,          // meeting showing created tasks
             meetTasks: [],              // created Odoo tasks
             groqApiKey: '',
+            deepgramApiKey: '',
+            transcriptionProvider: 'groq',
+            hasGroqKey: false,
+            hasDeepgramKey: false,
             copilotAuthenticated: false,
             copilotGithubUser: '',
             copilotReusableProjects: [],
@@ -269,6 +273,8 @@ class PmbDevopsApp extends Component {
                 this.state.isAdmin = authCheck.is_admin || false;
                 this.state.isDeveloper = authCheck.is_developer || false;
             } catch (e) {}
+            // Load transcription settings (admin-gated)
+            this._loadTranscriptionConfig();
             await this._loadProjects();
             if (this.state.projects.length > 0) {
                 this.state.currentProjectId = this.state.projects[0].id;
@@ -3670,6 +3676,32 @@ class PmbDevopsApp extends Component {
         const key = ev.target.value;
         this.state.groqApiKey = key;
         await rpc('/devops/settings/groq_key', { key });
+        this.state.hasGroqKey = !!key;
+    }
+
+    async _onDeepgramKeyChange(ev) {
+        const key = ev.target.value;
+        this.state.deepgramApiKey = key;
+        await rpc('/devops/settings/deepgram_key', { key });
+        this.state.hasDeepgramKey = !!key;
+    }
+
+    async _onTranscriptionProviderChange(ev) {
+        const provider = ev.target.value;
+        this.state.transcriptionProvider = provider;
+        await rpc('/devops/settings/transcription_provider', { provider });
+    }
+
+    async _loadTranscriptionConfig() {
+        if (!this.state.isAdmin) return;
+        try {
+            const res = await rpc('/devops/settings/transcription_config', {});
+            if (res && !res.error) {
+                this.state.transcriptionProvider = res.provider || 'groq';
+                this.state.hasGroqKey = !!res.has_groq_key;
+                this.state.hasDeepgramKey = !!res.has_deepgram_key;
+            }
+        } catch (e) { /* ignore — settings panel just shows defaults */ }
     }
 
     _copilotProjectId() {

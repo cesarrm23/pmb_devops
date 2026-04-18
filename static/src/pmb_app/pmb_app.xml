@@ -3015,21 +3015,49 @@
                                     </div>
                                 </div>
 
-                                <!-- Groq API Key (global) -->
+                                <!-- Transcription providers (global) -->
                                 <div class="row mt-3" t-if="state.isAdmin">
                                     <div class="col-md-6">
                                         <div style="background: #1e1e2e; border: 1px solid #313244; border-radius: 8px; padding: 16px;">
-                                            <h6 style="color: #cba6f7; margin-bottom: 12px;">Groq API (Transcripcion)</h6>
+                                            <h6 style="color: #cba6f7; margin-bottom: 12px;">Transcripción de reuniones</h6>
+                                            <div class="mb-3">
+                                                <label style="color: #6c7086; font-size: 11px;">Proveedor</label>
+                                                <select class="form-control form-control-sm"
+                                                        style="background: #11111b; border-color: #313244; color: #cdd6f4;"
+                                                        t-att-value="state.transcriptionProvider"
+                                                        t-on-change="_onTranscriptionProviderChange">
+                                                    <option value="groq" t-att-selected="state.transcriptionProvider === 'groq'">Groq Whisper (rápido, sin hablantes)</option>
+                                                    <option value="deepgram" t-att-selected="state.transcriptionProvider === 'deepgram'">Deepgram nova-3 (con diarización)</option>
+                                                </select>
+                                            </div>
                                             <div class="mb-2">
-                                                <label style="color: #6c7086; font-size: 11px;">API Key de Groq</label>
+                                                <label style="color: #6c7086; font-size: 11px;">
+                                                    API Key de Groq
+                                                    <span t-if="state.hasGroqKey" style="color: #a6e3a1; margin-left: 6px;">● guardada</span>
+                                                </label>
                                                 <input type="password" class="form-control form-control-sm"
                                                        style="background: #11111b; border-color: #313244; color: #cdd6f4;"
                                                        placeholder="gsk_..."
                                                        t-att-value="state.groqApiKey || ''"
                                                        t-on-change="_onGroqKeyChange"/>
+                                                <div style="color: #6c7086; font-size: 10px; margin-top: 2px;">
+                                                    Obtener en <a href="https://console.groq.com/keys" target="_blank" style="color: #89b4fa;">console.groq.com/keys</a> (gratis)
+                                                </div>
                                             </div>
-                                            <div style="color: #6c7086; font-size: 10px;">
-                                                Obtener en <a href="https://console.groq.com/keys" target="_blank" style="color: #89b4fa;">console.groq.com/keys</a> (gratis)
+                                            <div class="mb-2">
+                                                <label style="color: #6c7086; font-size: 11px;">
+                                                    API Key de Deepgram
+                                                    <span t-if="state.hasDeepgramKey" style="color: #a6e3a1; margin-left: 6px;">● guardada</span>
+                                                </label>
+                                                <input type="password" class="form-control form-control-sm"
+                                                       style="background: #11111b; border-color: #313244; color: #cdd6f4;"
+                                                       placeholder="Token ..."
+                                                       t-att-value="state.deepgramApiKey || ''"
+                                                       t-on-change="_onDeepgramKeyChange"/>
+                                                <div style="color: #6c7086; font-size: 10px; margin-top: 2px;">
+                                                    Obtener en <a href="https://console.deepgram.com/signup" target="_blank" style="color: #89b4fa;">deepgram.com</a> ($200 USD gratis).
+                                                    Diarización separa voces por hablante (<code>**Hablante 0:**</code>, etc.).
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
