@@ -50,6 +50,23 @@ class DevopsAiAgent(models.Model):
     # Config
     max_commits = fields.Integer(default=20, help='Máximo de commits a procesar por ejecución')
     branch = fields.Char(default='HEAD', help='Rama a monitorear')
+    custom_system_prompt = fields.Text(
+        string='Prompt del sistema',
+        help='Instrucciones de sistema para el LLM. El user message con la lista de commits, stats y diff se genera automaticamente.',
+        default=lambda self: self._default_system_prompt(),
+    )
+
+    @api.model
+    def _default_system_prompt(self):
+        return (
+            "Eres un documentador técnico de software. "
+            "Genera documentación clara y concisa en español sobre los cambios "
+            "realizados en un repositorio Git. "
+            "Organiza por categorías: nuevas funcionalidades, correcciones, "
+            "mejoras, refactorizaciones. "
+            "Incluye el hash del commit como referencia. "
+            "Formato: Markdown."
+        )
 
     @api.depends('run_ids')
     def _compute_run_count(self):
@@ -341,15 +358,7 @@ class DevopsAiAgent(models.Model):
                     'diff': diff[:3000],  # Limit per commit
                 })
 
-            system_prompt = (
-                "Eres un documentador técnico de software. "
-                "Genera documentación clara y concisa en español sobre los cambios "
-                "realizados en un repositorio Git. "
-                "Organiza por categorías: nuevas funcionalidades, correcciones, "
-                "mejoras, refactorizaciones. "
-                "Incluye el hash del commit como referencia. "
-                "Formato: Markdown."
-            )
+            system_prompt = (self.custom_system_prompt or '').strip() or self._default_system_prompt()
 
             user_msg = (
                 f"Proyecto: {self.project_id.name}\n"

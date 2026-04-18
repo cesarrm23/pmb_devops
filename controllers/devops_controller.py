@@ -4085,13 +4085,16 @@ Texto:
                 'run_count': a.run_count,
                 'provider': a.provider or 'copilot',
                 'copilot_model': a.copilot_model or '',
+                'custom_system_prompt': a.custom_system_prompt or '',
+                'max_commits': a.max_commits or 20,
             } for a in agents],
         }
 
     @http.route('/devops/agent/create', type='json', auth='user')
     def agent_create(self, project_id, name, agent_type='git_docs', branch='HEAD',
                      interval_number=1, interval_type='days',
-                     provider='copilot', copilot_model='claude-sonnet-4'):
+                     provider='copilot', copilot_model='claude-sonnet-4',
+                     custom_system_prompt=None, max_commits=None):
         """Create a new AI agent."""
         if not self._is_project_admin(project_id):
             return {'error': 'Sin permisos'}
@@ -4106,8 +4109,32 @@ Texto:
         }
         if provider == 'copilot' and copilot_model:
             vals['copilot_model'] = copilot_model
+        if custom_system_prompt is not None:
+            vals['custom_system_prompt'] = custom_system_prompt
+        if max_commits:
+            vals['max_commits'] = int(max_commits)
         agent = request.env['devops.ai.agent'].sudo().create(vals)
         return {'id': agent.id, 'name': agent.name}
+
+    @http.route('/devops/agent/update', type='json', auth='user')
+    def agent_update(self, agent_id, **vals):
+        """Update an AI agent's editable fields."""
+        agent = request.env['devops.ai.agent'].sudo().browse(int(agent_id))
+        if not agent.exists():
+            return {'error': 'Agente no encontrado'}
+        if not self._is_project_admin(agent.project_id.id):
+            return {'error': 'Sin permisos'}
+        allowed = {
+            'name', 'branch', 'interval_number', 'interval_type',
+            'provider', 'copilot_model', 'custom_system_prompt', 'max_commits',
+        }
+        write_vals = {}
+        for k, v in (vals or {}).items():
+            if k in allowed:
+                write_vals[k] = v
+        if write_vals:
+            agent.write(write_vals)
+        return {'status': 'ok'}
 
     @http.route('/devops/agent/toggle', type='json', auth='user')
     def agent_toggle(self, agent_id):

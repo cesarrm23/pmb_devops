@@ -1,6 +1,6 @@
 {
     'name': 'PatchMyByte DevOps',
-    'version': '19.0.1.1.15',
+    'version': '19.0.1.1.16',
     'category': 'Services/DevOps',
     'summary': 'Plataforma DevOps multi-proyecto estilo Odoo.sh',
     'description': """

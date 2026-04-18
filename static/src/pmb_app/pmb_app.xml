@@ -3151,6 +3151,14 @@
                                                     <button class="btn btn-sm" style="background: #a6e3a1; color: #1e1e2e; font-weight: 600;"
                                                             t-on-click="_createAgent">Crear</button>
                                                 </div>
+                                                <div class="mt-2">
+                                                    <label style="color: #6c7086; font-size: 10px;">Prompt del sistema (opcional — usa el default si se deja vacio)</label>
+                                                    <textarea class="form-control form-control-sm pmb-agent-new-prompt"
+                                                              rows="3"
+                                                              style="background: #1e1e2e; border-color: #313244; color: #a6e3a1; font-family: monospace; font-size: 11px;"
+                                                              placeholder="Ej: Genera un resumen ejecutivo en espanol de los cambios..."
+                                                              t-model="state.newAgentPrompt"/>
+                                                </div>
                                             </div>
 
                                             <!-- Agents list -->
@@ -3193,6 +3201,27 @@
 
                                                         <!-- Agent runs (expanded) -->
                                                         <div t-if="state.agentExpandedId === agent.id" style="background: #11111b; padding: 8px 12px; border-top: 1px solid #313244;">
+                                                            <!-- Custom system prompt editor -->
+                                                            <div class="mb-2 pmb-agent-prompt-block">
+                                                                <label style="color: #6c7086; font-size: 10px;">Prompt del sistema</label>
+                                                                <textarea class="form-control form-control-sm pmb-agent-prompt"
+                                                                          t-att-data-agent-id="agent.id"
+                                                                          rows="4"
+                                                                          style="background: #1e1e2e; border-color: #313244; color: #a6e3a1; font-family: monospace; font-size: 11px;"
+                                                                          t-on-input="(ev) => this._onAgentPromptInput(agent.id, ev)"
+                                                                          t-att-value="state.agentPromptEdits[agent.id] !== undefined ? state.agentPromptEdits[agent.id] : (agent.custom_system_prompt || '')"/>
+                                                                <div class="d-flex align-items-center gap-2 mt-1">
+                                                                    <button class="btn btn-sm pmb-agent-prompt-save"
+                                                                            style="background: #89b4fa; color: #1e1e2e; font-size: 10px;"
+                                                                            t-att-data-agent-id="agent.id"
+                                                                            t-on-click="() => this._saveAgentPrompt(agent.id)">
+                                                                        Guardar prompt
+                                                                    </button>
+                                                                    <span t-if="state.agentSaveStatus[agent.id] === 'saving'" style="color: #f9e2af; font-size: 10px;">Guardando...</span>
+                                                                    <span t-if="state.agentSaveStatus[agent.id] === 'saved'" style="color: #a6e3a1; font-size: 10px;">Guardado</span>
+                                                                    <span t-if="state.agentSaveStatus[agent.id] === 'error'" style="color: #f38ba8; font-size: 10px;">Error</span>
+                                                                </div>
+                                                            </div>
                                                             <div style="color: #6c7086; font-size: 10px; margin-bottom: 6px;">
                                                                 Último commit: <span style="color: #fab387;"><t t-esc="agent.last_commit_hash || 'ninguno'"/></span>
                                                                 <t t-if="agent.last_run"> · Última ejecución: <t t-esc="agent.last_run"/></t>

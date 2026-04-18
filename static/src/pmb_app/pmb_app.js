@@ -217,6 +217,9 @@ class PmbDevopsApp extends Component {
             newAgentIntervalType: 'days',
             newAgentProvider: 'copilot',
             newAgentCopilotModel: 'claude-sonnet-4',
+            newAgentPrompt: '',
+            agentPromptEdits: {},  // {agent_id: new_prompt_text}
+            agentSaveStatus: {},  // {agent_id: 'saving'|'saved'|'error'}
 
             // Server metrics
             serverMetrics: null,
@@ -1399,11 +1402,42 @@ class PmbDevopsApp extends Component {
                 interval_type: this.state.newAgentIntervalType || 'days',
                 provider: this.state.newAgentProvider || 'copilot',
                 copilot_model: this.state.newAgentCopilotModel || 'claude-sonnet-4',
+                custom_system_prompt: this.state.newAgentPrompt || '',
             });
             this.state.newAgentName = '';
+            this.state.newAgentPrompt = '';
             this.state.showNewAgent = false;
             await this._loadAgents();
         } catch (e) {
+            alert('Error: ' + (e.message || e));
+        }
+    }
+
+    _onAgentPromptInput(agentId, ev) {
+        this.state.agentPromptEdits = {
+            ...this.state.agentPromptEdits,
+            [agentId]: ev.target.value,
+        };
+    }
+
+    async _saveAgentPrompt(agentId) {
+        const text = this.state.agentPromptEdits[agentId];
+        if (text === undefined) return;
+        this.state.agentSaveStatus = { ...this.state.agentSaveStatus, [agentId]: 'saving' };
+        try {
+            await rpc('/devops/agent/update', {
+                agent_id: agentId,
+                custom_system_prompt: text,
+            });
+            this.state.agentSaveStatus = { ...this.state.agentSaveStatus, [agentId]: 'saved' };
+            await this._loadAgents();
+            setTimeout(() => {
+                const copy = { ...this.state.agentSaveStatus };
+                delete copy[agentId];
+                this.state.agentSaveStatus = copy;
+            }, 1500);
+        } catch (e) {
+            this.state.agentSaveStatus = { ...this.state.agentSaveStatus, [agentId]: 'error' };
             alert('Error: ' + (e.message || e));
         }
     }
