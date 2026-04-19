@@ -420,6 +420,25 @@ class DevopsInstanceDocker(models.Model):
                 "    sudo systemctl restart pmb-ws-terminal",
             ) % {'user': hub_user, 'err': err[:300]})
 
+        # Local runtime also needs write access to DOCKER_ROOT so the
+        # deploy script can `mkdir -p /opt/pmb-docker/<proj>/<inst>`.
+        # First provision usually leaves the dir root-owned (created by
+        # a prior SSH deploy or root hand-run), which breaks any later
+        # local-runtime project on the same hub.
+        import os as _os
+        try:
+            _os.makedirs(DOCKER_ROOT, exist_ok=True)
+        except PermissionError:
+            pass
+        if not _os.access(DOCKER_ROOT, _os.W_OK):
+            import pwd as _pwd
+            hub_user = _pwd.getpwuid(_os.getuid()).pw_name
+            raise UserError(_(
+                "El directorio %(root)s no es escribible por el usuario del hub (%(user)s).\n\n"
+                "Arréglalo con:\n"
+                "    sudo chown -R %(user)s:%(user)s %(root)s",
+            ) % {'root': DOCKER_ROOT, 'user': hub_user})
+
     def _find_free_port_distinct(self, avoid):
         """Get a free port that's also not in the avoid set (for
         allocating longpoll/code-server alongside the main odoo port
@@ -873,9 +892,12 @@ if [ -f "$STAGING/post_clone.py" ]; then
 fi
 
 # ----- Phase 4: Nginx vhost + certbot -----------------------------------
+# `sudo tee` is in the hub's NOPASSWD list but `sudo mv` isn't — so we
+# write the file through tee to land in /etc/nginx/sites-enabled without
+# needing a TTY for a password prompt.
 STEP "Configurando nginx ($DOMAIN)..."
 PUT "$STAGING/nginx.vhost" "/tmp/pmb.vhost.$$" >> "$LOG" 2>&1 || FAIL "PUT nginx"
-RUN_SH "sudo mv /tmp/pmb.vhost.$$ {NGINX_SITES_DIR}/$DOMAIN && sudo nginx -t" >> "$LOG" 2>&1 \\
+RUN_SH "sudo tee {NGINX_SITES_DIR}/$DOMAIN < /tmp/pmb.vhost.$$ >/dev/null && rm -f /tmp/pmb.vhost.$$ && sudo nginx -t" >> "$LOG" 2>&1 \\
     || FAIL "nginx config invalid"
 RUN_SH "sudo systemctl reload nginx" >> "$LOG" 2>&1 || true
 
